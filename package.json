@@ -1,0 +1,10 @@
+{
+  "name": "hobile-v1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hobile V1 - mobile-first browser tactical FPS",
+  "scripts": {
+    "serve": "python3 -m http.server 8080",
+    "check": "node --check src/app.js"
+  }
+}
