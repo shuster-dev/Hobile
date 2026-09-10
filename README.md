@@ -1,35 +1,34 @@
-# Hobile V4 — Real 3D Vertical Slice
+# Hobile V5 — Asset-Backed Rebuild
 
-This is a deliberate rebuild of the gameplay presentation layer.
+This build changes the visual strategy completely.
 
-## What changed
-- Real WebGL 3D scene using Three.js
-- Original compact tactical map: SANDLINE
-- Courtyards, warehouse areas, mid lane, connectors, stairs, raised platform, crates, barrels, signs and two bomb sites
-- Procedural sandstone, brick, concrete, metal, wood and floor materials
-- Dynamic sunlight, shadows, fog and tone mapping
-- Real 3D humanoid CT/T models built from articulated geometry
-- Walk animation, aim orientation and death/fall animation
-- Real 3D first-person rifle + hands
-- Recoil and reload motion
-- Hitscan shooting with head/body hit parts
-- Muzzle/recoil feedback, hit marker, damage flash and kill feed
-- Bomb plant/defuse round loop
-- Mobile joystick, touch look, fire, reload, jump, use and pause
-- Counter-Terrorists / Terrorists naming
+Instead of drawing the map, operators and weapons from procedural boxes, Hobile V5 loads a real CC0 tactical FPS asset pack at runtime:
+
+Tactical Shooter Hill Town — 3DAssets.dev
+
+The pack contains:
+- Mediterranean modular tactical map pieces
+- cobbled floors, plaster/ochre walls, arches, low walls
+- fountain, market stall, crates, barrels and olive trees
+- defender and attacker operator models
+- defender carbine and attacker assault rifle models
+- objective props and other tactical assets
+
+The game assembles those assets into an original compact Hobile map and keeps invisible collision/navigation logic separate from the art.
+
+## Gameplay
+- Counter-Terrorists vs Terrorists
+- 2v2 vertical slice
+- touch joystick / touch look
+- real GLB first-person weapon model
+- real GLB operator models
+- shooting, damage, reload, death
+- Bomb/Defuse A/B loop
+- round score
+- mobile HUD
+- no text selection / long-press interaction while playing
 
 ## Important
-This is a vertical slice: one rifle and a small 2v2 match are intentionally prioritized over a large feature list.
+The external 3D models are loaded from 3DAssets.dev's CORS-enabled CDN and Three.js is loaded from jsDelivr. An internet connection is required.
 
-The Three.js engine is loaded from cdnjs at runtime. This build uses the stable r128 browser build. If the engine cannot load, the page displays an explicit engine error instead of a black screen.
-
-## Vercel
-Upload all files in this folder with `index.html` at the project root.
-
-## Next pass after acceptance
-- Pistol and knife as full 3D view weapons
-- Buy menu and economy
-- Better model detail / imported original GLB art
-- More character animation states
-- Audio
-- Real WebSocket multiplayer rooms
+This pack is CC0 1.0 Universal according to its publisher and is intended for commercial use without attribution.

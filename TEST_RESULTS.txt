@@ -1,7 +1,9 @@
-PASS game.js syntax
-PASS real WebGL renderer present
-PASS 3D soldier model builder present
-PASS 3D rifle model builder present
-PASS tactical map builder present
-PASS bomb/defuse loop present
-PASS mobile controls present
+PASS JavaScript syntax
+PASS GLTF loader integration
+PASS runtime asset-manifest integration
+PASS real operator model lookups
+PASS real weapon model lookups
+PASS real environment module lookups
+PASS Bomb/Defuse loop present
+
+Note: network-loaded GLB rendering still needs final validation on the deployed iPhone/Safari target.
