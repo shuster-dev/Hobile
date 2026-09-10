@@ -1,27 +1,22 @@
-HOBILE V1.3 — FPS PORTAL
+HOBILE V1.4 — SAFARI FIXED
 
-This build upgrades Hobile from a single demo into a browser FPS portal prototype.
+This build removes all external JavaScript dependencies.
+The previous black-screen issue could happen when the external Three.js CDN failed
+or did not initialize correctly on iPhone Safari.
 
-Included:
-- Hobile landing portal
-- Quick Play
-- Browse Servers section
-- Create Room UI with shareable room code
-- Join Room UI
-- Team selection: Wardens / Raiders
-- Map loading screen
-- Original YARD-01 3D map
-- Mobile joystick + touch look
-- Fire / reload / jump
-- Hitscan rifle + headshots
-- HUD, timer, kill feed, scoreboard
-- iPhone landscape handling
-- Single-file static deploy for Vercel
+V1.4 uses a self-contained Canvas raycasting engine:
+- No Three.js
+- No CDN
+- No external assets
+- No npm
+- One index.html
+- iPhone Safari landscape controls
+- Portal / servers / rooms UI
+- Team selection
+- Loading screen
+- Playable FPS training map
+- Joystick, touch-look, fire, reload, jump
+- Ammo, HUD, timer, headshots and targets
 
-Important:
-Create Room / Join Room are currently portal UI only. Real multiplayer networking,
-authoritative server state, room synchronization and friend-vs-friend gameplay are the next milestone.
-
-Deploy:
-Upload index.html to the root of your Vercel static project.
-Internet access is required because Three.js loads from jsDelivr CDN.
+Deploy to Vercel:
+Make sure index.html is at the root of the deployment.
