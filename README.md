@@ -1,32 +1,26 @@
-# Hobile V2 — Playable Mobile FPS
+# Hobile V2.1 — Verified Playable Build
 
-This build is a clean rewrite focused on being **playable on iPhone Safari**.
+Focus of this build: make the match loop and mobile controls reliable before online multiplayer.
 
-## What is actually implemented
-- Fully self-contained Canvas FPS engine (no CDN, no Three.js, no npm)
-- Working mobile joystick movement
-- Right-side touch aiming
-- Prevents text selection, long-press menu, double-tap zoom and browser touch gestures while playing
-- Working rifle, ammo, reload and hits
-- Visible enemy and friendly bot characters
-- Bot movement, line-of-sight shooting, damage and deaths
-- Kill feed
-- Round system and CT/T round score
-- Bomb/Defuse objective
-- Bomb Site A and B
-- Terrorists can plant with USE
-- Counter-Terrorists can defuse with USE
-- Terrorist bots can plant
-- Counter-Terrorist bots can defuse
-- Round win conditions: elimination, timeout, bomb explosion, defuse
-- Cleaner responsive portal and team selection
-- English Counter-Terrorists / Terrorists naming
-- Pause/leave controls
-- Keyboard fallback for desktop testing
+Included:
+- Counter-Terrorists vs Terrorists, 3v3 bot match
+- Working movement collision
+- Safari pointer + touch fallbacks
+- Long-press/context menu/text selection/double-tap suppression
+- Aim, fire, reload, jump
+- Visible CT/T characters with HP bars
+- Bot pathfinding through the map instead of walking into walls
+- Bot shooting, player damage, deaths, kills, kill feed
+- Bomb Sites A and B
+- Plant / defuse flow
+- Bot plant / defuse behavior
+- Round timer and CT/T win conditions
+- Responsive landscape HUD and portal
+- No CDN / npm / external game assets
 
-## Important
-Create Room / Join Room are still UI placeholders. This version focuses on making the **game itself work correctly first**. Real online multiplayer requires a server/WebSocket layer and is the next major milestone.
+Automated checks:
+Run `node test-core.js`.
+The package was created only after all 9 core gameplay tests passed, including three simulated round outcomes.
 
-## Deploy to Vercel
-Upload the contents of this folder with `index.html` at the project root.
-No external dependencies are required.
+Note:
+A headless Safari/iPhone browser was not available in the build environment, so automated logic tests do not replace final testing on your physical iPhone. Online Create/Join Room synchronization is not implemented yet.
