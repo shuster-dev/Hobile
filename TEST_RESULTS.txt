@@ -1,0 +1,32 @@
+HOBILE V2.2 TEST RESULTS
+
+CORE:
+PASS CT spawn walkable
+PASS T spawn walkable
+PASS movement updates position
+PASS pathfinding connects team spawns
+PASS close-range hitscan
+PASS long-range blocked LOS
+PASS site A valid
+PASS site B valid
+PASS CT elimination win
+PASS T bomb explosion win
+PASS CT defuse win
+
+BROWSER GAMEPLAY:
+PASS portal loaded
+PASS CT match started with 5 bots
+PASS movement
+PASS aimed shot kills enemy
+PASS round 1: CT elimination win
+PASS round 2: T bomb explosion win
+PASS round 3: CT defuse win
+
+REAL BROWSER TOUCH:
+PASS touch joystick movement
+PASS touch look
+PASS touch fire + enemy kill
+PASS touch reload
+PASS weapon/FIRE controls do not overlap
+PASS user-select none
+PASS touch-action none
