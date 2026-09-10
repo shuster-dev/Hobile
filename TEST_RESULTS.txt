@@ -1,8 +1,11 @@
-PASS Vercel proxy syntax
-PASS runtime manifest dependency removed
-PASS starter pack uses same-origin /api/asset
-PASS CT operator fallback route
-PASS T operator fallback route
-PASS per-asset fallback instead of whole-game crash
+PASS room code
+PASS presence flatten
+PASS creator host election
+PASS team alive count
+PASS host hit validation
+6/6 networking core checks passed
 
-Note: final network rendering still must be validated on the deployed Vercel URL because the serverless proxy executes only on Vercel.
+PASS network.js syntax
+PASS game.js syntax
+PASS Supabase URL configured
+PASS publishable browser key configured

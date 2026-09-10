@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="format-detection" content="telephone=no">
-<title>Hobile V5.1 — Asset Load Fixed</title>
+<title>Hobile V6 — Online Multiplayer</title>
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 {
@@ -42,18 +42,66 @@
         <h1>HOBILE<br><span>HILL TOWN</span></h1>
         <p>Real 3D map assets, tactical operators, actual weapon models and a compact Bomb/Defuse layout.</p>
         <div class="actions">
-          <button id="play" class="primary">▶ PLAY MATCH</button>
+          <button id="createOnline" class="primary">CREATE ONLINE ROOM</button>
+          <button id="joinOnline" class="secondary">JOIN ROOM</button>
           <button id="training" class="secondary">TRAINING</button>
         </div>
       </div>
       <div class="stats">
-        <div><b>2v2</b><small>ROUND MATCH</small></div>
+        <div><b>ONLINE</b><small>SUPABASE REALTIME</small></div>
         <div><b>A / B</b><small>BOMB SITES</small></div>
-        <div><b>GLB</b><small>REAL ASSETS</small></div>
+        <div><b>LINK</b><small>SHARE & JOIN</small></div>
       </div>
     </div>
   </main>
 </section>
+
+
+<div id="joinDialog" class="overlay hidden">
+  <div class="panel lobby-panel">
+    <h2>JOIN ONLINE ROOM</h2>
+    <div class="join-row">
+      <input id="joinCodeInput" maxlength="8" placeholder="ROOM CODE" autocomplete="off">
+      <button id="joinCodeBtn" class="primary">JOIN</button>
+    </div>
+    <button id="joinCancel" class="secondary full">CANCEL</button>
+  </div>
+</div>
+
+<div id="lobby" class="overlay hidden">
+  <div class="panel lobby-panel">
+    <div class="lobby-top">
+      <div>
+        <small>ONLINE ROOM</small>
+        <div id="lobbyCode" class="lobby-code">-----</div>
+      </div>
+      <div id="netStatus" class="net-status">CONNECTING</div>
+    </div>
+    <div class="lobby-share">
+      <button id="shareRoom" class="primary">SHARE ROOM LINK</button>
+      <button id="copyRoom" class="secondary">COPY LINK</button>
+    </div>
+    <div class="name-row">
+      <input id="playerName" maxlength="18" placeholder="PLAYER NAME">
+      <button id="saveName" class="secondary">SAVE</button>
+    </div>
+    <div class="lobby-columns">
+      <div class="lobby-team">
+        <h3>COUNTER-TERRORISTS</h3>
+        <div id="ctPlayers" class="player-list"></div>
+        <button id="pickCT" class="secondary team-pick">JOIN CT</button>
+      </div>
+      <div class="lobby-team">
+        <h3>TERRORISTS</h3>
+        <div id="tPlayers" class="player-list"></div>
+        <button id="pickT" class="secondary team-pick">JOIN T</button>
+      </div>
+    </div>
+    <div id="lobbyHint" class="lobby-hint">Waiting for another player…</div>
+    <button id="startOnline" class="primary full" disabled>START ONLINE MATCH</button>
+    <button id="leaveLobby" class="secondary full">LEAVE ROOM</button>
+  </div>
+</div>
 
 <div id="teamSelect" class="overlay hidden">
   <div class="panel">
@@ -135,6 +183,9 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="net-core.js"></script>
+<script src="network.js"></script>
 <script type="module" src="game.js"></script>
 </body>
 </html>

@@ -1,14 +1,42 @@
-# Hobile V5.1 — Asset Load Fixed
+# Hobile V6 — Online Multiplayer
 
-This build fixes the `ASSET LOAD FAILED` screen seen on iPhone Safari.
+This build adds real internet multiplayer using Supabase Realtime.
 
-What changed:
-- Removed the runtime JSON manifest request entirely.
-- The browser no longer fetches the 3DAssets API.
-- Vercel now provides a same-origin `/api/asset` proxy for the GLB pack.
-- The main pack is loaded from one known permanent GLB URL.
-- CT and T operators have direct same-origin fallback routes.
-- The game extracts real map modules and real weapon models from the pack when their object names are present.
-- If a specific environment node name is unavailable, only that piece falls back instead of crashing the entire game.
+## Free architecture
+- Vercel: static hosting + existing same-origin GLB proxy
+- Supabase Realtime: Presence + Broadcast
+- No paid game server
+- No database table is required for the multiplayer room flow
 
-Deploy the WHOLE folder/ZIP to Vercel. The `api/asset.js` file is required.
+## Online flow
+1. Create Online Room
+2. Hobile generates a 5-character room code
+3. Share Room Link uses the iPhone share sheet
+4. Friend opens the link and joins the same Supabase Realtime channel
+5. Players choose CT / T
+6. Host starts the match
+7. Player movement is broadcast over Realtime and interpolated on peers
+8. Shooting uses host-side validation before damage is broadcast
+9. Host controls round timer, score, Bomb/Defuse state and round reset
+
+## Supabase usage
+Presence is only used for slow-changing lobby state (join/leave/name/team).
+Broadcast is used for frequent player state, shots and match events.
+
+## Security note
+The embedded Supabase key is a publishable browser key by design. Do not replace it
+with a secret key or service_role key.
+
+## Current multiplayer target
+The first online target is 1v1 / 2-player Bomb/Defuse. This is deliberate: prove
+stable iPhone-to-iPhone multiplayer before increasing player count.
+
+## Deploy
+Upload the whole ZIP/folder to Vercel. Keep:
+- index.html
+- style.css
+- game.js
+- network.js
+- net-core.js
+- api/asset.js
+- vercel.json

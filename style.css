@@ -35,3 +35,32 @@ main{height:calc(100dvh - 52px);padding:10px calc(14px + var(--sr)) calc(12px + 
 .full{width:100%;margin-top:8px}.pause-panel,.fatal-panel{max-width:430px;text-align:center}.fatal-panel p{font-size:10px;opacity:.65;line-height:1.5}
 #rotate{position:fixed;inset:0;z-index:1000;display:none;place-items:center;background:radial-gradient(circle at 50% 35%,#172b3b,#020609 72%);padding:24px}.rotate-card{max-width:420px;text-align:center;padding:27px;border:1px solid var(--line);border-radius:20px;background:#09151ff3}.rotate-card>div{font-size:44px}.rotate-card b{font-size:27px;display:block;margin:7px}.rotate-card p{font-size:10px;opacity:.6}@media(orientation:portrait){#rotate{display:grid}}
 @media(max-height:430px) and (orientation:landscape){.hero-copy{padding:16px}.hero h1{font-size:42px}.hero p{font-size:9px}.actions{margin-top:8px}.stats{left:16px;bottom:8px}}
+
+/* V6 online multiplayer lobby */
+.lobby-panel{max-width:720px}
+.lobby-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.lobby-top small{font-size:8px;opacity:.5;letter-spacing:1.5px}
+.lobby-code{font-size:34px;font-weight:950;letter-spacing:8px;line-height:1.1}
+.net-status{font-size:9px;font-weight:900;color:#6ef09a;border:1px solid #53df813d;background:#0a2116;padding:7px 9px;border-radius:8px}
+.lobby-share,.name-row,.join-row{display:flex;gap:7px;margin:10px 0}
+.lobby-share button{flex:1}
+.name-row input,.join-row input{
+ flex:1;min-width:0;background:#04101b;color:#fff;border:1px solid var(--line);
+ border-radius:8px;padding:10px;font:inherit;font-size:11px;
+ -webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important
+}
+.lobby-columns{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}
+.lobby-team{border:1px solid var(--line);border-radius:10px;background:#06111a;padding:10px}
+.lobby-team h3{margin:0 0 7px;font-size:10px;letter-spacing:1px}
+.player-list{min-height:66px;display:flex;flex-direction:column;gap:4px}
+.player-row{display:flex;align-items:center;gap:6px;border-radius:7px;padding:6px 7px;background:#0a1721;font-size:9px}
+.player-row .host{color:#e5bd59;font-size:7px;margin-left:auto}
+.player-row.me{outline:1px solid rgba(82,226,126,.42)}
+.team-pick{width:100%;margin-top:7px}
+.lobby-hint{text-align:center;font-size:9px;opacity:.62;padding:9px 0}
+#startOnline:disabled{opacity:.32;filter:grayscale(1)}
+@media(max-height:430px) and (orientation:landscape){
+ .lobby-panel{padding:11px}.lobby-code{font-size:25px}.lobby-share,.name-row{margin:6px 0}
+ .lobby-team{padding:7px}.player-list{min-height:40px}.player-row{padding:4px 5px}
+ .lobby-hint{padding:5px 0}.full{margin-top:5px}
+}
