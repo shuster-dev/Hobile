@@ -1,57 +1,32 @@
-# Hobile V1
+# Hobile V2 — Playable Mobile FPS
 
-Hobile is an original, mobile-first browser FPS project. V1 is a playable core-combat milestone designed primarily for iPhone Safari, then Android Chrome.
+This build is a clean rewrite focused on being **playable on iPhone Safari**.
 
-## V1 features
+## What is actually implemented
+- Fully self-contained Canvas FPS engine (no CDN, no Three.js, no npm)
+- Working mobile joystick movement
+- Right-side touch aiming
+- Prevents text selection, long-press menu, double-tap zoom and browser touch gestures while playing
+- Working rifle, ammo, reload and hits
+- Visible enemy and friendly bot characters
+- Bot movement, line-of-sight shooting, damage and deaths
+- Kill feed
+- Round system and CT/T round score
+- Bomb/Defuse objective
+- Bomb Site A and B
+- Terrorists can plant with USE
+- Counter-Terrorists can defuse with USE
+- Terrorist bots can plant
+- Counter-Terrorist bots can defuse
+- Round win conditions: elimination, timeout, bomb explosion, defuse
+- Cleaner responsive portal and team selection
+- English Counter-Terrorists / Terrorists naming
+- Pause/leave controls
+- Keyboard fallback for desktop testing
 
-- Original 3D training-yard map
-- First-person camera
-- Mobile virtual joystick
-- Touch drag camera control
-- Desktop keyboard/mouse fallback for development testing
-- Original VX-7 hitscan rifle
-- Magazine + reserve ammunition
-- Reloading and recoil/spread
-- HP, damage feedback and death/restart flow
-- Six basic moving enemy bots with line-of-sight return fire
-- Body/head hit detection and headshot scoring
-- Mobile-conscious rendering: no shadows, no textures, capped device pixel ratio, simple geometry
+## Important
+Create Room / Join Room are still UI placeholders. This version focuses on making the **game itself work correctly first**. Real online multiplayer requires a server/WebSocket layer and is the next major milestone.
 
-## Run
-
-This is a static website. Serve the project over HTTPS or a local HTTP server. Opening `index.html` directly with `file://` is not the recommended deployment mode.
-
-The only runtime dependency is Three.js, currently loaded from jsDelivr in `index.html`. All Hobile game code and assets are original project files.
-
-## Controls
-
-### Mobile
-- Left thumb: virtual joystick
-- Right side drag: camera / aim
-- FIRE: hold to fire
-- R: reload
-- JUMP: jump
-
-### Desktop test fallback
-- WASD: move
-- Mouse: aim (click canvas to pointer-lock)
-- Left mouse: fire
-- R: reload
-- Space: jump
-
-## Architecture direction
-
-V1 intentionally keeps combat simulation in one browser client while separating responsibilities into clear systems/functions: input, player movement, weapon/combat, bots, world collision, HUD and render loop. For multiplayer milestones, critical state will move to a server-authoritative simulation rather than trusting client hit/damage decisions.
-
-Recommended multiplayer path later: WebSocket room service + authoritative Node.js game server + client-side prediction/interpolation. The static game client can remain deployable independently.
-
-## Product milestones
-
-- V1: core FPS (this build)
-- V2: combat feel, weapon feedback, movement tuning
-- V3: weapon inventory + economy
-- V4: bomb plant/defuse round mode
-- V5: bot AI improvements
-- V6: multiplayer networking foundation
-- V7: room codes / friends
-- V8+: maps, audio, polish, progression and settings
+## Deploy to Vercel
+Upload the contents of this folder with `index.html` at the project root.
+No external dependencies are required.
