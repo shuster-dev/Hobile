@@ -1,9 +1,8 @@
-PASS JavaScript syntax
-PASS GLTF loader integration
-PASS runtime asset-manifest integration
-PASS real operator model lookups
-PASS real weapon model lookups
-PASS real environment module lookups
-PASS Bomb/Defuse loop present
+PASS Vercel proxy syntax
+PASS runtime manifest dependency removed
+PASS starter pack uses same-origin /api/asset
+PASS CT operator fallback route
+PASS T operator fallback route
+PASS per-asset fallback instead of whole-game crash
 
-Note: network-loaded GLB rendering still needs final validation on the deployed iPhone/Safari target.
+Note: final network rendering still must be validated on the deployed Vercel URL because the serverless proxy executes only on Vercel.

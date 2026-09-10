@@ -1,34 +1,14 @@
-# Hobile V5 — Asset-Backed Rebuild
+# Hobile V5.1 — Asset Load Fixed
 
-This build changes the visual strategy completely.
+This build fixes the `ASSET LOAD FAILED` screen seen on iPhone Safari.
 
-Instead of drawing the map, operators and weapons from procedural boxes, Hobile V5 loads a real CC0 tactical FPS asset pack at runtime:
+What changed:
+- Removed the runtime JSON manifest request entirely.
+- The browser no longer fetches the 3DAssets API.
+- Vercel now provides a same-origin `/api/asset` proxy for the GLB pack.
+- The main pack is loaded from one known permanent GLB URL.
+- CT and T operators have direct same-origin fallback routes.
+- The game extracts real map modules and real weapon models from the pack when their object names are present.
+- If a specific environment node name is unavailable, only that piece falls back instead of crashing the entire game.
 
-Tactical Shooter Hill Town — 3DAssets.dev
-
-The pack contains:
-- Mediterranean modular tactical map pieces
-- cobbled floors, plaster/ochre walls, arches, low walls
-- fountain, market stall, crates, barrels and olive trees
-- defender and attacker operator models
-- defender carbine and attacker assault rifle models
-- objective props and other tactical assets
-
-The game assembles those assets into an original compact Hobile map and keeps invisible collision/navigation logic separate from the art.
-
-## Gameplay
-- Counter-Terrorists vs Terrorists
-- 2v2 vertical slice
-- touch joystick / touch look
-- real GLB first-person weapon model
-- real GLB operator models
-- shooting, damage, reload, death
-- Bomb/Defuse A/B loop
-- round score
-- mobile HUD
-- no text selection / long-press interaction while playing
-
-## Important
-The external 3D models are loaded from 3DAssets.dev's CORS-enabled CDN and Three.js is loaded from jsDelivr. An internet connection is required.
-
-This pack is CC0 1.0 Universal according to its publisher and is intended for commercial use without attribution.
+Deploy the WHOLE folder/ZIP to Vercel. The `api/asset.js` file is required.
