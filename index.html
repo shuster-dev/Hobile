@@ -1,19 +1,147 @@
-<!doctype html><html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="theme-color" content="#03070a"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
-<title>Hobile V3</title><link rel="stylesheet" href="style.css"></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05090d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>Hobile V4 — Real 3D Vertical Slice</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="boot">
+  <div class="boot-card">
+    <div class="brand">HOBILE</div>
+    <div class="boot-title">REAL 3D VERTICAL SLICE</div>
+    <div id="bootStatus">Loading 3D engine…</div>
+    <div class="load-track"><div id="bootBar"></div></div>
+  </div>
+</div>
+
 <canvas id="game"></canvas>
-<section id="portal"><div class="topbar"><div class="logo">HOBILE</div><div class="online">● ONLINE</div></div><div class="portalBody">
-<div class="hero"><div class="copy"><div class="kicker">CLASSIC TACTICAL FPS · MOBILE</div><h1>HOBILE<br><span>BOMB / DEFUSE</span></h1><p>Fast rounds, tactical routes, real bot combat and a classic textured FPS look built for mobile browsers.</p><div class="actions"><button id="quick" class="primary">▶ QUICK PLAY</button><button id="browse" class="secondary">BROWSE SERVERS</button></div></div><div class="stats"><div class="stat"><b>3v3</b><small>TEAMS</small></div><div class="stat"><b>2</b><small>SITES</small></div><div class="stat"><b>V3</b><small>VISUAL</small></div></div></div>
-<div class="cards"><div id="create" class="card"><b>CREATE ROOM</b><span>Generate a room code.</span></div><div id="joinRoom" class="card"><b>JOIN ROOM</b><span>Enter a friend's code.</span></div><div id="training" class="card"><b>TRAINING MATCH</b><span>Play against combat bots.</span></div></div>
-<div id="serverTitle" class="serverTitle">ACTIVE SERVERS</div><div class="servers"><div class="server"><div><b>Hobile EU #01</b><small>BOMB/DEFUSE · 3/6</small></div><button class="joinBtn" data-server="EU-01">JOIN</button></div><div class="server"><div><b>Hobile Training</b><small>BOTS · 1/6</small></div><button class="joinBtn" data-server="TRAINING">JOIN</button></div></div>
-</div></section>
-<div id="modal" class="overlay hidden"><div class="panel"><h2 id="modalTitle"></h2><div id="modalBody"></div><button id="modalClose" class="close">CLOSE</button></div></div>
-<div id="teams" class="overlay hidden"><div class="panel"><h2>SELECT TEAM</h2><div class="teamGrid"><div class="teamCard"><div class="emoji">🛡️</div><h2>COUNTER-TERRORISTS</h2><p>Defend the sites and defuse planted bombs.</p><button class="primary" data-team="CT">JOIN CT</button></div><div class="teamCard"><div class="emoji">💣</div><h2>TERRORISTS</h2><p>Attack a site, plant and protect the bomb.</p><button class="danger" data-team="T">JOIN T</button></div></div></div></div>
-<div id="loading" class="overlay hidden"><div class="loadBox"><div class="mapName">SANDLINE</div><div class="mode">BOMB / DEFUSE</div><div class="progress"><div id="loadBar" class="bar"></div></div><div id="loadText" class="loadText">Loading textures…</div></div></div>
-<div id="hud" class="hidden"><div class="statusHud"><div class="pill"><small>HP</small><b id="hp">100</b></div><div class="pill"><small>ARMOR</small><b id="armor">100</b></div></div><div class="score"><div class="badge ct">CT <span id="ctScore">0</span></div><div id="timer" class="clock">01:45</div><div class="badge tt"><span id="tScore">0</span> T</div></div><div id="objective" class="objective"></div><div class="cross"><i class="v t"></i><i class="v b"></i><i class="h l"></i><i class="h r"></i></div><div id="hitmarker" class="hitmarker"></div><div id="msg" class="msg"></div><div id="feed" class="feed"></div><div class="weaponHud"><small id="weaponName">VX-9 RIFLE</small><b><span id="ammo">30</span> / <span id="reserve">90</span></b></div></div>
-<div id="damageFlash" class="damageFlash"></div>
-<div id="controls" class="hidden"><div id="joy"><div id="stick"></div></div><div id="look"></div><button id="fire" class="ctrl">FIRE</button><button id="reload" class="ctrl">R</button><button id="jump" class="ctrl">JUMP</button><button id="use" class="ctrl">USE</button><button id="switch" class="ctrl">WEAPON</button><button id="menu" class="ctrl">☰</button></div>
-<div id="pause" class="overlay hidden"><div class="panel"><h2>PAUSED</h2><button id="resume" class="primary">RESUME</button><button id="leave" class="close">LEAVE MATCH</button></div></div>
-<div id="rotate"><div class="rotateBox"><div style="font-size:44px">↻</div><b>Rotate your phone</b><p>Hobile is designed for landscape play.</p></div></div>
-<script src="core.js"></script><script src="game.js"></script></body></html>
+
+<section id="menu" class="screen hidden">
+  <header class="menu-header">
+    <div class="logo">HOBILE</div>
+    <div class="menu-chip">V4 · REAL 3D</div>
+  </header>
+  <div class="menu-wrap">
+    <div class="hero-panel">
+      <div class="eyebrow">TACTICAL FPS · MOBILE BROWSER</div>
+      <h1>SANDLINE<br><span>BOMB / DEFUSE</span></h1>
+      <p>A compact 3D tactical map built around mid control, two bomb sites, cover, stairs, courtyards and close-range connectors.</p>
+      <div class="hero-actions">
+        <button id="playBtn" class="btn primary">PLAY MATCH</button>
+        <button id="trainingBtn" class="btn secondary">TRAINING</button>
+      </div>
+      <div class="menu-stats">
+        <div><b>2v2</b><small>VERTICAL SLICE</small></div>
+        <div><b>A / B</b><small>BOMB SITES</small></div>
+        <div><b>3</b><small>WEAPONS</small></div>
+      </div>
+    </div>
+    <div class="map-card">
+      <div class="map-label">FEATURED MAP</div>
+      <div class="map-name">SANDLINE</div>
+      <div class="map-diagram">
+        <div class="lane lane-a">A</div>
+        <div class="lane lane-mid">MID</div>
+        <div class="lane lane-b">B</div>
+      </div>
+      <p>Original Hobile map. No Counter-Strike assets are used.</p>
+    </div>
+  </div>
+</section>
+
+<div id="teamSelect" class="overlay hidden">
+  <div class="dialog team-dialog">
+    <div class="dialog-title">SELECT TEAM</div>
+    <div class="teams">
+      <button class="team-card ct-card" data-team="CT">
+        <span class="team-icon">◆</span>
+        <b>COUNTER-TERRORISTS</b>
+        <small>Defend both sites and defuse the device.</small>
+      </button>
+      <button class="team-card t-card" data-team="T">
+        <span class="team-icon">▲</span>
+        <b>TERRORISTS</b>
+        <small>Attack a site, plant and hold until detonation.</small>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="loading" class="overlay hidden">
+  <div class="loading-card">
+    <div class="loading-map">SANDLINE</div>
+    <div class="loading-mode">BOMB / DEFUSE</div>
+    <p id="loadingText">Building map geometry…</p>
+    <div class="load-track"><div id="matchBar"></div></div>
+  </div>
+</div>
+
+<div id="hud" class="hidden">
+  <div class="hud-left">
+    <div class="hud-pill"><small>HP</small><b id="hp">100</b></div>
+    <div class="hud-pill"><small>ARMOR</small><b id="armor">100</b></div>
+  </div>
+  <div class="roundbar">
+    <div class="team-score ct">CT <span id="ctScore">0</span></div>
+    <div class="clock" id="timer">01:35</div>
+    <div class="team-score t"><span id="tScore">0</span> T</div>
+  </div>
+  <div id="objective" class="objective">DEFEND SITES A & B</div>
+  <div class="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="hitmarker" class="hitmarker">×</div>
+  <div id="centerMessage" class="center-message"></div>
+  <div id="killfeed" class="killfeed"></div>
+  <div class="weapon-info">
+    <small id="weaponName">AR-4 RIFLE</small>
+    <b><span id="ammo">30</span><em>/</em><span id="reserve">90</span></b>
+  </div>
+  <div id="damageFlash" class="damage-flash"></div>
+</div>
+
+<div id="controls" class="hidden">
+  <div id="joystick"><div id="stick"></div></div>
+  <div id="lookZone"></div>
+  <button id="fireBtn" class="control fire">FIRE</button>
+  <button id="reloadBtn" class="control small reload">R</button>
+  <button id="jumpBtn" class="control small jump">JUMP</button>
+  <button id="weaponBtn" class="control small weapon-switch">1/2/3</button>
+  <button id="useBtn" class="control use hidden">USE</button>
+  <button id="pauseBtn" class="control small pause">☰</button>
+</div>
+
+<div id="pauseOverlay" class="overlay hidden">
+  <div class="dialog pause-dialog">
+    <div class="dialog-title">PAUSED</div>
+    <button id="resumeBtn" class="btn primary">RESUME</button>
+    <button id="leaveBtn" class="btn secondary">LEAVE MATCH</button>
+  </div>
+</div>
+
+<div id="rotate">
+  <div class="rotate-card">
+    <div class="rotate-symbol">↻</div>
+    <b>Rotate your phone</b>
+    <p>Hobile is built for landscape play.</p>
+  </div>
+</div>
+
+<div id="engineError" class="overlay hidden">
+  <div class="dialog error-dialog">
+    <div class="dialog-title">3D ENGINE FAILED TO LOAD</div>
+    <p>This build needs access to the Three.js engine. Refresh the page with an active internet connection.</p>
+  </div>
+</div>
+
+<script
+  src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"
+  onerror="document.getElementById('boot').classList.add('hidden');document.getElementById('engineError').classList.remove('hidden');">
+</script>
+<script src="game.js"></script>
+</body>
+</html>

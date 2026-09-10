@@ -1,23 +1,7 @@
-HOBILE V3 TEST RESULTS
-
-PASS CT spawn open
-PASS T spawn open
-PASS Bomb Site A open
-PASS Bomb Site B open
-PASS pathfinding CT -> T
-PASS pathfinding T -> Site A
-PASS player movement changes position
-PASS walls block movement
-PASS nearby line-of-sight works
-
-JavaScript syntax checks:
-PASS core.js
-PASS game.js
-
-Visual overhaul included:
-- Original CT/T character sprites
-- Original first-person rifle, pistol and knife
-- Sandstone / concrete / metal / crate textures
-- Textured raycast renderer
-- Hit marker, muzzle flash, damage flash
-- Weapon switching
+PASS game.js syntax
+PASS real WebGL renderer present
+PASS 3D soldier model builder present
+PASS 3D rifle model builder present
+PASS tactical map builder present
+PASS bomb/defuse loop present
+PASS mobile controls present
