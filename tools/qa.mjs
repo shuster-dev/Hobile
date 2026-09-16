@@ -164,6 +164,72 @@ ok('synced combatants carry benched', 'benched' in row);
 ok('synced combatants carry slot', 'slot' in row);
 ok('synced combatants carry frozenUntil', 'frozenUntil' in row);
 
+// ---------------------------------------------------------------- world interaction
+section('world interaction');
+const { NPCS, npcAt, npcLines } = await import('../src/shared/npcs.js');
+const wdoc = C.createPlayerDoc('u5', 'QA5', {}, 'cindcub');
+C.normalizeDoc(wdoc);
+const wev = [];
+const wnet = { doc: wdoc, guilds: [], emit: (k, v) => wev.push([k, v]), save: () => {}, pendingRooms: new Map() };
+const world = new B.WorldSim(wnet, 'aetherport');
+world.start();
+await new Promise((r) => setTimeout(r, 120));
+const me = () => world.state.players.get('me');
+
+// Every resident must actually say something. npcLines returns an array of
+// strings; speak used to read it as {lines, en}, so all five said "…".
+for (const id of Object.keys(NPCS)) {
+  const at = npcAt(id, world.dayPhase());
+  Object.assign(me(), { x: at.x, z: at.z });
+  wev.length = 0;
+  world.handle('talk', { npcId: id });
+  const dlg = wev.find(([k]) => k === 'dialogue')?.[1];
+  ok(`${id} speaks real dialogue`,
+    !!dlg && dlg.lines.length > 0 && dlg.lines[0].he && dlg.lines[0].he !== '…',
+    JSON.stringify(dlg?.lines?.[0] || wev.map((e) => e[0])));
+}
+ok('an unknown npc is refused', (() => {
+  wev.length = 0; world.handle('talk', { npcId: 'nobody' });
+  return wev.some(([k, v]) => k === 'error' && v.code === 'no_such_npc');
+})());
+
+// Every door opens. The client has sent enterBuilding since v0.7 and no room
+// ever handled it, so all four buildings were decorative.
+const doors = world.zone.landmarks.filter((l) => l.door && l.interior);
+ok('the zone has doors to test', doors.length >= 4, String(doors.length));
+for (const l of doors) {
+  Object.assign(me(), { x: l.door.x, z: l.door.z });
+  wev.length = 0;
+  world.handle('enterBuilding', { id: l.interior });
+  const b = wev.find(([k]) => k === 'building')?.[1];
+  ok(`${l.interior} opens`, !!b && b.id === l.interior, wev.map((e) => e[0]).join(',') || 'nothing');
+  world.handle('exitBuilding', {});
+}
+ok('entering from far away is refused', (() => {
+  const l = doors[0];
+  Object.assign(me(), { x: l.door.x + 40, z: l.door.z + 40 });
+  wev.length = 0;
+  world.handle('enterBuilding', { id: l.interior });
+  return wev.some(([k, v]) => k === 'error' && v.code === 'too_far');
+})());
+ok('indoors, the overworld avatar does not follow the joystick', (() => {
+  const l = doors[0];
+  Object.assign(me(), { x: l.door.x, z: l.door.z });
+  world.handle('enterBuilding', { id: l.interior });
+  const before = { x: me().x, z: me().z };
+  world.handle('move', { x: before.x + 2, z: before.z + 2, moving: true });
+  const still = me().x === before.x && me().z === before.z;
+  world.handle('exitBuilding', {});
+  return still;
+})());
+ok('the welcome line is sent once, not on every refresh', (() => {
+  wev.length = 0;
+  world.handle('ready', {});
+  world.handle('refresh', {});
+  return wev.filter(([k, v]) => k === 'chat' && v.ch === 'system').length === 0;
+})());
+world.stop();
+
 // capture freeze
 section('capture freeze');
 const doc4 = C.createPlayerDoc('u4', 'QA4', {}, 'cindcub');

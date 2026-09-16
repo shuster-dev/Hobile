@@ -155,6 +155,11 @@ var StoreBase = class {
     }
     welcome() {
       let e = this.doc;
+      // welcome() is called both by start() and by the client's "ready", and
+      // "refresh" calls it again. Everything here is idempotent except the chat
+      // line, which was arriving three and four times over.
+      let firstTime = !this._welcomed;
+      this._welcomed = !0;
       e.zone = this.zoneId, this.net.emit("profile", publicProfile(e)), this.net.emit("zone", {
         id: this.zoneId,
         name: this.zone.name,
@@ -165,7 +170,7 @@ var StoreBase = class {
         size: this.zone.size,
         landmarks: this.zone.landmarks,
         levels: this.zone.levels
-      }), this.net.emit("guild", this.guildView()), this.net.emit("party", this.partyView()), this.net.emit("friends", this.friendList()), this.net.emit("chat", {
+      }), this.net.emit("guild", this.guildView()), this.net.emit("party", this.partyView()), this.net.emit("friends", this.friendList()), firstTime && this.net.emit("chat", {
         ch: "system",
         t: Date.now(),
         text: `${this.zone.he} · מצב אימון לשחקן יחיד — אין כאן שחקנים אחרים. בגרסה המלאה עם שרת, כל מי שסביבך הוא שחקן אמיתי.`
@@ -364,7 +369,8 @@ var StoreBase = class {
             done: Object.entries(e.quests?.active || {}).filter(([, h]) => h.done).map(([h]) => h)
           }
         },
-        l = npcLines(t, a),
+        raw = npcLines(t, a),
+        l = Array.isArray(raw) ? { lines: raw, en: [] } : (raw || { lines: ["…"], en: [] }),
         c = syncQuests(e, {
           kind: "talk",
           target: t

@@ -36,6 +36,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
           ctx.welcome();
           break;
         case "move":
+          if (ctx.inside) break;          // indoors: the overworld avatar stays put
           if (Number.isFinite(t.x) && Number.isFinite(t.z)) {
             // Clamp the step, then resolve collisions. A client that sends a
             // position 400m away is not walking, and without this the server
@@ -177,6 +178,45 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = ctx.zone.landmarks.find(a => a.id === t.target || a.kind === t.target);
             if (!o) return;
             o.kind === "npc" ? ctx.speak(n, o.id || o.npc) : (o.kind === "plaza" || o.kind === "town" || o.kind === "camp") && (healTeam(n, 1), s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("healed", {}), ctx.net.emit("profile", publicProfile(n)));
+            break;
+          }
+        case "enterBuilding":
+          {
+            // The client has sent this since v0.7 and nothing handled it, so
+            // every door in the game was decorative.
+            let o = ctx.zone.landmarks.find(a => a.interior && (a.interior === t.id || a.id === t.id || a.kind === t.id));
+            if (!o) {
+              ctx.net.emit("error", {
+                code: "no_such_building"
+              });
+              return;
+            }
+            let a = o.door || {
+              x: o.x,
+              z: o.z
+            };
+            if (Math.hypot(a.x - s.x, a.z - s.z) > 6) {
+              ctx.net.emit("error", {
+                code: "too_far"
+              });
+              return;
+            }
+            // Park the player in the doorway so stepping back out is sensible.
+            s.x = a.x, s.z = a.z, s.moving = !1, s.status = "inside";
+            ctx.inside = o.interior;
+            ctx.net.emit("building", {
+              id: o.interior,
+              kind: o.kind,
+              name: o.name,
+              he: o.he,
+              door: a
+            });
+            break;
+          }
+        case "exitBuilding":
+          {
+            ctx.inside = null, s.status = "idle";
+            ctx.net.emit("building", null);
             break;
           }
         case "talk":

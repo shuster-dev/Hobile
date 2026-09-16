@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { SPECIES } from '../../src/shared/gamedata.js';
 import { buildCreature, DESIGN } from '../../src/client/gfx/creatures.js';
+import { STYLE } from '../../src/client/gfx/core.js';
 
 const q = new URLSearchParams(location.search);
 const ids = q.get('only') ? q.get('only').split(',') : Object.keys(SPECIES);
@@ -14,6 +15,16 @@ const COLS = Number(q.get('cols') || 6);
 const CELL = Number(q.get('cell') || 240);
 const SS = 2;                              // supersample
 const ANGLE = Number(q.get('angle') || -0.5);
+
+// art direction knobs, so one render can sweep a style choice
+if (q.get('toon') !== null) STYLE.toon = q.get('toon') !== '0';
+if (q.get('bands') !== null) STYLE.bands = Number(q.get('bands'));
+if (q.get('outline') !== null) STYLE.outline = Number(q.get('outline'));
+if (q.get('saturate') !== null) STYLE.saturate = Number(q.get('saturate'));
+if (q.get('chibi') === '0') STYLE.chibi = null;
+if (q.get('head') !== null && STYLE.chibi) STYLE.chibi.head = Number(q.get('head'));
+if (q.get('eye') !== null && STYLE.chibi) STYLE.chibi.eye = Number(q.get('eye'));
+if (q.get('leg') !== null && STYLE.chibi) STYLE.chibi.leg = Number(q.get('leg'));
 
 // visual tuning: ?raise=… overrides every wing's raise so one render sweeps it
 if (q.get('raise') !== null) {
@@ -40,9 +51,17 @@ const scene = new THREE.Scene();
 const cam = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
 cam.position.set(2.6, 1.9, 3.4);
 cam.lookAt(0, 0.85, 0);
-scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a2f45, 1.15));
-const key = new THREE.DirectionalLight(0xfff3e0, 2.1); key.position.set(3, 5, 4); scene.add(key);
-const rim = new THREE.DirectionalLight(0x8fd8ff, 1.0); rim.position.set(-4, 2, -3); scene.add(rim);
+if (q.get('toon') !== '0') {
+  // Cel shading wants a dominant key and a generous fill: with a weak fill the
+  // quantised ramp collapses the whole shadow side into one dark band.
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8894b8, 1.5));
+  const key = new THREE.DirectionalLight(0xfff6e6, 1.7); key.position.set(3, 5, 4); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xbfe4ff, 0.7); rim.position.set(-4, 2.5, -3); scene.add(rim);
+} else {
+  scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a2f45, 1.15));
+  const key = new THREE.DirectionalLight(0xfff3e0, 2.1); key.position.set(3, 5, 4); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x8fd8ff, 1.0); rim.position.set(-4, 2, -3); scene.add(rim);
+}
 
 const stats = {};
 const errors = [];

@@ -1,5 +1,5 @@
 import { Color, Group, Mesh, PointLight, SphereGeometry, TorusGeometry } from 'three';
-import { HALF_PI, QUALITY, TAU, TIER, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, mat, mergeByMaterial, outlineMat, profile, taperGeo, xf2 } from './core.js';
+import { HALF_PI, QUALITY, STYLE, TAU, TIER, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, mat, mergeByMaterial, outlineMat, profile, taperGeo, xf2 } from './core.js';
 import { UNIT_OCTA, applyElementKit, beads, buildAvian, buildBlob, buildGolem, buildInsect, buildQuad, buildSerpent, buildSprite, buildTail, curveAt, curveSampler, finPair, frills, gear, maw, palette, petals, podGeo, puff, shellHalves, speciesPalette, spikeGeo, spines, tuft, whiskers } from './parts.js';
 import { AVATAR, SPECIES, hashString, seededRandom } from '../../shared/gamedata.js';
 import { mixHex } from '../../shared/props.js';
@@ -1903,6 +1903,80 @@ var bez3 = (i, e, t) => n => {
     sprite: "glimmer"
   };
 
+/**
+ * Cartoon proportions.
+ *
+ * The models were drawn at animal proportions — long muzzles, small eyes, a
+ * head that is a fraction of the body. That reads as a stylised animal, not as
+ * the pocket-monster look the game is going for, and no amount of shading
+ * fixes proportion.
+ *
+ * These are the four knobs that change the read without moving anything: a
+ * bigger head and bigger eyes, a shorter muzzle, thicker limbs. Positions stay
+ * exactly where each design put them, so nothing detaches — the head simply
+ * sits deeper into the shoulders, which is what a chibi silhouette wants
+ * anyway.
+ */
+function chibify(design) {
+  const C = STYLE.chibi;
+  if (!C || !design) return design;
+  // Not structuredClone: a design carries a `sig` function, and functions are
+  // not cloneable. Plain data is copied, anything else is shared by reference.
+  const clone = (v) => Array.isArray(v) ? v.map(clone)
+    : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clone(x)]))
+    : v;
+  const d = clone(design);
+  const body = d.q || d.a || d.g || d.s || d.b || d.i || d.p;
+  if (!body) return d;
+
+  const head = body.head && typeof body.head === 'object' ? body.head : body;
+  if (Number.isFinite(head.r)) head.r *= C.head;
+  if (Number.isFinite(body.headR)) body.headR *= C.head;
+  if (Number.isFinite(head.eye)) head.eye *= C.eye;
+  if (Number.isFinite(body.eye)) body.eye *= C.eye;
+  // A wider eye separation with bigger eyes, or they merge into one mass.
+  if (Number.isFinite(head.sep)) head.sep *= C.sep;
+  if (Number.isFinite(body.sep)) body.sep *= C.sep;
+  if (Number.isFinite(head.snout)) head.snout *= C.snout;
+  if (Number.isFinite(body.snout)) body.snout *= C.snout;
+
+  for (const k of ['legR', 'armR']) if (Number.isFinite(body[k])) body[k] *= C.limb;
+  if (Number.isFinite(body.stance)) body.stance *= C.stance ?? 1;
+
+  // Shorter legs, and the body lowered by exactly what the hips lost, so the
+  // feet stay on the ground and nothing detaches.
+  const L = C.leg ?? 1;
+  if (L !== 1) {
+    if (d.q) {                                   // quadruped
+      const q = d.q;
+      const drop = ((q.hipYF ?? q.legF ?? 0) * (1 - L));
+      for (const k of ['legF', 'legB', 'hipYF', 'hipYB']) if (Number.isFinite(q[k])) q[k] *= L;
+      if (Number.isFinite(q.bodyY)) q.bodyY -= drop;
+      if (q.neck && Number.isFinite(q.neck.y)) q.neck.y -= drop;
+    } else if (d.g) {                            // golem
+      const g = d.g;
+      const drop = (g.hipY ?? g.legLen ?? 0) * (1 - L);
+      for (const k of ['legLen', 'hipY']) if (Number.isFinite(g[k])) g[k] *= L;
+      for (const k of ['torsoY', 'headY']) if (Number.isFinite(g[k])) g[k] -= drop;
+    } else if (d.a) {                            // avian: the leg follows the
+      const a = d.a;                             // belly, so lowering the body
+      const drop = (a.bodyY ?? 0) * (1 - L) * 0.5;   // shortens it for free
+      for (const k of ['bodyY', 'neckY', 'headY']) if (Number.isFinite(a[k])) a[k] -= drop;
+      if (Number.isFinite(a.legZ)) a.legZ *= 1;
+    }
+  }
+
+  // A rounder barrel: cartoon bodies are wider than the animals they come from.
+  const W = C.girth ?? 1;
+  if (W !== 1) {
+    for (const k of ['chest', 'waist', 'rump', 'torso', 'body']) {
+      const v = body[k];
+      if (Array.isArray(v) && v.length === 3) { v[0] *= W; v[2] *= W; }
+    }
+  }
+  return d;
+}
+
 function buildCreature(i, {
   outline: e = !0,
   detail: t = 1
@@ -1911,7 +1985,7 @@ function buildCreature(i, {
     s = new Group();
   if (!n) return s;
   let r = n.model,
-    o = DESIGN[i] || DESIGN[PLAN_SAMPLES[r.shape]] || DESIGN.glimmer,
+    o = chibify(DESIGN[i] || DESIGN[PLAN_SAMPLES[r.shape]] || DESIGN.glimmer),
     a = speciesPalette(n),
     l = [],
     c = {
@@ -2013,7 +2087,11 @@ function buildAvatar(i = {}, {
       }
     }[t],
     m = t === "tall" ? 1.86 : t === "stocky" ? 1.7 : 1.78,
-    v = m / 7.6 / 2,
+    // Head size as a fraction of height. A realistic figure is about 7.6 heads
+    // tall; a cartoon trainer is 4-5, and that ratio is most of what makes the
+    // avatar read as drawn rather than as a mannequin. The body keeps its own
+    // height, so only the head changes and nothing detaches.
+    v = m / (STYLE.chibi?.avatarHeads ?? 7.6) / 2,
     E = new Group(),
     _ = {
       arms: [],

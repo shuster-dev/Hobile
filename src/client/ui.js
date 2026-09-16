@@ -120,6 +120,23 @@ var UI = class {
       n.key === "Escape" && (this._dialogue ? this.closeDialogue() : this.openPanelId && this.closePanel());
     });
     for (let n of document.querySelectorAll("[data-panel]")) n.addEventListener("click", () => this.togglePanel(n.dataset.panel));
+    // Screen density. Both choices persist: a player who cleared the screen
+    // once does not want it back on every load.
+    let lean = (() => { try { return localStorage.getItem("hobile.hud") === "lean"; } catch { return !1; } })();
+    document.body.classList.toggle("hud-lean", lean);
+    $("#btn-hud")?.addEventListener("click", () => {
+      lean = !lean;
+      document.body.classList.toggle("hud-lean", lean);
+      try { localStorage.setItem("hobile.hud", lean ? "lean" : "full"); } catch {}
+    });
+    let tracker = $("#tracker");
+    let collapsed = (() => { try { return localStorage.getItem("hobile.tracker") === "collapsed"; } catch { return !1; } })();
+    tracker?.classList.toggle("collapsed", collapsed);
+    $("#tracker-head")?.addEventListener("click", () => {
+      collapsed = !collapsed;
+      tracker.classList.toggle("collapsed", collapsed);
+      try { localStorage.setItem("hobile.tracker", collapsed ? "collapsed" : "open"); } catch {}
+    });
     let t = $("#chat-mini");
     t.addEventListener("click", () => this.togglePanel("chat")), t.addEventListener("keydown", n => {
       (n.key === "Enter" || n.key === " ") && (n.preventDefault(), this.togglePanel("chat"));

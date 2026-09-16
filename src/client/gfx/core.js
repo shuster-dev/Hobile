@@ -1,4 +1,4 @@
-import { ACESFilmicToneMapping, AdditiveBlending, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, Color, CylinderGeometry, DirectionalLight, DoubleSide, Euler, Float32BufferAttribute, FrontSide, Group, HemisphereLight, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, PCFShadowMap, PCFSoftShadowMap, PMREMGenerator, PlaneGeometry, Quaternion, SRGBColorSpace, Scene, ShaderMaterial, SphereGeometry, Vector3, WebGLRenderer } from 'three';
+import { ACESFilmicToneMapping, AdditiveBlending, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, Color, CylinderGeometry, DataTexture, DirectionalLight, DoubleSide, Euler, Float32BufferAttribute, FrontSide, Group, HemisphereLight, LinearToneMapping, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, MeshToonMaterial, NearestFilter, PCFShadowMap, PCFSoftShadowMap, PMREMGenerator, PlaneGeometry, Quaternion, RedFormat, SRGBColorSpace, Scene, ShaderMaterial, SphereGeometry, UnsignedByteType, Vector3, WebGLRenderer } from 'three';
 
 function Jv(i) {
   let e = "";
@@ -30,7 +30,7 @@ function makeRenderer(i) {
     medium: 1.5,
     high: 2
   }[QUALITY.tier];
-  return e.setPixelRatio(Math.min(window.devicePixelRatio, t)), e.outputColorSpace = SRGBColorSpace, e.toneMapping = ACESFilmicToneMapping, e.toneMappingExposure = 1.02, e.shadowMap.enabled = QUALITY.tier !== "low", e.shadowMap.type = QUALITY.tier === "high" ? PCFSoftShadowMap : PCFShadowMap, e.info.autoReset = !0, e;
+  return e.setPixelRatio(Math.min(window.devicePixelRatio, t)), e.outputColorSpace = SRGBColorSpace, e.toneMapping = STYLE.toon ? LinearToneMapping : ACESFilmicToneMapping, e.toneMappingExposure = STYLE.toon ? 1.0 : 1.02, e.shadowMap.enabled = QUALITY.tier !== "low", e.shadowMap.type = QUALITY.tier === "high" ? PCFSoftShadowMap : PCFShadowMap, e.info.autoReset = !0, e;
 }
 
 function sizeRenderer(i) {
@@ -137,12 +137,14 @@ function makeLights(i, {
   groundColor: s,
   shadowRadius: r = 42
 }) {
+  // Cel shading needs a generous fill and a softer key: with the PBR balance
+  // the quantised ramp turns every shadowed face into one flat dark band.
   let o = QUALITY.tier === "high" ? 1024 : 512,
-    a = new HemisphereLight(n, s, 0.92);
+    a = new HemisphereLight(n, s, STYLE.toon ? 1.45 : 0.92);
   i.add(a);
-  let l = new DirectionalLight(t, 2.45);
+  let l = new DirectionalLight(t, STYLE.toon ? 1.75 : 2.45);
   l.position.copy(e).multiplyScalar(60), l.castShadow = !0, l.shadow.mapSize.set(o, o), l.shadow.camera.near = 5, l.shadow.camera.far = 190, l.shadow.camera.left = -r, l.shadow.camera.right = r, l.shadow.camera.top = r, l.shadow.camera.bottom = -r, l.shadow.bias = -9e-4, l.shadow.normalBias = 0.035, i.add(l), i.add(l.target);
-  let c = new DirectionalLight(n, 0.6);
+  let c = new DirectionalLight(n, STYLE.toon ? 0.85 : 0.6);
   return c.position.set(-e.x * 40, 26, -e.z * 40), i.add(c), {
     hemi: a,
     sun: l,
@@ -156,9 +158,75 @@ function aimSun(i, e, t) {
 
 var MAT_CACHE = new Map();
 
+/**
+ * Art direction.
+ *
+ * `toon` swaps the PBR materials for banded cel shading, which is what makes
+ * the creatures read as drawn rather than rendered. Everything else here is a
+ * dial the look depends on — outline weight in particular, because a cel look
+ * without a confident outline just looks like a lighting bug.
+ */
+const STYLE = {
+  toon: true,
+  bands: 4,            // shading steps; 3 is poster-flat, 5 is nearly smooth
+  saturate: 1.22,      // cartoon palettes are more saturated than lit ones
+  lift: 0.06,          // pull very dark colours up so shadows stay readable
+  outline: 0.05,       // fraction of the part's size
+  outlineOpacity: 0.9,
+  outlineColor: 0x15121f,
+  // Cartoon proportions. null turns the pass off entirely.
+  chibi: { head: 1.26, eye: 1.34, sep: 1.06, snout: 0.7, limb: 1.22, stance: 1.05, leg: 0.72, girth: 1.08, avatarHeads: 4.8 },
+};
+
+let GRADIENT = null;
+function toonGradient(bands) {
+  if (GRADIENT && GRADIENT.userData.bands === bands) return GRADIENT;
+  // A ramp of `bands` steps, sampled with NEAREST: that quantisation is the
+  // whole cel-shading trick. The darkest step is lifted off black so shadowed
+  // sides keep their hue instead of turning into silhouette.
+  const data = new Uint8Array(bands);
+  for (let i = 0; i < bands; i++) data[i] = Math.round(255 * (0.42 + 0.58 * (i / (bands - 1))));
+  const tex = new DataTexture(data, bands, 1, RedFormat, UnsignedByteType);
+  tex.minFilter = tex.magFilter = NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  tex.userData = { bands };
+  GRADIENT = tex;
+  return tex;
+}
+
+const STYLED = new Color();
+function styleColor(hex) {
+  if (!STYLE.toon) return hex;
+  STYLED.setHex(hex);
+  const hsl = STYLED.getHSL({ h: 0, s: 0, l: 0 });
+  STYLED.setHSL(hsl.h, Math.min(1, hsl.s * STYLE.saturate), Math.min(0.97, hsl.l + STYLE.lift * (1 - hsl.l)));
+  return STYLED.getHex();
+}
+
 function mat(i, e = {}) {
   let t = `${i}|${JSON.stringify(e)}`;
   if (MAT_CACHE.has(t)) return MAT_CACHE.get(t);
+  if (STYLE.toon && !e.pbr) {
+    let toon = new MeshToonMaterial({
+      color: styleColor(i),
+      gradientMap: toonGradient(STYLE.bands),
+      emissive: e.emissive ?? 0,
+      emissiveIntensity: e.emissiveIntensity ?? 1,
+      transparent: e.transparent ?? !1,
+      opacity: e.opacity ?? 1,
+      side: e.side ?? FrontSide,
+      depthWrite: e.depthWrite ?? !0
+    });
+    // Metal and glass used to come from envMapIntensity, which toon materials
+    // ignore. A little emissive of the base colour stands in for the sheen so
+    // coglet and ferrogeist do not flatten into grey card.
+    if ((e.env ?? 0.85) > 1.05 && !e.emissive) {
+      toon.emissive = new Color(styleColor(i));
+      toon.emissiveIntensity = Math.min(0.3, ((e.env ?? 0.85) - 1) * 0.5);
+    }
+    return toon.userData.shared = !0, MAT_CACHE.set(t, toon), toon;
+  }
   let n = new MeshStandardMaterial({
     color: i,
     roughness: e.roughness ?? 0.72,
@@ -187,9 +255,9 @@ function glowMat(i, e = 0.9) {
 }
 
 function outlineMat(i, {
-  thickness: e = 0.028,
-  color: t = 1054752,
-  opacity: n = 0.55
+  thickness: e = STYLE.outline,
+  color: t = STYLE.outlineColor,
+  opacity: n = STYLE.outlineOpacity
 } = {}) {
   let s = new MeshBasicMaterial({
       color: t,
@@ -589,4 +657,4 @@ var HALF_PI = Math.PI / 2,
     }
   };
 
-export { HALF_PI, Jv, MAT_CACHE, MOODS, QUALITY, Qv, TAU, TIER, aimSun, bez2, bez4, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, jv, lathe, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, outlineMat, profile, sampleCurve, sizeRenderer, softShadowTexture, taperGeo, toNonIndexed, v0, weldGeometry, x0, xf2, y0 };
+export { STYLE, styleColor, toonGradient, HALF_PI, Jv, MAT_CACHE, MOODS, QUALITY, Qv, TAU, TIER, aimSun, bez2, bez4, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, jv, lathe, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, outlineMat, profile, sampleCurve, sizeRenderer, softShadowTexture, taperGeo, toNonIndexed, v0, weldGeometry, x0, xf2, y0 };
