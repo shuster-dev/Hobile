@@ -30,6 +30,10 @@ self.addEventListener('fetch', (e) => {
         caches.open(VERSION).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
       })
-      .catch(() => caches.match(e.request).then((hit) => hit || caches.match('./index.html')))
+      // Falling back to the shell only makes sense for a navigation: hand an
+      // HTML page to a request for a model and the loader chokes on it, where
+      // a plain failure just leaves the procedural creature on screen.
+      .catch(() => caches.match(e.request).then((hit) => hit
+        || (e.request.mode === 'navigate' ? caches.match('./index.html') : undefined)))
   );
 });

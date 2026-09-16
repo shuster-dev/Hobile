@@ -17,7 +17,10 @@ const FULL = process.env.SHOT_FULL === '1';
 const server = http.createServer((req, res) => {
   const f = path.join('dist', decodeURIComponent(req.url.split('?')[0]));
   if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
-  res.writeHead(200, { 'content-type': f.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' });
+  const type = f.endsWith('.js') ? 'text/javascript'
+    : f.endsWith('.glb') ? 'model/gltf-binary'
+      : f.endsWith('.png') ? 'image/png' : 'text/html; charset=utf-8';
+  res.writeHead(200, { 'content-type': type });
   res.end(fs.readFileSync(f));
 });
 await new Promise((r) => server.listen(PORT, r));

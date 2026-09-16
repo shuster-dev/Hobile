@@ -1,4 +1,5 @@
 import { Color, Group, Mesh, PointLight, SphereGeometry, TorusGeometry } from 'three';
+import { MODELS, animateModel, attachModel } from './models.js';
 import { HALF_PI, QUALITY, STYLE, TAU, TIER, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, mat, mergeByMaterial, outlineMat, profile, taperGeo, xf2 } from './core.js';
 import { UNIT_OCTA, applyElementKit, beads, buildAvian, buildBlob, buildGolem, buildInsect, buildQuad, buildSerpent, buildSprite, buildTail, curveAt, curveSampler, finPair, frills, gear, maw, palette, petals, podGeo, puff, shellHalves, speciesPalette, spikeGeo, spines, tuft, whiskers } from './parts.js';
 import { AVATAR, SPECIES, hashString, seededRandom } from '../../shared/gamedata.js';
@@ -2034,6 +2035,9 @@ function buildCreature(i, {
       f = new Mesh(new SphereGeometry(u * 1.35, 18, 12), glowMat(a.accent, 0.06));
     f.position.set(0, ((h.anchors.head?.y ?? 1) + (h.anchors.chest?.y ?? 1)) * 0.5, 0), f.userData.noOutline = !0, s.add(f), c.halo = f;
   }
+  // A registered model replaces this body once it has loaded. The group is
+  // returned synchronously either way, so nothing waits on the network.
+  if (MODELS[i]) attachModel(s, i);
   return e && outlineMat(s, {
     thickness: 0.03
   }), s.scale.setScalar(r.scale || 1), s.userData.rig = c, s.userData.speciesId = i, s.userData.phase = Math.random() * Math.PI * 2, s.userData.element = n.types[0], s;
@@ -2299,6 +2303,9 @@ function setCreatureLod(i, e) {
 }
 
 function animateCreature(i, e, t = !1, n = 1) {
+  // A model-backed creature is driven by its own clips; the procedural rig
+  // below only exists for species that have no model yet.
+  if (animateModel(i, e, t, n)) return;
   let s = i.userData.rig;
   if (!s) return;
   let r = e * 0.001 + (i.userData.phase || 0),
@@ -2329,4 +2336,4 @@ function animateCreature(i, e, t = !1, n = 1) {
   }
 }
 
-export { DESIGN, PLAN_BUILDERS, PLAN_SAMPLES, animateCreature, bez3, buildAvatar, buildCreature, setCreatureLod };
+export { MODELS, DESIGN, PLAN_BUILDERS, PLAN_SAMPLES, animateCreature, bez3, buildAvatar, buildCreature, setCreatureLod };

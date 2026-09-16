@@ -8,6 +8,29 @@ const dev = process.argv.includes('--dev');
 const outDir = 'dist/web';
 fs.mkdirSync(outDir, { recursive: true });
 
+/**
+ * Creature models travel beside the page, never inside it.
+ *
+ * Four megabytes of glTF inlined as base64 would be four megabytes the player
+ * downloads before the loading screen can even appear, for creatures they may
+ * never meet. As separate files next to the page they are same-origin — which
+ * is what a static host and an artifact both require — fetched only when a
+ * species first appears, and cached by the browser from then on.
+ */
+function copyModels(dir) {
+  const src = 'assets/models';
+  if (!fs.existsSync(src)) return 0;
+  const dest = path.join(dir, 'models');
+  fs.mkdirSync(dest, { recursive: true });
+  const files = fs.readdirSync(src).filter((f) => f.endsWith('.glb'));
+  let bytes = 0;
+  for (const f of files) {
+    fs.copyFileSync(path.join(src, f), path.join(dest, f));
+    bytes += fs.statSync(path.join(src, f)).size;
+  }
+  return { count: files.length, kb: Math.round(bytes / 1024) };
+}
+
 const entry = (solo || artifact) ? 'src/client/solo.js' : 'src/client/main.js';
 const result = await esbuild.build({
   entryPoints: [entry],
@@ -34,7 +57,8 @@ if (artifact) {
   const safe = js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
   const out = `<style>\n${styles}\n</style>\n${body}\n<script>${safe}</script>\n`;
   fs.writeFileSync('dist/artifact.html', out);
-  console.log(`dist/artifact.html  ${(out.length / 1024).toFixed(0)} KB`);
+  const m = copyModels('dist');
+  console.log(`dist/artifact.html  ${(out.length / 1024).toFixed(0)} KB  + ${m.count} models (${m.kb} KB)`);
 } else if (solo) {
   // one self-contained file: inline the bundle
   // NB: replacement must be a function - a string replacement would expand $& / $1
@@ -42,7 +66,8 @@ if (artifact) {
   const inline = '<script>' + js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--') + '</script>';
   const html = shell.replace(/<script type="module" src="\.\/main\.js"><\/script>/, () => inline);
   fs.writeFileSync('dist/solo.html', html);
-  console.log(`dist/solo.html  ${(html.length / 1024).toFixed(0)} KB  (js ${(js.length / 1024).toFixed(0)} KB)`);
+  const m = copyModels('dist');
+  console.log(`dist/solo.html  ${(html.length / 1024).toFixed(0)} KB  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)`);
 } else {
   fs.writeFileSync(path.join(outDir, 'main.js'), js);
   fs.writeFileSync(path.join(outDir, 'index.html'), shell);
@@ -51,5 +76,6 @@ if (artifact) {
   for (const f of ['manifest.webmanifest', 'sw.js', 'icon.svg']) {
     fs.copyFileSync(path.join('src/client', f), path.join(outDir, f));
   }
-  console.log(`${outDir}/  index.html + main.js  (js ${(js.length / 1024).toFixed(0)} KB)`);
+  const m = copyModels(outDir);
+  console.log(`${outDir}/  index.html + main.js  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)`);
 }
