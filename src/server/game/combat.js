@@ -1313,4 +1313,28 @@ function writeSave(i) {
   } catch {}
 }
 
-export { Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+/**
+ * Resolve a creature uid coming from the client to a combatant on the
+ * requester's own side, then hand it to Combat.switchTo.
+ *
+ * The client speaks in creature uids (what the player sees in their team
+ * panel); Combat speaks in combatant ids, which only exist for the duration of
+ * one battle. Nothing bridged the two, so every manual switch was dropped.
+ *
+ * Ownership matters: without the ownerKey check a player could switch a
+ * party member's creature in, or in PvP one of the opponent's.
+ */
+function swapToUid(sim, you, uid) {
+  if (!sim || !you) return { ok: false, reason: "no_battle" };
+  if (typeof uid !== "string" || !uid) return { ok: false, reason: "no_target" };
+  const mine = ownerKey(you);
+  for (const c of sim.combatants.values()) {
+    if (c.side !== you.side || c.kind === "trainer") continue;
+    if (ownerKey(c) !== mine) continue;
+    if (c.creature?.uid !== uid) continue;
+    return sim.switchTo(c.id);
+  }
+  return { ok: false, reason: "no_target" };
+}
+
+export { swapToUid, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

@@ -2134,7 +2134,7 @@ var MOVES = {
       boss: "rootfather",
       rewards: {
         gold: [200, 500],
-        items: ["sphere_basic", "potion_s", "mat_scrap_iron"]
+        items: ["sphere_basic", "potion_s", "scrap_iron"]
       }
     },
     sunken_vault: {
@@ -2263,7 +2263,7 @@ var MOVES = {
       },
       reward: {
         gold: 400,
-        items: [["mat_scrap_iron", 6], ["mat_fiber", 6]],
+        items: [["scrap_iron", 6], ["fiber", 6]],
         xp: 110
       }
     },
@@ -2336,7 +2336,7 @@ var MOVES = {
       },
       reward: {
         gold: 900,
-        items: [["mat_aether_core", 2]],
+        items: [["aether_core", 2]],
         xp: 420
       }
     },

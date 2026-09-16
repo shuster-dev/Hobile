@@ -1,6 +1,8 @@
-import { Combat, Combatant, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { Combat, Combatant, swapToUid, teamCreatures, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
+import { hpRatio, guildBuffs } from './player.js';
+import { handleWorldMessage } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
 
 var StoreBase = class {
@@ -403,374 +405,26 @@ var StoreBase = class {
       }
     }
     handle(e, t = {}) {
-      let n = this.doc,
-        s = this.state.players.get("me"),
-        r = Date.now();
-      switch (e) {
-        case "ready":
-        case "refresh":
-          this.welcome();
-          break;
-        case "move":
-          if (Number.isFinite(t.x) && Number.isFinite(t.z)) {
-            let o = resolveCollision(this.colliders, t.x, t.z, 0.42);
-            s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, this.checkVisits(n, s);
-          }
-          break;
-        case "chat":
-          {
-            let o = {
-              ch: t.ch || "zone",
-              from: n.name,
-              fromId: n.id,
-              text: String(t.text || "").slice(0, 240),
-              t: r
-            };
-            this.net.emit("chat", o);
-            break;
-          }
-        case "engage":
-          {
-            let o = this.state.wilds.get(t.wildId);
-            if (!o || o.engagedBy) {
-              this.net.emit("error", {
-                code: "wild_gone"
-              });
-              return;
-            }
-            if (Math.hypot(o.x - s.x, o.z - s.z) > 8) {
-              this.net.emit("error", {
-                code: "too_far"
-              });
-              return;
-            }
-            let a = activeCreature(n);
-            if (!a || a.hp <= 0) {
-              this.net.emit("error", {
-                code: "no_healthy_creature"
-              });
-              return;
-            }
-            o.engagedBy = n.id;
-            let l = new BattleSim(this.net, {
-              zoneId: this.zoneId,
-              wild: {
-                species: o.species,
-                level: o.level
-              },
-              onEnd: c => {
-                c ? (this.state.wilds.delete(t.wildId), this.wildDocs.delete(t.wildId)) : o.engagedBy = "";
-              }
-            });
-            this.net.pendingRooms.set(l.roomId, l), this.net.emit("goto", {
-              roomId: l.roomId,
-              kind: "battle"
-            });
-            break;
-          }
-        case "duel":
-          {
-            this.net.emit("error", {
-              code: "pvp_offline"
-            });
-            break;
-          }
-        case "bossAttack":
-          {
-            let o = this.state.boss;
-            if (!o.active) return;
-            if (Math.hypot(o.x - s.x, o.z - s.z) > 16) {
-              this.net.emit("error", {
-                code: "too_far"
-              });
-              return;
-            }
-            if (r < (this._bossCd || 0)) return;
-            this._bossCd = r + 900;
-            let a = activeCreature(n);
-            if (!a) return;
-            let l = statsFor(a.species, a.level, a.iv),
-              c = MOVES[t.skill] || MOVES[a.skills[0]],
-              h = c?.kind === "special" ? l.spa : l.atk,
-              d = Math.max(1, Math.floor(((2 * a.level / 5 + 2) * (c?.power || 34) * (h / 120) / 50 + 2) * (0.85 + Math.random() * 0.3)));
-            if (o.hp = Math.max(0, o.hp - d), this.bossContribution.set(n.name, (this.bossContribution.get(n.name) || 0) + d), this.refreshBossBoard(), this.net.emit("bossHit", {
-              by: n.name,
-              dmg: d,
-              hp: o.hp,
-              skill: t.skill
-            }), Math.random() < 0.25) {
-              let u = Math.max(1, Math.floor(a.maxHp * (0.05 + Math.random() * 0.07)));
-              a.hp = Math.max(0, a.hp - u), s.hpRatio = hpRatio(n), this.net.save(), this.net.emit("bossCounter", {
-                dmg: u,
-                hp: a.hp,
-                maxHp: a.maxHp
-              });
-            }
-            break;
-          }
-        case "travel":
-          {
-            let o = ZONES[t.zone];
-            if (!o) return;
-            if (n.level < o.levels[0] - 2) {
-              this.net.emit("error", {
-                code: "level_too_low"
-              });
-              return;
-            }
-            n.zone = t.zone, this.net.save(), this.net.emit("goto", {
-              kind: "world",
-              zone: t.zone,
-              fromZone: this.zoneId
-            });
-            break;
-          }
-        case "dungeonEnter":
-          {
-            let o = DUNGEONS[t.dungeonId];
-            if (!o) return;
-            if (n.level < o.minLevel) {
-              this.net.emit("error", {
-                code: "level_too_low",
-                need: o.minLevel
-              });
-              return;
-            }
-            let a = new DungeonSim(this.net, {
-              def: o,
-              allies: []
-            });
-            this.net.pendingRooms.set(a.roomId, a), this.net.emit("goto", {
-              roomId: a.roomId,
-              kind: "dungeon"
-            });
-            break;
-          }
-        case "interact":
-          {
-            let o = this.zone.landmarks.find(a => a.id === t.target || a.kind === t.target);
-            if (!o) return;
-            o.kind === "npc" ? this.speak(n, o.id || o.npc) : (o.kind === "plaza" || o.kind === "town" || o.kind === "camp") && (healTeam(n, 1), s.hpRatio = hpRatio(n), this.net.save(), this.net.emit("healed", {}), this.net.emit("profile", publicProfile(n)));
-            break;
-          }
-        case "talk":
-          {
-            this.speak(n, typeof t?.npcId == "string" ? t.npcId : "");
-            break;
-          }
-        case "baseOpen":
-          {
-            let o = collectGarden(n);
-            this.net.save(), this.net.emit("base", {
-              ...baseView(n),
-              ...(o ? {
-                fiber: o
-              } : {})
-            }), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "baseBuild":
-        case "baseTrain":
-        case "baseCollect":
-        case "baseCancel":
-        case "baseCraft":
-          {
-            let o = {
-              baseBuild: () => upgradeBuilding(n, t.id),
-              baseTrain: () => startTraining(n, t.uid),
-              baseCollect: () => collectTraining(n, t.slotId),
-              baseCancel: () => cancelTraining(n, t.slotId),
-              baseCraft: () => startCraft(n, t.recipe)
-            }[e]();
-            if (!o.ok) {
-              this.net.emit("error", {
-                code: o.reason
-              });
-              return;
-            }
-            let a = e === "baseCraft" ? syncQuests(n, {
-              kind: "craft"
-            }) : e === "baseCollect" && o.star ? syncQuests(n, {
-              kind: "star",
-              star: o.star
-            }) : [];
-            this.net.save();
-            for (let c of a) this.net.emit("questDone", {
-              id: c
-            });
-            let l = e === "baseCollect" ? {
-              starUp: o
-            } : e === "baseBuild" ? {
-              built: o
-            } : e === "baseTrain" ? {
-              started: o.slot
-            } : e === "baseCraft" ? {
-              craft: o.job
-            } : {};
-            this.net.emit("base", {
-              ...baseView(n),
-              ...l
-            }), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "card":
-          {
-            let o = creatureCard(n, t.uid);
-            o && this.net.emit("card", o);
-            break;
-          }
-        case "shopBuy":
-          {
-            let o = ITEMS[t.itemId],
-              a = Math.max(1, Math.min(99, Number(t.qty) || 1));
-            if (!o?.price) return;
-            if (n.gold < o.price * a) {
-              this.net.emit("error", {
-                code: "not_enough_gold"
-              });
-              return;
-            }
-            n.gold -= o.price * a, giveItem(n, o.id, a), this.net.save(), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "useItem":
-          {
-            let o = ITEMS[t.itemId];
-            if (!o) return;
-            let a = n.creatures[t.uid] || activeCreature(n);
-            if (o.kind === "heal" && a && a.hp > 0 && takeItem(n, o.id)) a.hp = Math.min(a.maxHp, a.hp + o.amount);else if (o.kind === "revive" && a && a.hp <= 0 && takeItem(n, o.id)) a.hp = Math.floor(a.maxHp * o.ratio);else if (o.kind === "gear") {
-              if (!equipGear(n, o.id)) {
-                this.net.emit("error", {
-                  code: "cannot_equip"
-                });
-                return;
-              }
-            } else {
-              this.net.emit("error", {
-                code: "cannot_use"
-              });
-              return;
-            }
-            s.hpRatio = hpRatio(n), this.net.save(), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "setTeam":
-          {
-            let o = (t.team || []).filter(l => n.creatures[l]).slice(0, 6);
-            if (!o.length) return;
-            let a = new Set([...n.team, ...n.box]);
-            n.team = o, n.box = [...a].filter(l => !o.includes(l)), s.petSpecies = activeCreature(n)?.species || "", s.hpRatio = hpRatio(n), this.net.save(), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "questClaim":
-          {
-            let o = claimQuest(n, t.questId);
-            if (!o) {
-              this.net.emit("error", {
-                code: "cannot_claim"
-              });
-              return;
-            }
-            this.net.save(), this.net.emit("questClaimed", {
-              questId: t.questId,
-              reward: o.reward
-            }), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "partyInvite":
-        case "partyAccept":
-        case "friendAdd":
-          this.net.emit("error", {
-            code: "solo_mode"
-          });
-          break;
-        case "partyLeave":
-          this.net.emit("party", null);
-          break;
-        case "friendRespond":
-        case "friendRemove":
-          this.net.emit("friends", this.friendList());
-          break;
-        case "guildList":
-          this.net.emit("guildList", this.net.guilds.map(o => ({
-            id: o.id,
-            name: o.name,
-            tag: o.tag,
-            members: 1,
-            buffLevel: o.buffLevel,
-            territories: o.territories
-          })));
-          break;
-        case "guildCreate":
-          {
-            if (n.gold < GUILD.createCost) {
-              this.net.emit("error", {
-                code: "not_enough_gold"
-              });
-              return;
-            }
-            n.gold -= GUILD.createCost;
-            let o = {
-              id: "g" + uid().slice(0, 6),
-              name: t.name || "Guild",
-              tag: (t.tag || t.name || "GLD").slice(0, 4).toUpperCase(),
-              masterId: n.id,
-              buffLevel: 1,
-              contribution: 0,
-              myContribution: 0,
-              house: [],
-              territories: [],
-              warScore: 0,
-              log: [{
-                t: Date.now(),
-                text: `${n.name} founded the guild`
-              }]
-            };
-            this.net.guilds.unshift(o), n.guildId = o.id, s.guildTag = o.tag, this.net.save(), this.net.emit("guild", this.guildView()), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "guildJoin":
-          {
-            let o = this.net.guilds.find(a => a.id === t.guildId);
-            if (!o) return;
-            n.guildId = o.id, s.guildTag = o.tag, this.net.save(), this.net.emit("guild", this.guildView()), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "guildLeave":
-          n.guildId = null, s.guildTag = "", this.net.save(), this.net.emit("guild", null), this.net.emit("profile", publicProfile(n));
-          break;
-        case "guildContribute":
-          {
-            let o = this.net.guilds.find(l => l.id === n.guildId),
-              a = Math.max(1, Number(t.gold) || 0);
-            if (!o || n.gold < a) {
-              this.net.emit("error", {
-                code: "not_enough_gold"
-              });
-              return;
-            }
-            n.gold -= a, o.contribution += a, o.myContribution = (o.myContribution || 0) + a;
-            for (let l of GUILD.buffs) l.level > o.buffLevel && o.contribution >= l.cost && (o.buffLevel = l.level);
-            this.net.save(), this.net.emit("guild", this.guildView()), this.net.emit("profile", publicProfile(n));
-            break;
-          }
-        case "guildUpgrade":
-          {
-            let o = this.net.guilds.find(l => l.id === n.guildId),
-              a = GUILD.houseUpgrades.find(l => l.id === t.upgradeId);
-            if (!o || !a || o.house.includes(a.id)) return;
-            if (o.contribution < a.cost) {
-              this.net.emit("error", {
-                code: "not_enough_contribution"
-              });
-              return;
-            }
-            o.contribution -= a.cost, o.house.push(a.id), this.net.emit("guild", this.guildView());
-            break;
-          }
-        default:
-          break;
-      }
+      return handleWorldMessage(this, e, t);
+    }
+    // --- the context handleWorldMessage runs against -------------------------
+    self() {
+      return this.state.players.get(this.sessionId);
+    }
+    chat(msg) {
+      this.net.emit("chat", msg);
+    }
+    startBattle(opts) {
+      let sim = new BattleSim(this.net, opts);
+      this.net.pendingRooms.set(sim.roomId, sim);
+      this.net.emit("goto", { roomId: sim.roomId, kind: "battle" });
+      return sim.roomId;
+    }
+    startDungeon(opts) {
+      let sim = new DungeonSim(this.net, opts);
+      this.net.pendingRooms.set(sim.roomId, sim);
+      this.net.emit("goto", { roomId: sim.roomId, kind: "dungeon" });
+      return sim.roomId;
     }
   },
   BattleSim = class {
@@ -789,27 +443,62 @@ var StoreBase = class {
         mode: "pve",
         onEvent: a => this.onSimEvent(a)
       });
-      let r = e.doc,
-        o = activeCreature(r);
-      this.you = this.sim.add(new Combatant({
+      let r = e.doc;
+      // docs/battle-v2.md: the TEAM fights and the trainer stands behind it.
+      // Only the one active creature used to be added, so there was never a
+      // bench to switch to and never a trainer for `enemiesOf` to expose once
+      // the team went down — both headline features of v0.7 were inert.
+      let gear = sumStats(r),
+        team = teamCreatures(r),
+        lead = team.find(c => c.hp > 0) || team[0] || null;
+      this.roster = [];
+      team.forEach((creature, i) => {
+        let c = this.sim.add(new Combatant({
+          side: "a",
+          kind: "creature",
+          name: SPECIES[creature.species]?.name || creature.species,
+          creature,
+          ownerId: r.id,
+          slot: i,
+          benched: creature !== lead,
+          gearBonus: gear
+        }));
+        this.roster.push({ id: c.id, uid: creature.uid });
+      });
+      this.anchor = this.sim.combatants.get(this.roster.find(x => x.uid === lead?.uid)?.id) || null;
+      this.trainer = this.sim.add(new Combatant({
         side: "a",
-        kind: "player",
+        kind: "trainer",
         name: r.name,
-        creature: o,
         ownerId: r.id,
-        gearBonus: sumStats(r)
-      })), this.foe = this.sim.add(new Combatant({
+        level: r.level,
+        benched: !!this.anchor,
+        gearBonus: gear
+      }));
+      this.foe = this.sim.add(new Combatant({
         side: "b",
         kind: "wild",
         name: SPECIES[n.species].name,
         creature: makeCreature(n.species, n.level)
       }));
     }
+    /**
+     * The combatant the player is currently controlling.
+     *
+     * This used to be captured once at construction. After a switch the cached
+     * reference pointed at the creature that had just left the field, so every
+     * skill button acted on it — the "resolved - timed out" class of bug.
+     */
+    get you() {
+      return (this.anchor && this.sim.activeOf(this.anchor)) || this.anchor || this.trainer;
+    }
     start() {
       this.sync(), setTimeout(() => {
         this.net.emit("battleInit", {
           mode: "pve",
           you: this.you.id,
+          team: this.roster,
+          trainer: this.trainer?.id || null,
           inventory: this.net.doc.inventory,
           profile: publicProfile(this.net.doc)
         }), this.state.phase = "active", this.net.emit("battleStart", {
@@ -882,6 +571,17 @@ var StoreBase = class {
       }
       if (this.state.phase !== "active") return;
       let n = this.net.doc;
+      if (e === "swap") {
+        // Manual switching: the client sends a creature uid, Combat wants a
+        // combatant id. Without this the UI's swap button did nothing at all —
+        // switches only ever happened automatically, on a faint.
+        let s = swapToUid(this.sim, this.you, t.uid);
+        s.ok || this.net.emit("actionRejected", {
+          reason: s.reason,
+          uid: t.uid
+        }), this.sync();
+        return;
+      }
       if (e === "skill") {
         let s = this.sim.useSkill(this.you.id, t.skill, this.foe.id);
         s.ok || this.net.emit("actionRejected", {
@@ -1082,6 +782,15 @@ var StoreBase = class {
         return;
       }
       if (this.state.phase === "active") {
+        if (e === "swap") {
+          let n = swapToUid(this.sim, this.you, t.uid);
+          n.ok || this.net.emit("actionRejected", {
+            reason: n.reason,
+            uid: t.uid
+          });
+          this.sync();
+          return;
+        }
         if (e === "skill") {
           let n = this.sim.useSkill(this.you.id, t.skill);
           n.ok || this.net.emit("actionRejected", {
@@ -1129,6 +838,14 @@ function syncBattleState(i, e) {
     maxHp: n.maxHp,
     stamina: Math.round(n.stamina),
     ownerId: n.ownerId || "",
+    // The v0.7 team-battle fields. Combatant has carried these since the model
+    // changed from "the player fights" to "the team fights", but they were
+    // never copied into the synced state — so the client read benched=false and
+    // slot=undefined for everyone, the bench was invisible, liveTeam's sort by
+    // slot was meaningless, and a frozen combatant looked idle.
+    benched: !!n.benched,
+    slot: Number.isFinite(n.slot) ? n.slot : 0,
+    frozenUntil: n.frozenUntil || 0,
     skills: n.skills.slice(),
     effects: n.effects.map(s => ({
       kind: s.kind,
@@ -1138,16 +855,6 @@ function syncBattleState(i, e) {
   for (let n of [...i.combatants.keys()]) t.has(n) || i.combatants.delete(n);
 }
 
-function hpRatio(i) {
-  let e = activeCreature(i);
-  return e ? e.hp / Math.max(1, e.maxHp) : 1;
-}
-
-function guildBuffs(i) {
-  let e = {};
-  for (let t of GUILD.buffs) if (!(t.level > i.buffLevel)) for (let [n, s] of Object.entries(t.bonus)) e[n] = (e[n] || 0) + s;
-  return e;
-}
 
 
-export {BattleSim, DungeonSim, LocalStore, StoreBase, WorldSim, guildBuffs, hpRatio, syncBattleState};
+export {BattleSim, DungeonSim, LocalStore, StoreBase, WorldSim, syncBattleState};

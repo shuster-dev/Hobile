@@ -390,9 +390,9 @@ var Game = class {
     return {
       openBase: () => this.openBase(),
       clinicHeal: () => e("clinicHeal"),
-      swapCreature: t => e("switchCreature", {
-        uid: t
-      }),
+      // NB: swapCreature is defined once, further down in this same object.
+      // It used to be declared here too, sending an unhandled "switchCreature"
+      // message; the later key silently won, so this one never ran.
       openCard: t => {
         e("card", {
           uid: t
@@ -492,11 +492,8 @@ var Game = class {
       }
     };
   }
-  bestSphere() {
-    let e = this.battle.inventory || {};
-    for (let t of ["sphere_ultra", "sphere_great", "sphere_basic"]) if (e[t] > 0) return t;
-    return "sphere_basic";
-  }
+  // bestSphere lives further down: the copy that used to be here tested `e[t] > 0`
+  // on a possibly-undefined count and was overridden by the guarded one anyway.
   bestPotion() {
     let e = this.battle.inventory || {};
     for (let t of ["potion_s", "potion_m", "potion_l"]) if (e[t] > 0) return t;
