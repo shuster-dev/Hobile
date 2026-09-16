@@ -47,6 +47,32 @@ which upstream asset a file came from.
 | frostnib | Penguiton | stormcaller | Mewphinx |
 | | | hollowking | Triplicoon |
 
+## Character models
+
+The trainer, and every person in the world, is a model from the **Aether Star
+Online open assets** — a fantasy MMO's public asset repository.
+
+**Licence: CC0 1.0 Universal (public domain)**, stated in that repository's own
+`LICENSE` and README: *"Everything in this repository is dedicated to the public
+domain under CC0 1.0."* Attribution is not required.
+
+| | |
+|---|---|
+| Source | https://github.com/aether-star-online/aso-assets (`characters/`) |
+| Used | `char_corin` → `hero-corin.glb`, `char_renn` → `hero-renn.glb` |
+
+These arrive the other way round from the creatures: fully animated, with clips
+an artist authored (Idle, Walking, Running, Attack, a death), which the mixer
+plays directly. What the game adds is the recolouring — `Mat_Skin`, `Mat_Hair`,
+`Mat_ClothPrimary` and `Mat_ClothSecondary` are tinted from the player's own
+choices in the character creator, so a model does not cost customisation.
+
+Every model in `assets/` is run through `tools/models/optimise.mjs` before it is
+committed: normal, metallic-roughness and occlusion maps are dropped (the toon
+material reads none of them), the base colour is resized to 512, and vertex data
+is quantized. That is 5.1 MB of source art down to 3.4 MB shipped, with the rigs
+and clips intact — `tools/models/rigcheck.mjs` fails loudly if one is not.
+
 ### Animation
 
 The models ship rigged and with no animation clips. Nothing in `assets/models/`

@@ -21,7 +21,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     b: -1
   },
   SLOT_POS = [[-1.95, 1.85], [1.95, 1.85], [-1, 2.8], [1, 2.8], [0, 3.5]],
-  ip = [2.15, 3.55],
+  ip = [1.95, 3.05],
   sp = 0.78,
   TRAINER_ID = "__trainer",
   nt = new Vector3(),

@@ -1,5 +1,5 @@
 import { Color, Group, Mesh, PointLight, SphereGeometry, TorusGeometry } from 'three';
-import { MODELS, animateModel, attachModel } from './models.js';
+import { MODELS, animateModel, attachAvatar, attachModel } from './models.js';
 import { HALF_PI, QUALITY, STYLE, TAU, TIER, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, mat, mergeByMaterial, outlineMat, profile, taperGeo, xf2 } from './core.js';
 import { UNIT_OCTA, applyElementKit, beads, buildAvian, buildBlob, buildGolem, buildInsect, buildQuad, buildSerpent, buildSprite, buildTail, curveAt, curveSampler, finPair, frills, gear, maw, palette, petals, podGeo, puff, shellHalves, speciesPalette, spikeGeo, spines, tuft, whiskers } from './parts.js';
 import { AVATAR, SPECIES, hashString, seededRandom } from '../../shared/gamedata.js';
@@ -2287,7 +2287,15 @@ function buildAvatar(i = {}, {
   return e && outlineMat(E, {
     thickness: 0.02,
     opacity: 0.45
-  }), E.userData.rig = _, E.userData.phase = Math.random() * Math.PI * 2, E.userData.height = m, E;
+  }), E.userData.rig = _, E.userData.phase = Math.random() * Math.PI * 2, E.userData.height = m,
+  // A real character replaces this body once it has loaded, tinted with the
+  // colours chosen right here. The group is returned synchronously either way.
+  attachAvatar(E, {
+    body: t,
+    skin: i.skin || AVATAR.skins[0],
+    hair: i.hair || AVATAR.hair[0],
+    outfit: r
+  }), E;
 }
 
 function setCreatureLod(i, e) {

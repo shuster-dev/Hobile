@@ -20,8 +20,8 @@
  * the shipped game, not just in the repo.
  */
 import {
-  BackSide, Box3, Color, Group, MeshBasicMaterial, MeshToonMaterial,
-  Quaternion, SkinnedMesh, Vector3,
+  AnimationMixer, BackSide, Box3, Color, Group, LoopOnce, LoopRepeat,
+  MeshBasicMaterial, MeshToonMaterial, Quaternion, SkinnedMesh, Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -98,9 +98,48 @@ export const MODELS = {
   hollowking: { file: 'triplicoon.glb', size: 5.8 },
 };
 
-/** One line, because the whole pack shares one licence. */
+/**
+ * The people.
+ *
+ * These come the other way round from the creatures: fully animated, with clips
+ * the artist authored — Idle, Walking, Running, Attack, a death — so the mixer
+ * plays them and the bone-driven animator below stays out of the way.
+ *
+ * `tint` maps a material in the file to a colour the player chose in the
+ * character creator, which is the whole reason these two were worth having:
+ * a model usually means giving up customisation, and here it does not.
+ */
+export const AVATARS = {
+  corin: {
+    file: 'hero-corin.glb',
+    height: 1.78,
+    clips: {
+      idle: 'Idle', walk: 'Walking', run: 'Running',
+      attack: 'Attack', down: 'Dying Backwards',
+    },
+    tint: { mat_skin: 'skin', mat_hair: 'hair', mat_clothprimary: 'a', mat_clothsecondary: 'b' },
+  },
+  renn: {
+    file: 'hero-renn.glb',
+    height: 1.78,
+    clips: {
+      idle: 'Idle', walk: 'Walking', run: 'Running',
+      attack: 'Attack', down: 'Dying Backwards', cast: 'Cast Release',
+    },
+    tint: { mat_hair: 'hair' },
+  },
+};
+
+/** Which body a player's choice maps to. */
+export function avatarFor(body) {
+  return body === 'slim' ? 'renn' : 'corin';
+}
+
+/** One line each, because each pack shares one licence. */
 export const MODEL_CREDIT =
   'Creature models: XYZ pack by Polygonal Mind, released CC0 (public domain).';
+export const AVATAR_CREDIT =
+  'Character models: Aether Star Online open assets, released CC0 (public domain).';
 
 // ---------------------------------------------------------------------------
 // loading
@@ -170,8 +209,12 @@ function outlineMaterial(thickness) {
  * Match a loaded model to the game's art direction rather than its own.
  * The baked texture is the whole point of these models, so it is kept and the
  * lighting response is what changes: flat toon bands instead of PBR falloff.
+ *
+ * `tint` recolours named materials from the player's own choices. The baked map
+ * stays underneath, so the shading the artist painted survives the recolour
+ * instead of being flattened into a block of colour.
  */
-function toonify(root, outline) {
+function toonify(root, outline, tint) {
   const swapped = new Map();
   const added = [];
   root.traverse((o) => {
@@ -181,17 +224,19 @@ function toonify(root, outline) {
     o.frustumCulled = false;      // a skinned pose can leave the bind-pose box
     const src = Array.isArray(o.material) ? o.material[0] : o.material;
     if (STYLE.toon) {
-      let toon = swapped.get(src);
+      const wanted = tint?.[String(src.name || '').toLowerCase()] || null;
+      const key = wanted ? `${src.uuid}|${wanted}` : src.uuid;
+      let toon = swapped.get(key);
       if (!toon) {
         toon = new MeshToonMaterial({
           map: src.map || null,
-          color: src.map ? 0xffffff : (src.color?.clone?.() ?? 0xffffff),
+          color: wanted || (src.map ? 0xffffff : (src.color?.clone?.() ?? 0xffffff)),
           gradientMap: toonGradient(STYLE.bands),
           transparent: src.transparent,
           opacity: src.opacity ?? 1,
           side: src.side,
         });
-        swapped.set(src, toon);
+        swapped.set(key, toon);
       }
       o.material = toon;
     }
@@ -442,6 +487,86 @@ export async function attachModel(group, speciesId) {
   return true;
 }
 
+/**
+ * Swap a procedurally built avatar for its model, in place.
+ *
+ * Same surgery as `attachModel`, but these files carry their own animation, so
+ * what gets stored is a mixer and a set of named actions rather than a rig.
+ */
+export async function attachAvatar(group, appearance = {}) {
+  const def = AVATARS[avatarFor(appearance.body)];
+  if (!def || !group) return false;
+  const gltf = await fetchModel(def.file);
+  if (!gltf || !group.parent) return false;
+
+  const outfit = appearance.outfit || {};
+  const tint = {};
+  for (const [material, slot] of Object.entries(def.tint || {})) {
+    const colour = slot === 'skin' ? appearance.skin
+      : slot === 'hair' ? appearance.hair
+        : slot === 'a' ? (outfit.a || appearance.outfitA)
+          : (outfit.b || appearance.outfitB);
+    if (colour) tint[material] = new Color(colour);
+  }
+
+  const model = cloneSkinned(gltf.scene);
+  const outline = STYLE.outline > 0 && QUALITY.tier !== 'low'
+    ? outlineMaterial(0.009) : null;
+  toonify(model, outline, tint);
+
+  const box = new Box3().setFromObject(model);
+  const size = box.getSize(new Vector3());
+  const height = def.height * (appearance.body === 'tall' ? 1.045
+    : appearance.body === 'stocky' ? 0.955 : 1);
+  const scale = height / Math.max(0.001, size.y);
+  model.scale.set(scale * (appearance.body === 'stocky' ? 1.1 : 1), scale, scale);
+  model.position.y = -box.min.y * scale;
+
+  const holder = new Group();
+  holder.add(model);
+  for (const child of [...group.children]) {
+    group.remove(child);
+    child.traverse?.((o) => { if (o.isMesh) o.geometry?.dispose?.(); });
+  }
+  group.add(holder);
+
+  const mixer = new AnimationMixer(model);
+  const actions = {};
+  for (const [state, name] of Object.entries(def.clips)) {
+    const clip = gltf.animations.find((c) => c.name === name);
+    if (clip) actions[state] = mixer.clipAction(clip);
+  }
+  actions.idle?.play();
+
+  group.userData.model = {
+    def, mixer, actions, holder, height,
+    current: 'idle', once: null, last: null,
+  };
+  group.userData.rig = null;
+  group.userData.height = height;
+  return true;
+}
+
+/**
+ * Play a one-shot clip — a punch, a knockdown — and fall back to the walk cycle
+ * when it finishes. A no-op on anything that has no such clip, so callers never
+ * have to ask what kind of thing they are animating.
+ */
+export function playClip(group, name, { hold = false } = {}) {
+  const m = group?.userData?.model;
+  const action = m?.actions?.[name];
+  if (!action) return false;
+  action.reset();
+  action.setLoop(hold ? LoopRepeat : LoopOnce, hold ? Infinity : 1);
+  action.clampWhenFinished = hold;
+  action.fadeIn(0.12).play();
+  const from = m.actions[m.current];
+  if (from && from !== action) from.fadeOut(0.12);
+  m.once = hold ? null : { action, until: action.getClip().duration };
+  m.current = name;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // the animator
 // ---------------------------------------------------------------------------
@@ -457,9 +582,31 @@ export async function attachModel(group, speciesId) {
  */
 export function animateModel(group, timeMs, moving, speed = 1) {
   const m = group?.userData?.model;
-  if (!m || !m.rig?.bound) return !!m;
+  if (!m) return false;
   const dt = m.last == null ? 0.016 : Math.min(0.1, Math.max(0, (timeMs - m.last) * 0.001));
   m.last = timeMs;
+
+  // A model that came with its own clips is played, not driven.
+  if (m.mixer) {
+    if (m.once) {
+      m.once.until -= dt;
+      if (m.once.until <= 0) m.once = null;
+    }
+    if (!m.once) {
+      const want = !moving ? 'idle' : (speed > 1.6 && m.actions.run ? 'run' : 'walk');
+      if (want !== m.current && m.actions[want]) {
+        const to = m.actions[want];
+        const from = m.actions[m.current];
+        to.reset().setLoop(LoopRepeat, Infinity).fadeIn(0.22).play();
+        if (from && from !== to) from.fadeOut(0.22);
+        m.current = want;
+      }
+    }
+    m.mixer.update(dt);
+    group.position.y = group.userData.baseY || 0;
+    return true;
+  }
+  if (!m.rig?.bound) return true;
 
   const t = timeMs * 0.001 + m.phase;
   const run = speed > 1.6;
@@ -569,5 +716,5 @@ export function animateModel(group, timeMs, moving, speed = 1) {
 
 /** Everything that has to appear in the game's credits. */
 export function modelCredits() {
-  return [MODEL_CREDIT];
+  return [MODEL_CREDIT, AVATAR_CREDIT];
 }
