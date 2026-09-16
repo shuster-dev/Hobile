@@ -43,6 +43,11 @@ const shot = async (name) => {
   await page.screenshot({ path: `${prefix}-${name}.png` });
   console.log(`  shot: ${prefix}-${name}.png`);
 };
+const hideUi = (on) => page.evaluate((v) => {
+  for (const el of document.querySelectorAll('#hud, #overlay, .hud, #tracker, #chat, #stick, #actions')) {
+    el.style.visibility = v ? 'hidden' : '';
+  }
+}, on);
 
 await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
@@ -53,71 +58,108 @@ await page.waitForFunction(() => window.__hobile?.zone && window.__hobile.mode !
 await page.evaluate(() => window.__hobile.world.holdTimeOfDay(0.34));
 // Models arrive over the network, so the creature on screen at second one is
 // still the procedural one. Wait for the swap before judging anything.
-await page.waitForFunction(() => {
-  const w = window.__hobile?.world;
-  const actor = w?.selfActor?.();
-  return !!(actor?.pet?.group?.userData?.model);
-}, null, { timeout: 30000 }).catch(() => console.log('  (pet model did not attach)'));
-await page.waitForTimeout(1500);
+await page.waitForFunction(() => !!window.__hobile?.world?.selfActor?.()?.pet?.group?.userData?.model,
+  null, { timeout: 30000 }).catch(() => console.log('  (pet model did not attach)'));
 
-// --- the player and their creature, close in
-await page.evaluate(() => {
-  const w = window.__hobile.world;
-  w.camDist = 11;
-  w.camHeight = 4.4;
-  w.camPitch = 0.42;
-});
-await page.waitForTimeout(1200);
-await shot('world');
-
-// --- the same thing with the interface out of the way
-await page.evaluate(() => {
-  for (const el of document.querySelectorAll('#hud, #overlay, .hud, #tracker, #chat, #stick, #actions')) {
-    el.style.visibility = 'hidden';
-  }
-});
-await page.waitForTimeout(400);
-await shot('world-clean');
-await page.evaluate(() => {
-  for (const el of document.querySelectorAll('#hud, #overlay, .hud, #tracker, #chat, #stick, #actions')) {
-    el.style.visibility = '';
-  }
-});
-
-// --- a battle: walk to the nearest wild creature, then engage it
-const engaged = await page.evaluate(async () => {
+// --- walk out to a wild creature before photographing anything: the spawn
+// point is under the street trees, and the inside of a canopy tells nobody
+// anything about how the game looks.
+const walk = await page.evaluate(async () => {
   const g = window.__hobile;
   const said = [];
   g.net.on('error', (e) => said.push(e?.code || JSON.stringify(e)));
-  const state = g.worldState();
-  const wilds = [...(state?.wilds || [])];
-  if (!wilds.length) return 'no wilds';
-  const [id, wild] = wilds[0].length === 2 ? wilds[0] : [wilds[0].id, wilds[0]];
+  const wilds = [...(g.worldState()?.wilds || [])]
+    .map((e) => (Array.isArray(e) ? e : [e.id, e]));
+  if (!wilds.length) return { note: 'no wilds' };
+  // Prefer a creature standing in the open. The camera swings in behind the
+  // player and a wild spawned against a wall gives a photograph of the wall.
+  const openness = ([, w]) => {
+    let best = 99;
+    for (const b of g.world.blockers) {
+      const d = Math.hypot(b.x - w.x, b.z - w.z) - (b.hw !== undefined ? Math.max(b.hw, b.hd) : b.r || 0);
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  wilds.sort((a, b) => openness(b) - openness(a));
+  const [id, wild] = wilds[0];
   // The server clamps movement to three metres a packet, so arriving next to
-  // the creature means walking there rather than teleporting. selfPosition()
-  // hands back the live vector, so the start has to be copied out of it.
-  const from = { x: g.world.selfPosition().x, z: g.world.selfPosition().z };
-  const gap = Math.hypot(wild.x - from.x, wild.z - from.z);
-  const steps = Math.max(8, Math.ceil(gap / 2.4));
-  for (let i = 1; i <= steps; i += 1) {
-    const x = from.x + ((wild.x - from.x) * i) / steps;
-    const z = from.z + ((wild.z - from.z) * i) / steps;
+  // the creature means walking there. selfPosition() hands back the live
+  // vector, so the start has to be copied out of it.
+  // Wild creatures wander, so this walks towards where the creature is *now*
+  // on every step rather than towards where it was when we started, and stops
+  // a few metres short so it ends up in frame rather than in the lens.
+  const start = Math.hypot(wild.x - g.world.selfPosition().x, wild.z - g.world.selfPosition().z);
+  for (let i = 0; i < 80; i += 1) {
+    const me = g.world.selfPosition();
+    const dx = wild.x - me.x;
+    const dz = wild.z - me.z;
+    const d = Math.hypot(dx, dz);
+    if (d <= 5) break;
+    const step = Math.min(2.4, d - 4.5);
+    const x = me.x + (dx / d) * step;
+    const z = me.z + (dz / d) * step;
     g.world.snapSelf(x, z);
-    g.net.send('move', { x, z, rot: 0 });
+    g.net.send('move', { x, z, rot: Math.atan2(dx, dz), moving: true });
     await new Promise((r) => setTimeout(r, 40));
   }
-  g.net.send('engage', { wildId: id });
-  await new Promise((r) => setTimeout(r, 600));
-  const now = g.world.selfPosition();
-  return `${id} species=${wild.species} gap=${Math.hypot(wild.x - now.x, wild.z - now.z).toFixed(1)}m${said.length ? ` refused: ${said.join(',')}` : ''}`;
+  // Face the creature, and leave the camera behind the player's shoulder.
+  const me = g.world.selfPosition();
+  g.world.camYaw = Math.atan2(wild.x - me.x, wild.z - me.z);
+  return { id, species: wild.species, walked: start.toFixed(0), refused: said.join(',') };
 });
-console.log(`  engaged: ${engaged}`);
+console.log(`  walked ${walk.walked}m to a wild ${walk.species}${walk.refused ? ` (refused: ${walk.refused})` : ''}`);
+
+await page.evaluate(() => {
+  const w = window.__hobile.world;
+  w.camDist = 9.5;
+  w.camHeight = 3.6;
+  w.camPitch = 0.34;
+});
+await page.waitForTimeout(1600);
+console.log('  canopies hidden for the camera:', await page.evaluate(
+  () => (window.__hobile.world.canopies || []).map((c) => `${c.hidden.size}/${c.items.length}`).join(' ') || 'none',
+));
+await shot('world');
+await hideUi(true);
+await page.waitForTimeout(400);
+await shot('world-clean');
+await hideUi(false);
+
+// --- and then the battle
+// Wild creatures wander, so the one we photographed may not be the one we
+// fight. Chase whichever is nearest until something agrees to a battle.
+console.log('  engage:', await page.evaluate(async () => {
+  const g = window.__hobile;
+  const said = [];
+  g.net.on('error', (e) => said.push(e?.code));
+  for (let i = 0; i < 60 && g.mode !== 'battle'; i += 1) {
+    const me = g.world.selfPosition();
+    const near = g.nearestWild(me);
+    if (!near) return 'no wild creature in the zone';
+    if (near.d > 5.5) {
+      const w = near.w;
+      const x = me.x + ((w.x - me.x) / near.d) * Math.min(2.4, near.d - 4);
+      const z = me.z + ((w.z - me.z) / near.d) * Math.min(2.4, near.d - 4);
+      g.world.snapSelf(x, z);
+      g.net.send('move', { x, z, rot: Math.atan2(w.x - me.x, w.z - me.z), moving: true });
+      await new Promise((r) => setTimeout(r, 60));
+    } else {
+      g.net.send('engage', { wildId: near.id });
+      await new Promise((r) => setTimeout(r, 450));
+    }
+  }
+  return g.mode === 'battle' ? 'started' : `gave up${said.length ? `: ${[...new Set(said)].join(',')}` : ''}`;
+}));
 await page.waitForFunction(() => window.__hobile?.mode === 'battle', null, { timeout: 25000 })
   .catch(() => console.log('  (battle did not start)'));
-await page.waitForTimeout(4000);
+await page.waitForTimeout(4500);
 await shot('battle');
+await hideUi(true);
+await page.waitForTimeout(400);
+await shot('battle-clean');
 
-console.log(errors.length ? `console errors: ${errors.length}` : 'console errors: 0');
+console.log(`console errors: ${errors.length}`);
 for (const e of [...new Set(errors)].slice(0, 6)) console.log('   ', e.slice(0, 200));
 await browser.close();
 server.close();

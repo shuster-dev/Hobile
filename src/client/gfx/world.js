@@ -3016,7 +3016,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3359,7 +3359,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           }), t.length);
         h.castShadow = !0, d.castShadow = !0, t.forEach((u, f) => {
           n.position.set(u.x, this.heightAt(u.x, u.z), u.z), n.rotation.set(0, u.rot, 0), n.scale.setScalar(0.85 + u.s * 0.35), n.updateMatrix(), h.setMatrixAt(f, n.matrix), d.setMatrixAt(f, n.matrix);
-        }), this.zoneGroup.add(h, d);
+        }), this.zoneGroup.add(h, d), this.watchCanopy(d, t, 1.9, 5.6);
       }
       let s = this.props.grass.filter((l, c) => c % Math.max(1, Math.round(1 / this.density)) === 0);
       if (!s.length) return;
@@ -3382,6 +3382,51 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       s.forEach((l, c) => {
         n.position.set(l.x, this.heightAt(l.x, l.z), l.z), n.rotation.set(0, l.rot, 0), n.scale.setScalar(l.s), n.updateMatrix(), a.setMatrixAt(c, n.matrix);
       }), this.zoneGroup.add(a);
+    }
+    /**
+     * Remember a canopy so the camera can see past it.
+     *
+     * A tree's collider is its trunk, which is correct — you walk around the
+     * trunk, not around the leaves. But the camera swings behind the player and
+     * ends up inside the foliage, and then the game is a green wall. Giving the
+     * leaves a collider would push the camera halfway across a park every time
+     * you stood near a tree, so the leaves get taken out of the way instead.
+     */
+    watchCanopy(e, t, n, s) {
+      if (!e || !t?.length) return;
+      this.canopies.push({
+        mesh: e,
+        items: t,
+        radius: n,
+        top: s,
+        rest: new Float32Array(e.instanceMatrix.array),
+        hidden: new Set()
+      });
+    }
+    cullCanopies() {
+      if (!this.canopies?.length) return;
+      let e = this.camera.position;
+      for (let t of this.canopies) {
+        let n = !1;
+        for (let s = 0; s < t.items.length; s++) {
+          let r = t.items[s],
+            o = Math.hypot(r.x - e.x, r.z - e.z) < t.radius && e.y < this.heightAt(r.x, r.z) + t.top,
+            a = t.hidden.has(s);
+          if (o === a) continue;
+          let l = s * 16;
+          if (o) {
+            // Collapse the instance to a point rather than deleting it: the
+            // matrix has to stay valid, and this restores exactly.
+            for (let c = 0; c < 16; c++) t.mesh.instanceMatrix.array[l + c] = 0;
+            t.hidden.add(s);
+          } else {
+            for (let c = 0; c < 16; c++) t.mesh.instanceMatrix.array[l + c] = t.rest[l + c];
+            t.hidden.delete(s);
+          }
+          n = !0;
+        }
+        n && (t.mesh.instanceMatrix.needsUpdate = !0);
+      }
     }
     buildFoliage(e) {
       if (this.urban) {
@@ -3412,7 +3457,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         l.position.set(A.x, L, A.z), l.rotation.set(A.tilt, A.rot, A.tilt * 0.6);
         let O = A.kind === "slim";
         l.scale.set(A.s * (O ? 0.78 : 1), A.s * (O ? 1.25 : 1), A.s * (O ? 0.78 : 1)), l.updateMatrix(), f.setMatrixAt(k, l.matrix), p.setMatrixAt(k, l.matrix);
-      }), this.zoneGroup.add(f, p);
+      }), this.zoneGroup.add(f, p), this.watchCanopy(p, s, 2.2, 6.4);
       let x = e.rockStyle,
         g = x === "strata" ? buildBush() : x === "shard" ? buildReed() : (() => {
           let A = new DodecahedronGeometry(1, 1);
@@ -4305,7 +4350,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let s = this.effects[n];
         s.t += e, s.kind === "ring" ? (s.mesh.scale.setScalar((1 + s.t * 7) * s.scale), s.mesh.material.opacity = Math.max(0, 0.95 - s.t * 1.7), s.t > 0.65 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1))) : s.t > 1.4 && this.effects.splice(n, 1);
       }
-      this.updateCamera(e), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.grade ? (this.grade.setNight(this.night || 0), this.grade.render(this.scene, this.camera)) : this.renderer.render(this.scene, this.camera);
+      this.updateCamera(e), this.cullCanopies(), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.grade ? (this.grade.setNight(this.night || 0), this.grade.render(this.scene, this.camera)) : this.renderer.render(this.scene, this.camera);
     }
     updateCamera(e) {
       let t = this.selfActor();

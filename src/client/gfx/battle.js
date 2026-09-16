@@ -9,9 +9,12 @@ var audio = new Audio();
 var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   ARENA_R = 9.5,
   SIDES = ["a", "b"],
+  // The two sides used to stand nearly seven metres apart, which put the
+  // opponent so far up the arena that it read as a speck. A battle is a
+  // face-off; the camera has to be able to hold both of them.
   SIDE_Z = {
     a: 2.6,
-    b: -4.2
+    b: -2.9
   },
   SIDE_DIR = {
     a: 1,
@@ -27,7 +30,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   rp = (i, e) => i.slot - e.slot,
   BattleView = class {
     constructor(e) {
-      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 1200), this.baseCam = new Vector3(0, 9.4, 16.6), this.focus = new Vector3(0, 1.5, 0.2), this.targetCam = this.baseCam.clone(), this.targetFocus = this.focus.clone(), this.camPos = this.baseCam.clone(), this.camAim = this.focus.clone(), this.camOffset = new Vector3(), this.aimOffset = new Vector3(), this.camera.position.copy(this.baseCam), this.camera.lookAt(this.focus), this.actors = new Map(), this.effects = [], this.shake = 0, this.time = 0, this.trainer = null, this.appearance = null, this.myTrainerId = null, this.trainerFront = !1, this.dim = 0, this.frozenUntil = 0, this.sphereFx = null, this.roleBench = new Map(), this.roleSlot = new Map(), this.activeBySide = {
+      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 1200), this.baseCam = new Vector3(0, 7.8, 13.6), this.focus = new Vector3(0, 1.45, -0.5), this.targetCam = this.baseCam.clone(), this.targetFocus = this.focus.clone(), this.camPos = this.baseCam.clone(), this.camAim = this.focus.clone(), this.camOffset = new Vector3(), this.aimOffset = new Vector3(), this.camera.position.copy(this.baseCam), this.camera.lookAt(this.focus), this.actors = new Map(), this.effects = [], this.shake = 0, this.time = 0, this.trainer = null, this.appearance = null, this.myTrainerId = null, this.trainerFront = !1, this.dim = 0, this.frozenUntil = 0, this.sphereFx = null, this.roleBench = new Map(), this.roleSlot = new Map(), this.activeBySide = {
         a: null,
         b: null
       }, this._seen = new Set(), this._stale = [], this._side = {
@@ -330,6 +333,19 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let t = this.actors.get(e);
       t && (this.scene.remove(t.holder), fadeTree(t.holder), this.actors.delete(e), this.trainer && this.trainer.actorId === e && (this.trainer = null), this.myTrainerId === e && (this.myTrainerId = null));
     }
+    /**
+     * A battle is a portrait, not a diorama.
+     *
+     * A creature that stands knee-high in the world is correct at world scale
+     * and unreadable across an arena. Small creatures are brought up towards
+     * being a subject the camera can see. Nothing is ever shrunk: a boss that
+     * fills the frame is the entire point of a boss.
+     */
+    heroScale(e) {
+      if (e.kind === "trainer") return 1;
+      let t = e.height || 1.6;
+      return Math.min(1.5, Math.max(1, (1.6 / t) ** 0.4));
+    }
     relayout() {
       for (let s of SIDES) {
         let r = this._field[s],
@@ -354,11 +370,11 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           d = 0;
         for (let u = 0; u < r.length; u++) {
           let f = r[u];
-          f.targetScale = 1, f.faceY = s === "a" ? Math.PI : 0, f.downed ? (f.home.set(-0.8 + d * 1.6, 0.35, SIDE_Z[s] - 0.75 * SIDE_DIR[s]), d++) : (f.home.set((h - (l - 1) / 2) * c, 0.35, SIDE_Z[s]), h++);
+          f.targetScale = this.heroScale(f), f.faceY = s === "a" ? Math.PI : 0, f.downed ? (f.home.set(-0.8 + d * 1.6, 0.35, SIDE_Z[s] - 0.75 * SIDE_DIR[s]), d++) : (f.home.set((h - (l - 1) / 2) * c, 0.35, SIDE_Z[s]), h++);
         }
         for (let u = 0; u < o.length; u++) {
           let f = o[u];
-          slotPosition(u, nt), f.home.set(nt.x, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = sp, f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
+          slotPosition(u, nt), f.home.set(nt.x, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = sp * this.heroScale(f), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
         }
         a && (a.home.set(ip[0] * SIDE_DIR[s], 0.35, SIDE_Z[s] + ip[1] * SIDE_DIR[s]), a.targetScale = 1, a.faceY = (s === "a" ? Math.PI : 0) - 0.3 * SIDE_DIR[s]);
       }
