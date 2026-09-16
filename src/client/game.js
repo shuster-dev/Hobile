@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import { vibrate } from './audio.js';
+import { device, initDevice, isFullscreen, toggleFullscreen } from './device.js';
 import { BattleView, audio } from './gfx/battle.js';
 import { WorldView } from './gfx/world.js';
 import { CameraRig, Joystick, Keyboard } from './input.js';
@@ -25,8 +26,48 @@ var Game = class {
     for (let n of ["pointerdown", "touchstart", "keydown"]) window.addEventListener(n, t, {
       passive: !0
     });
+    initDevice(), this.bindFullscreen();
     this.bindNet(), this.bindButtons(), this.loop = this.loop.bind(this), requestAnimationFrame(this.loop);
   }
+  /**
+   * The fullscreen affordance, and the honest fallback.
+   *
+   * iPhone Safari has no Fullscreen API — not a permissions problem, the
+   * method does not exist — so offering a button there would be a button that
+   * does nothing. What works on iPhone is Add to Home Screen, which needs the
+   * page on its own origin; inside an artifact iframe it cannot work at all.
+   * So the control only appears where it will actually do something, and the
+   * hint only appears where it is actually the answer.
+   */
+  bindFullscreen() {
+    if (device.standalone) return;                 // already chrome-free
+    let btn = document.createElement("button");
+    btn.className = "fs-btn hidden";
+    btn.id = "btn-fs";
+    document.getElementById("hud")?.appendChild(btn);
+    let paint = () => {
+      if (device.canFullscreen) {
+        btn.textContent = isFullscreen() ? "⤡ יציאה ממסך מלא" : "⛶ מסך מלא";
+        btn.classList.remove("hidden");
+      } else if (device.ios && !device.framed) {
+        btn.textContent = "⬆ הוסף למסך הבית למסך מלא";
+        btn.classList.remove("hidden");
+      } else {
+        btn.classList.add("hidden");               // iOS inside an iframe: nothing to offer
+      }
+    };
+    btn.onclick = async () => {
+      if (device.canFullscreen) { await toggleFullscreen(); paint(); return; }
+      this.ui.toast("שתף ← הוסף למסך הבית, ואז המשחק ייפתח בלי הדפדפן", "good");
+    };
+    document.addEventListener("fullscreenchange", paint);
+    document.addEventListener("webkitfullscreenchange", paint);
+    paint();
+    // Out of the way once play starts; the menu still has it.
+    setTimeout(() => btn.classList.add("hidden"), 9000);
+    this._paintFullscreen = paint;
+  }
+
   async boot() {
     if (this.ui.setLoading(!0, "מתחבר לשרת…"), !this.net.hasSession()) {
       this.ui.setLoading(!1), this.showLogin();
@@ -403,6 +444,12 @@ var Game = class {
     return {
       openBase: () => this.openBase(),
       dexOpen: () => e("dex"),
+      fullscreen: async () => {
+        if (device.canFullscreen) { await toggleFullscreen(); this._paintFullscreen?.(); this.ui.closePanel(); return; }
+        this.ui.toast(device.framed
+          ? "כדי לשחק בלי הדפדפן צריך לפתוח את המשחק בכתובת שלו, לא בתוך הצ׳אט"
+          : "שתף ← הוסף למסך הבית, ואז המשחק ייפתח בלי הדפדפן", "good");
+      },
       openSpecies: t => e("card", { species: t }),
       clinicHeal: () => e("clinicHeal"),
       // NB: swapCreature is defined once, further down in this same object.

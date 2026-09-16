@@ -64,6 +64,51 @@ if (dex.tiles - dex.locked !== 1) { console.log('  FAIL exactly the starter shou
 await page.evaluate(() => window.__hobile.ui.closePanel());
 await page.waitForTimeout(400);
 
+// Phone behaviour: the browser must stop competing with the game for gestures.
+const app = await page.evaluate(() => {
+  const vp = document.querySelector('meta[name=viewport]')?.content || '';
+  const cs = getComputedStyle(document.body);
+  const canvas = getComputedStyle(document.querySelector('#world-canvas'));
+  return {
+    viewportLocked: vp.includes('user-scalable=no') && vp.includes('viewport-fit=cover'),
+    appleCapable: !!document.querySelector('meta[name="apple-mobile-web-app-capable"]'),
+    manifest: !!document.querySelector('link[rel=manifest]'),
+    overscroll: cs.overscrollBehavior || cs.overscrollBehaviorY,
+    canvasTouch: canvas.touchAction,
+    vh: document.documentElement.style.getPropertyValue('--vh'),
+  };
+});
+const expectApp = [
+  ['viewport is locked against zoom and covers the notch', app.viewportLocked],
+  ['the page declares itself installable', app.appleCapable && app.manifest],
+  ['pull-to-refresh / rubber-band is off', /none/.test(app.overscroll || '')],
+  ['the world canvas takes its own touches', app.canvasTouch === 'none'],
+  ['the measured viewport height is published', /px$/.test(app.vh || '')],
+];
+for (const [label, cond] of expectApp) {
+  if (cond) { console.log('  ok  ' + label); } else { console.log('  FAIL ' + label); errors.push(label); }
+}
+
+// Landscape: the phone turned sideways must not be a letterbox of furniture.
+await page.setViewportSize({ width: 880, height: 400 });
+await page.waitForTimeout(700);
+const land = await page.evaluate(() => {
+  const hidden = (sel) => { const e = document.querySelector(sel); return !e || getComputedStyle(e).display === 'none'; };
+  const stick = document.querySelector('#stick-zone').getBoundingClientRect();
+  const act = document.querySelector('#action-cluster').getBoundingClientRect();
+  return { tracker: hidden('#tracker'), chat: hidden('#chat-mini'),
+    stickOnScreen: stick.bottom <= window.innerHeight + 1 && stick.left >= -1,
+    actionOnScreen: act.bottom <= window.innerHeight + 1 && act.right <= window.innerWidth + 1 };
+});
+for (const [label, cond] of [
+  ['landscape drops the quest panel and chat', land.tracker && land.chat],
+  ['landscape keeps the stick on screen', land.stickOnScreen],
+  ['landscape keeps the action cluster on screen', land.actionOnScreen],
+]) { if (cond) { console.log('  ok  ' + label); } else { console.log('  FAIL ' + label); errors.push(label); } }
+await page.screenshot({ path: 'shots/landscape.png' });
+await page.setViewportSize({ width: 430, height: 880 });
+await page.waitForTimeout(500);
+
 const info = await page.evaluate(() => {
   const g = window.__hobile;
   const r = g.world?.renderer?.info;

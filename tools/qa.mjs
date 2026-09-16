@@ -164,6 +164,35 @@ ok('synced combatants carry benched', 'benched' in row);
 ok('synced combatants carry slot', 'slot' in row);
 ok('synced combatants carry frozenUntil', 'frozenUntil' in row);
 
+// ---------------------------------------------------------------- app shell
+section('app shell');
+const shellHtml = fs.readFileSync('src/client/index.html', 'utf8');
+// Chromium does not expose -webkit-touch-callout through getComputedStyle, so
+// the iOS-only rules are checked where they live rather than where they apply.
+for (const [label, needle] of [
+  ['the long-press callout is disabled', '-webkit-touch-callout:none'],
+  ['text selection is off', '-webkit-user-select:none'],
+  ['the notch is covered', 'viewport-fit=cover'],
+  ['pinch zoom is refused', 'user-scalable=no'],
+  ['iOS is told the page is an app', 'apple-mobile-web-app-capable'],
+  ['the status bar is translucent so the world runs under it', 'black-translucent'],
+  ['a manifest is linked', 'rel="manifest"'],
+  ['the measured viewport height is used for layout', '--vh'],
+  ['landscape has its own layout', 'orientation:landscape'],
+]) ok(label, shellHtml.includes(needle), needle);
+
+const manifest = JSON.parse(fs.readFileSync('src/client/manifest.webmanifest', 'utf8'));
+ok('the manifest asks for a chrome-free launch',
+  manifest.display === 'fullscreen' && manifest.display_override?.includes('standalone'), manifest.display);
+ok('the manifest has a relative scope, so a project page works',
+  manifest.start_url.startsWith('./') && manifest.scope.startsWith('./'));
+ok('the manifest ships an icon that exists', fs.existsSync('src/client/' + manifest.icons[0].src.replace('./', '')));
+
+const sw = fs.readFileSync('src/client/sw.js', 'utf8');
+ok('the service worker survives a missing file', !/\.addAll\(/.test(sw));
+ok('the service worker prefers the network, so a build is never stale',
+  sw.indexOf('fetch(e.request)') < sw.indexOf('caches.match(e.request)'));
+
 // ---------------------------------------------------------------- collection
 section('collection');
 ok('the main chain asks you to catch something second, not sixth', (() => {

@@ -46,5 +46,10 @@ if (artifact) {
 } else {
   fs.writeFileSync(path.join(outDir, 'main.js'), js);
   fs.writeFileSync(path.join(outDir, 'index.html'), shell);
+  // The app shell: without these on the served origin there is no Add to Home
+  // Screen, and on iPhone that is the only route to a chrome-free screen.
+  for (const f of ['manifest.webmanifest', 'sw.js', 'icon.svg']) {
+    fs.copyFileSync(path.join('src/client', f), path.join(outDir, f));
+  }
   console.log(`${outDir}/  index.html + main.js  (js ${(js.length / 1024).toFixed(0)} KB)`);
 }

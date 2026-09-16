@@ -398,7 +398,7 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["👁 מבט", "__view"]];
+      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
     for (let [c, h] of n) {
       let d = el("button", "btn", c);
       if (h === "__view") {
@@ -406,6 +406,8 @@ var UI = class {
         d.textContent = `👁 ${u()}`, d.onclick = () => {
           this.hooks.toggleView?.(), d.textContent = `👁 ${u()}`;
         };
+      } else if (h === "__fullscreen") {
+        d.onclick = () => this.hooks.fullscreen?.();
       } else d.onclick = () => this.openPanel(h);
       t.appendChild(d);
     }
