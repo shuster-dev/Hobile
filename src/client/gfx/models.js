@@ -111,7 +111,9 @@ const cache = new Map();          // file -> Promise<gltf|null>
 
 function fetchModel(file) {
   if (cache.has(file)) return cache.get(file);
-  const url = INLINE?.[file] || BASE + file;
+  // An artifact is one page on a host that serves no model files, so that build
+  // carries them in the document. Everywhere else they sit beside it.
+  const url = INLINE?.[file] || globalThis.HOBILE_MODELS?.[file] || BASE + file;
   const p = new Promise((resolve, reject) => loader.load(url, resolve, undefined, reject))
     .catch((err) => {
       // A model that will not load is not something the player should ever see

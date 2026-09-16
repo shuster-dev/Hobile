@@ -55,10 +55,18 @@ if (artifact) {
     .replace(/<script[\s\S]*?<\/script>/g, '')
     .replace(/<style>[\s\S]*?<\/style>/g, '');
   const safe = js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
-  const out = `<style>\n${styles}\n</style>\n${body}\n<script>${safe}</script>\n`;
+  // The artifact host serves the page and nothing else — it has no notion of a
+  // .glb — so this is the one build where the models ride inside the document.
+  const dir = 'assets/models';
+  const inline = {};
+  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith('.glb')) : []) {
+    inline[f] = `data:model/gltf-binary;base64,${fs.readFileSync(path.join(dir, f)).toString('base64')}`;
+  }
+  const prelude = `<script>window.HOBILE_MODELS=${JSON.stringify(inline)}</script>\n`;
+  const out = `<style>\n${styles}\n</style>\n${body}\n${prelude}<script>${safe}</script>\n`;
   fs.writeFileSync('dist/artifact.html', out);
-  const m = copyModels('dist');
-  console.log(`dist/artifact.html  ${(out.length / 1024).toFixed(0)} KB  + ${m.count} models (${m.kb} KB)`);
+  copyModels('dist');
+  console.log(`dist/artifact.html  ${(out.length / 1048576).toFixed(1)} MB  (${Object.keys(inline).length} models inlined)`);
 } else if (solo) {
   // one self-contained file: inline the bundle
   // NB: replacement must be a function - a string replacement would expand $& / $1
