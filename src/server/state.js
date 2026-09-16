@@ -108,10 +108,13 @@ export function syncCombatants(state, sim) {
     s.benched = !!c.benched;
     s.slot = Number.isFinite(c.slot) ? c.slot : 0;
     s.frozenUntil = c.frozenUntil || 0;
+    // ArraySchema#splice cannot insert more than it deletes, so these are
+    // cleared and refilled rather than spliced in place.
     if (s.skills.length !== c.skills.length || s.skills.some((v, i) => v !== c.skills[i])) {
-      s.skills.splice(0, s.skills.length, ...c.skills);
+      s.skills.clear();
+      for (const skill of c.skills) s.skills.push(skill);
     }
-    s.effects.splice(0, s.effects.length);
+    s.effects.clear();
     for (const e of c.effects) {
       const es = new EffectState();
       es.kind = e.kind; es.until = e.until;

@@ -3,14 +3,18 @@
   "version": "0.9.0",
   "private": true,
   "type": "module",
-  "description": "Hobile Online — browser/PWA monster-collecting MMO",
+  "description": "Hobile Online \u2014 browser/PWA monster-collecting MMO",
   "scripts": {
     "build:web": "node tools/build.mjs",
     "build:solo": "node tools/build.mjs --solo",
-    "dev": "node server/index.js",
+    "dev": "node src/server/index.js",
     "qa": "node tools/qa.mjs",
     "shot": "node tools/shot.mjs",
-    "recover": "node tools/split.mjs && node tools/finalize.mjs"
+    "start": "node src/server/index.js",
+    "build": "node tools/build.mjs && node tools/build.mjs --solo",
+    "test:server": "node tools/server-test.mjs",
+    "test:browser": "node tools/build.mjs --solo && node tools/smoke.mjs",
+    "test": "npm run qa && npm run test:server"
   },
   "dependencies": {
     "@colyseus/core": "0.16.24",
@@ -28,5 +32,8 @@
     "esbuild": "0.23.1",
     "playwright": "^1.63.0",
     "prettier": "3.3.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

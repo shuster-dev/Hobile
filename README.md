@@ -1,0 +1,88 @@
+# Hobile Online
+
+A monster-collecting MMO that runs in a mobile browser. Three.js client, an
+authoritative Colyseus server, no app store and no downloads — a link opens the
+game. Hebrew-first.
+
+```bash
+npm ci
+npm run build        # client: dist/web/ (server build) and dist/solo.html (single file)
+npm run dev          # server on :2567, serving dist/web if it exists
+npm test             # game rules + a real two-client multiplayer run
+```
+
+## Layout
+
+```
+src/shared/     data and pure logic used by both sides — no DOM, no network
+  gamedata.js     species, moves, zones, quests, items, recipes, formulas
+  props.js        deterministic world generation and colliders
+  npcs.js         residents, schedules, state-dependent dialogue
+src/server/
+  index.js        express HTTP API + Colyseus
+  state.js        room state schemas
+  store.js        persistence: memory or mongo, one interface
+  auth.js         accounts and bearer tokens (node:crypto only)
+  game/           the simulation — combat, player documents, the world protocol
+  rooms/          WorldRoom, BattleRoom, DungeonRoom
+src/client/
+  game.js         the app: input, net binding, view switching
+  gfx/            renderer, procedural creatures, world, battle view
+  ui.js           screens, panels, HUD
+tools/            build, tests, screenshots (tools/recovery/ is historical)
+```
+
+The two halves never import each other. `src/server` and `src/shared` run under
+plain Node, which is why the rules can be tested in a second without a browser.
+
+### One protocol, two drivers
+
+The game runs in two modes from one codebase. Online, the client talks to
+Colyseus rooms. Offline (`dist/solo.html`), the same client talks to an
+in-process simulation that implements the identical interface. The 34 world
+messages live in `src/server/game/world-messages.js`, written against a small
+context that both drivers satisfy — so a balance change cannot land in one and
+miss the other.
+
+## Tests
+
+| command | what it covers |
+|---|---|
+| `npm run qa` | data integrity, the capture curve (5 / 51 / 99), zone boundaries, the battle-v2 contract |
+| `npm run test:server` | boots the server, connects two clients, checks replication, the movement clamp, chat, the battle handoff, persistence |
+| `npm run test:browser` | drives a real browser: character creation, entering the world, zero console errors, the render budget |
+| `npm run shot` | one screenshot — the only way to check how creatures actually look |
+
+Render budget: **280 draw calls, 420k triangles**. Currently 64 / 175k.
+
+## Deploying
+
+The client is static; the server is not. It holds rooms in memory and keeps
+websockets open, so it needs a real long-lived process — Railway, Render,
+Fly.io or a VPS. Not Vercel: the max duration closes connections, there is no
+instance affinity, and a Colyseus room lives in one process's memory.
+
+`Dockerfile` and `railway.json` are ready. Set these before going live:
+
+| variable | |
+|---|---|
+| `AUTH_SECRET` | **required in production** — long and random; it signs every session token |
+| `CORS_ORIGIN` | the client's origin; `*` is for development |
+| `DB_DRIVER` | `memory` (default) or `mongo` |
+| `MONGO_URL` | required when `DB_DRIVER=mongo` |
+
+`.env.example` has the full list. The client picks its server from
+`window.HOBILE_SERVER` or a `?server=` parameter, and otherwise talks to the
+origin it was served from.
+
+## Notes for whoever works on this next
+
+- **`DESIGN` is keyed by species id.** A new entry in `SPECIES` without a
+  matching `DESIGN` record falls back to a shared body and looks like a clone.
+- **A part that gets built but is never visible is a bug, not a style choice.**
+  The only way to catch it is to render and look: `npm run shot`.
+- **`docs/battle-v2.md` is the contract for the combat model.** Changes start
+  there, not in the code.
+- The server clamps every `move` packet to 3 metres. Tests have to *walk*.
+- `pkill -f "src/server/index.js"` inside `bash -c` matches the shell's own
+  command line and kills the shell. Use `pkill -f "src/server/inde[x].js"`.

@@ -18,8 +18,10 @@ const WILD_TARGET = 14;
 const MAX_MOVE_PER_PACKET = 2.2;   // metres; the client sends ~20/s
 
 export class WorldRoom extends Room {
-  static async onAuth(token) {
-    const claims = verifyToken(token);
+  // Instance onAuth, not the static one: this client sends its token in the
+  // join options (see client/net.js), not as an Authorization header.
+  onAuth(client, options = {}) {
+    const claims = verifyToken(options.token);
     if (!claims) throw new Error('unauthorized');
     return claims;
   }
@@ -234,7 +236,7 @@ export class WorldRoom extends Room {
   refreshBossBoard() {
     const rows = [...this.bossContribution.entries()]
       .sort((a, b) => b[1].damage - a[1].damage).slice(0, 5);
-    this.state.boss.top.splice(0, this.state.boss.top.length);
+    this.state.boss.top.clear();
     for (const [id, v] of rows) {
       const c = new BossContributor();
       c.id = id; c.name = v.name; c.damage = Math.round(v.damage);

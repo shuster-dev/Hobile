@@ -21,6 +21,11 @@ import {
 } from './combat.js';
 import { hpRatio } from './player.js';
 
+// The furthest one move packet may carry a player. The client sends roughly
+// 20 a second and a sprint is about 7 m/s, so 3m leaves generous headroom for
+// a late packet while making a teleport impossible.
+const MAX_STEP = 3;
+
 export function handleWorldMessage(ctx, e, t = {}) {
       let n = ctx.doc,
         s = ctx.self(),
@@ -32,7 +37,16 @@ export function handleWorldMessage(ctx, e, t = {}) {
           break;
         case "move":
           if (Number.isFinite(t.x) && Number.isFinite(t.z)) {
-            let o = resolveCollision(ctx.colliders, t.x, t.z, 0.42);
+            // Clamp the step, then resolve collisions. A client that sends a
+            // position 400m away is not walking, and without this the server
+            // simply believed it: the walls only stop you if you approach them.
+            let dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
+            let tx = t.x, tz = t.z;
+            if (d > MAX_STEP) { tx = s.x + (dx / d) * MAX_STEP; tz = s.z + (dz / d) * MAX_STEP; }
+            let half = ctx.zone.size / 2;
+            tx = Math.max(-half, Math.min(half, tx));
+            tz = Math.max(-half, Math.min(half, tz));
+            let o = resolveCollision(ctx.colliders, tx, tz, 0.42);
             s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, ctx.checkVisits(n, s);
           }
           break;
