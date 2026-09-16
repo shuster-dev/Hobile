@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const PORT = 2612;
+const PAGE = process.env.SMOKE_PAGE || 'solo.html';
 const root = 'dist';
 const server = http.createServer((req, res) => {
   let f = path.join(root, decodeURIComponent(req.url.split('?')[0]));
@@ -40,7 +41,6 @@ const dump = async (why) => {
 };
 const step = async (label, fn) => { try { await fn(); console.log('  ok  ' + label); } catch (e) { console.log('  FAIL ' + label + ' :: ' + String(e).split('\n')[0].slice(0, 130)); await dump('failure detail'); await browser.close(); server.close(); process.exit(1); } };
 
-const PAGE = process.env.SMOKE_PAGE || 'solo.html';
 await page.goto(`http://127.0.0.1:${PORT}/${PAGE}`, { waitUntil: 'load' });
 await step('boot: character creation appears', () => page.waitForSelector('#pick-starter .starter', { timeout: 25000 }));
 await step('pick a starter', async () => { await page.click('#pick-starter .starter'); });
@@ -78,9 +78,15 @@ const app = await page.evaluate(() => {
     vh: document.documentElement.style.getPropertyValue('--vh'),
   };
 });
+// The artifact build ships no <head> of its own — the host supplies the page
+// skeleton — so the meta tags and the manifest are only expected of the build
+// that owns its document. Everything below them applies to both.
+const OWNS_DOCUMENT = !PAGE.startsWith('artifact');
 const expectApp = [
-  ['viewport is locked against zoom and covers the notch', app.viewportLocked],
-  ['the page declares itself installable', app.appleCapable && app.manifest],
+  ...(OWNS_DOCUMENT ? [
+    ['viewport is locked against zoom and covers the notch', app.viewportLocked],
+    ['the page declares itself installable', app.appleCapable && app.manifest],
+  ] : []),
   ['pull-to-refresh / rubber-band is off', /none/.test(app.overscroll || '')],
   ['the world canvas takes its own touches', app.canvasTouch === 'none'],
   ['the measured viewport height is published', /px$/.test(app.vh || '')],
