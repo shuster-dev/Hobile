@@ -1,0 +1,973 @@
+import { Vector3 } from 'three';
+import { vibrate } from './audio.js';
+import { BattleView, audio } from './gfx/battle.js';
+import { WorldView } from './gfx/world.js';
+import { CameraRig, Joystick, Keyboard } from './input.js';
+import { Net } from './net.js';
+import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
+import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
+import { NPCS } from '../shared/npcs.js';
+
+var Game = class {
+  constructor(e) {
+    this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+      if (this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
+        this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
+        return;
+      }
+      this.world.camHeight = Math.max(2.2, Math.min(9.5, this.world.camHeight + s * 0.02)), this.world.camDist = Math.max(6.5, Math.min(14, this.world.camDist + s * 0.012));
+    }), this.mode = "boot", this.zone = null, this.profile = null, this.cooldowns = {}, this.battle = {
+      youId: null,
+      combatants: [],
+      inventory: {}
+    }, this.lastNetSend = 0, this.nearest = null, this.shake = 0, this.freezeUntil = 0, this.walkPhase = 0;
+    let t = () => audio.unlock();
+    for (let n of ["pointerdown", "touchstart", "keydown"]) window.addEventListener(n, t, {
+      passive: !0
+    });
+    this.bindNet(), this.bindButtons(), this.loop = this.loop.bind(this), requestAnimationFrame(this.loop);
+  }
+  async boot() {
+    if (this.ui.setLoading(!0, "מתחבר לשרת…"), !this.net.hasSession()) {
+      this.ui.setLoading(!1), this.showLogin();
+      return;
+    }
+    try {
+      let e = await this.net.me();
+      if (!e.hasCharacter) {
+        this.ui.setLoading(!1), this.showCreate();
+        return;
+      }
+      await this.enterWorld(e.profile.zone || HOME_ZONE);
+    } catch {
+      this.net.logout(), this.ui.setLoading(!1), this.showLogin();
+    }
+  }
+  showLogin() {
+    this.ui.showScreen("login"), this.ui.setMode("none");
+    let e = !1,
+      t = s => {
+        e = s, $("#tab-login").classList.toggle("on", !s), $("#tab-register").classList.toggle("on", s), $("#btn-submit").textContent = s ? "צור חשבון" : "התחבר";
+      };
+    $("#tab-login").onclick = () => t(!1), $("#tab-register").onclick = () => t(!0);
+    let n = async () => {
+      let s = $("#in-user").value.trim(),
+        r = $("#in-pass").value;
+      $("#login-error").textContent = "";
+      try {
+        let o = e ? await this.net.register(s, r) : await this.net.login(s, r);
+        this.ui.showScreen(null), o.hasCharacter ? await this.enterWorld() : this.showCreate();
+      } catch (o) {
+        $("#login-error").textContent = Oc(o.code);
+      }
+    };
+    $("#btn-submit").onclick = n, $("#in-pass").onkeydown = s => {
+      s.key === "Enter" && n();
+    }, $("#btn-guest").onclick = async () => {
+      try {
+        await this.net.guest(), this.ui.showScreen(null), this.showCreate();
+      } catch (s) {
+        $("#login-error").textContent = Oc(s.code);
+      }
+    };
+  }
+  showCreate() {
+    this.ui.showScreen("create"), this.ui.setMode("none");
+    let e = {
+        body: AVATAR.bodies[0],
+        skin: AVATAR.skins[0],
+        hair: AVATAR.hair[0],
+        outfit: AVATAR.outfits[0].id,
+        starter: STARTERS[0]
+      },
+      t = (o, a, l, c) => {
+        let h = $(o);
+        h.innerHTML = "";
+        for (let d of a) {
+          let u = document.createElement("button");
+          u.className = `chip ${e[l] === (d.id ?? d) ? "on" : ""}`, u.textContent = c(d), u.onclick = () => {
+            e[l] = d.id ?? d, t(o, a, l, c);
+          }, h.appendChild(u);
+        }
+      },
+      n = (o, a, l) => {
+        let c = $(o);
+        c.innerHTML = "";
+        for (let h of a) {
+          let d = document.createElement("button");
+          d.className = `swatch ${e[l] === h ? "on" : ""}`, d.style.background = h, d.onclick = () => {
+            e[l] = h, n(o, a, l);
+          }, c.appendChild(d);
+        }
+      };
+    t("#pick-body", AVATAR.bodies, "body", o => ({
+      slim: "רזה",
+      stocky: "מוצק",
+      tall: "גבוה"
+    })[o] || o), n("#pick-skin", AVATAR.skins, "skin"), n("#pick-hair", AVATAR.hair, "hair"), t("#pick-outfit", AVATAR.outfits, "outfit", o => loc(o));
+    let s = $("#pick-starter"),
+      r = () => {
+        s.innerHTML = "";
+        for (let o of STARTERS) {
+          let a = SPECIES[o],
+            l = document.createElement("button");
+          l.className = `starter ${e.starter === o ? "on" : ""}`, l.innerHTML = `<div class="dot" style="background:#${a.model.a.toString(16).padStart(6, "0")}"></div>
+          <b>${loc(a)}</b><span>${ELEMENTS[a.types[0]].icon} ${loc(ELEMENTS[a.types[0]])}</span>`, l.onclick = () => {
+            e.starter = o, r();
+          }, s.appendChild(l);
+        }
+      };
+    r(), $("#btn-create").onclick = async () => {
+      let o = $("#in-charname").value.trim();
+      $("#create-error").textContent = "";
+      try {
+        await this.net.createCharacter({
+          name: o,
+          starter: e.starter,
+          appearance: {
+            body: e.body,
+            skin: e.skin,
+            hair: e.hair,
+            outfit: e.outfit
+          }
+        }), this.ui.showScreen(null), await this.enterWorld();
+      } catch (a) {
+        $("#create-error").textContent = Oc(a.code);
+      }
+    };
+  }
+  async enterWorld(e = HOME_ZONE, t = null) {
+    this.mode = "loading", this.ui.setLoading(!0, "נכנס לעולם…"), await this.net.leaveRoom(!0);
+    let n = !1;
+    for (let s = 0; s < 3 && !n; s++) try {
+      await Sp(this.net.joinWorld(e, t), 18e3), n = !0;
+    } catch {
+      s < 2 && (this.ui.setLoading(!0, "מתחבר מחדש…"), await new Promise(r => setTimeout(r, 700)));
+    }
+    if (!n) {
+      this.mode = "boot", this.ui.setLoading(!1), this.ui.toast("לא ניתן להתחבר לעולם", "bad"), this.showLogin();
+      return;
+    }
+    this.mode = "world", this.spawned = !1;
+    try {
+      let s = globalThis.localStorage?.getItem("hobile.view");
+      s && this.world.setViewMode(s);
+    } catch {}
+    this.ui.showScreen(null), this.ui.setMode("world"), this.ui.setLoading(!1), audio.playMusic(e), t && audio.sfx("portal");
+  }
+  async enterRoom(e, t) {
+    this.mode = "loading", audio.sfx("encounter"), audio.playMusic(t === "dungeon" ? "dungeon" : "battle"), this.ui.setLoading(!0, t === "battle" ? "נכנס לקרב…" : "נכנס למבוך…"), await this.net.leaveRoom(!0);
+    try {
+      await Sp(this.net.joinRoomById(e), 18e3);
+    } catch {
+      this.ui.setLoading(!1), this.ui.toast("החדר נסגר", "bad"), this.transitioning = !1, await this.enterWorld(this.zone?.id);
+      return;
+    }
+    this.mode = t === "dungeon" ? "dungeon" : "battle", this.cooldowns = {}, this.battle = {
+      youId: null,
+      combatants: [],
+      inventory: {}
+    }, this.ui.setMode("battle"), this.ui.setLoading(!1), this.net.send("arenaReady");
+  }
+  bindNet() {
+    let e = this.net;
+    e.on("profile", t => {
+      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]);
+    }), e.on("zone", t => {
+      this.zone = t, this.ui.setZone(t), this.world.loadZone(t);
+    }), e.on("chat", t => {
+      t.fromId && t.fromId !== this.profile?.id && audio.sfx("chat"), this.ui.pushChat(t);
+    }), e.on("party", t => {
+      this.ui.party = t, this.ui.openPanelId === "party" && this.ui.renderPanel("party");
+    }), e.on("friends", t => {
+      this.ui.friends = t || {
+        friends: [],
+        pending: []
+      };
+      let n = $("#badge-friends"),
+        s = this.ui.friends.pending?.length || 0;
+      n.textContent = s, n.classList.toggle("hidden", s === 0), this.ui.openPanelId === "friends" && this.ui.renderPanel("friends");
+    }), e.on("guild", t => {
+      this.ui.guild = t, this.ui.openPanelId === "guild" && this.ui.renderPanel("guild");
+    }), e.on("guildList", t => {
+      this._guildListResolve?.(t);
+    }), e.on("partyInvite", t => {
+      this.ui.toast(`${t.fromName} הזמין אותך לקבוצה — פתח את חלון הקבוצה`, "good"), this.pendingPartyInvite = t.partyId, this.ui.openPanel("party"), setTimeout(() => this.renderInvitePrompt(t), 0);
+    }), e.on("friendRequest", t => this.ui.toast(`${t.fromName} שלח בקשת חברות`, "good")), e.on("duelRequest", t => {
+      this.pendingDuel = t.fromId, this.ui.toast(`${t.fromName} מזמין אותך לדו-קרב — לחץ על כפתור הפעולה לקבל`, "good"), setTimeout(() => {
+        this.pendingDuel === t.fromId && (this.pendingDuel = null);
+      }, 12e3);
+    }), e.on("base", t => {
+      this.ui.base = t, t.fiber && (audio.sfx("loot"), this.ui.toast(`🌿 +${t.fiber} סיבים מהגינה`, "good"));
+      for (let n of t.collected || []) audio.sfx("loot"), this.ui.toast(`הושלם: ${loc(ITEMS[n.id])} ×${n.n}`, "good");
+      t.starUp && (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve"), this.ui.toast(`${loc(SPECIES[t.starUp.species])} הגיע ל-${t.starUp.star} כוכבים!`, "good")), t.built && (audio.sfx("quest"), this.ui.toast(`נבנה — רמה ${t.built.level}`, "good")), t.craft && audio.sfx("ui"), this.ui.openPanelId === "base" && this.ui.renderPanel("base");
+    }), e.on("card", t => {
+      this.ui.card = t, this.ui.openPanelId === "card" && this.ui.renderPanel("card");
+    }), e.on("healed", () => {
+      audio.sfx("heal"), this.ui.toast("הצוות שלך הבריא במלואו", "good");
+    }), e.on("building", t => {
+      if (!t) {
+        this.leaveInterior();
+        return;
+      }
+      let n = {
+        id: t.id,
+        kind: t.kind,
+        name: t.name,
+        he: t.he,
+        door: t.door
+      };
+      this.world.enterInterior(n) && (audio.sfx("ui"), this.ui.toast(`${t.he || t.name}`, "good"));
+    }), e.on("dialogue", t => {
+      audio.sfx("ui"), this.ui.showDialogue({
+        name: t.he || t.name,
+        lines: t.lines.map(n => n.he || n.en),
+        onDone: () => {
+          t.questsDone?.length && (audio.sfx("quest"), this.ui.celebrate("משימה הושלמה", "quest"), this.ui.toast("משימה הושלמה — אספו את הפרס בחלון המשימות", "good"));
+        }
+      });
+    }), e.on("questDone", t => {
+      audio.sfx("quest"), vibrate([18, 40, 26]);
+      let n = QUESTS[t?.id];
+      this.ui.celebrate(n ? loc(n) : "משימה הושלמה", "quest"), this.ui.toast("משימה הושלמה — אספו את הפרס בחלון המשימות", "good"), this.ui.openPanelId === "quests" && this.ui.renderPanel("quests");
+    }), e.on("questClaimed", t => {
+      audio.sfx("quest"), this.ui.celebrate("משימה הושלמה", "quest"), this.ui.toast(`פרס נאסף: ${t.reward.gold}⛁ · ${t.reward.xp} XP`, "good");
+    }), e.on("error", t => {
+      this.engagePending = 0, this.ui.toast(Oc(t.code), "bad");
+    }), e.on("roomError", () => this.ui.toast("שגיאת חיבור", "bad")), e.on("goto", async t => {
+      if (!this.transitioning) {
+        this.transitioning = !0, this.engagePending = 0;
+        try {
+          t.kind === "world" ? await this.enterWorld(t.zone, t.fromZone) : await this.enterRoom(t.roomId, t.kind);
+        } finally {
+          this.transitioning = !1;
+        }
+      }
+    }), e.on("battleInit", t => {
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer));
+      let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
+      this.battleView.setTheme(n || this.zoneElement(), !1);
+    }), e.on("dungeonInit", t => {
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer)), this.battleView.setTheme(t.dungeon.element, !0), this.ui.battleBanner(`${loc(t.dungeon)} — קומה 1`, 1800);
+    }), e.on("battleStart", () => this.ui.battleBanner("הקרב מתחיל!", 1e3)), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
+      this.battle.inventory = t;
+    }), e.on("battleEvent", t => {
+      this.battleView.playEvent(t);
+      let n = t.actor && t.actor === this.battle.youId;
+      if (t.kind === "hit") {
+        let s = this.battleView.actorScreenPos(t.target);
+        this.ui.floatDamage(s, String(t.dmg), t.crit ? "crit" : "");
+        let r = this.battleView.combatantOf?.(t.target),
+          a = Math.min(1, (t.dmg || 0) / Math.max(20, r?.maxHp || 60)) * (t.crit ? 1.8 : 1) * (t.eff > 1 ? 1.25 : 1),
+          l = MOVES[t.skill];
+        l && audio.sfx("attack", {
+          element: l.type
+        });
+        let c = l?.kind === "special" ? 280 : 120;
+        setTimeout(() => {
+          audio.sfx(t.crit ? "crit" : "hit", {
+            power: a
+          }), t.eff > 1 ? audio.sfx("superEffective") : t.eff < 1 && audio.sfx("resisted"), this.punch(0.35 + a * 1.1, t.crit ? 90 : 0), n ? vibrate(t.crit ? [18, 30, 18] : 10) : (audio.sfx("hurt"), vibrate(t.crit ? [30, 40, 30] : 18));
+        }, c), t.eff > 1 ? this.ui.battleBanner("פגיעה יעילה במיוחד!", 800) : t.eff < 1 && this.ui.battleBanner("לא יעיל במיוחד…", 700);
+      } else t.kind === "heal" ? (audio.sfx("heal"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `+${t.amount}`, "heal")) : t.kind === "miss" ? (audio.sfx("miss"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), "החטאה", "")) : t.kind === "capture" && this.ui.battleBanner(t.success ? "✨ נלכד!" : `הכדור נפתח… (${t.chance}%)`, 1400);
+      t.actor && this.battle.youId === t.actor && t.skill && MOVES[t.skill] && (this.cooldowns[t.skill] = Date.now() + MOVES[t.skill].cd);
+    }), e.on("actionRejected", t => {
+      let n = {
+        cooldown: "עוד לא מוכן",
+        stamina: "אין מספיק מרץ",
+        stunned: "הדמות מסוחררת",
+        no_sphere: "אין כדורי לכידה",
+        no_item: "אין שיקויים",
+        cannot_flee: "אי אפשר לברוח",
+        no_capture_in_dungeon: "אי אפשר ללכוד במבוך"
+      }[t.reason] || t.reason;
+      audio.sfx("deny"), this.ui.toast(n, "bad");
+    }), e.on("battleEnd", async t => {
+      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile));
+      let n = [];
+      t.captured && n.push(`נלכד ${loc(SPECIES[t.captured.species])}!`), t.xp && n.push(`+${t.xp} XP`), t.gold && (n.push(`${t.gold > 0 ? "+" : ""}${t.gold}⛁`), t.gold > 0 && setTimeout(() => audio.sfx("coin"), 620)), t.items?.length && setTimeout(() => audio.sfx("loot"), 820);
+      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "evolve" && n.push(`${loc(SPECIES[r.from])} התפתח ל${loc(SPECIES[r.into])}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`);
+      audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
+      for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level")), r.kind === "evolve" && (audio.sfx("evolve"), this.ui.celebrate(`${loc(SPECIES[r.into])}!`, "evolve"));
+      this.ui.battleBanner(t.won ? "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא");
+      let s = t.outcome === "captured" ? 4200 : 2e3;
+      n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), s - 1400), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
+    }), e.on("dungeonEnd", t => {
+      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile)), this.ui.battleBanner(t.success ? "המבוך נוקה!" : "הקבוצה הובסה", 1800);
+      let n = [`+${t.xp} XP`, `+${t.gold}⛁`];
+      for (let s of t.items || []) n.push(loc(ITEMS[s]));
+      setTimeout(() => this.ui.toast(n.join(" · "), t.success ? "good" : ""), 400), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), 2200);
+    }), e.on("bossSpawn", t => {
+      audio.sfx("bossRoar"), audio.playMusic("boss"), vibrate([60, 60, 120]), this.ui.toast(`⚠ ${t.he || t.name} הופיע באזור!`, "bad");
+    }), e.on("bossHit", () => {}), e.on("bossCounter", t => {
+      audio.sfx("hurt"), this.punch(0.7), vibrate(30), this.ui.toast(`הבוס פגע בך (-${t.dmg})`, "bad");
+    }), e.on("bossEnd", t => {
+      audio.sfx(t.defeated ? "victory" : "uiBack"), audio.playMusic(this.zone?.id || "verdant_meadow"), this.ui.toast(t.defeated ? "הבוס הובס!" : "הבוס נסוג", t.defeated ? "good" : "");
+    }), e.on("bossReward", t => {
+      audio.sfx("coin"), this.ui.toast(`דירוג ${t.rank} · +${t.gold}⛁ · +${t.xp} XP`, "good");
+    }), e.on("left", ({
+      code: t
+    }) => {
+      this.mode === "world" && t >= 4e3 && (this.ui.toast("נותקת מהעולם", "bad"), this.showLogin());
+    });
+  }
+  renderInvitePrompt(e) {
+    let t = document.querySelector("#panel .body");
+    if (!t) return;
+    let n = document.createElement("div");
+    n.className = "list-item", n.innerHTML = `<div class="grow"><b>הזמנה מ${e.fromName}</b><span>הצטרפות לקבוצה</span></div>`;
+    let s = document.createElement("button");
+    s.className = "btn small primary", s.textContent = "הצטרף", s.onclick = () => {
+      this.net.send("partyAccept", {
+        partyId: e.partyId
+      }), this.ui.closePanel();
+    }, n.appendChild(s), t.prepend(n);
+  }
+  zoneElement() {
+    let e = this.zone?.id;
+    return {
+      emberfall_canyon: "ember",
+      tidal_hollow: "aqua",
+      frostpeak_ridge: "frost",
+      umbral_grove: "umbra"
+    }[e] || "verdant";
+  }
+  bindButtons() {
+    $("#btn-action").onclick = () => this.doAction();
+    for (let e of document.querySelectorAll(".skill-btn")) e.onclick = () => {
+      let t = e.dataset.skill;
+      t && (this.worldState()?.boss?.active ? this.attackBoss(t) : this.doAction(t));
+    };
+  }
+  setView(e) {
+    let t = this.world.setViewMode(e);
+    try {
+      globalThis.localStorage?.setItem("hobile.view", t);
+    } catch {}
+    return audio.sfx("ui"), this.ui.toast(t === "first" ? "מבט גוף ראשון" : "מבט גוף שלישי"), t;
+  }
+  leaveInterior() {
+    this.world.interior && (this.world.exitInterior(), this.net.send("exitBuilding"), audio.sfx("ui"));
+  }
+  interiorPrompt() {
+    let e = this.world.interior;
+    if (!e) return !1;
+    let t = $("#btn-action");
+    if (this.world.atInteriorExit()) return this.ui.setPrompt("🚪 חזרה לרחוב"), t.textContent = "צא", t.onclick = () => this.leaveInterior(), !0;
+    let n = this.world.interiorNpcScreenPos(),
+      s = {
+        clinic: ["🩺 טיפול, שיקויים והחייאה", "מרפאה"],
+        shop: ["🛒 כדורים, חומרים וציוד", "חנות"],
+        archive: ["📜 יומן המסע ומידע על האזורים", "קרא"],
+        workshop: ["🛠 מתכונים — שדרוגים נעשים בחצר", "מתכונים"]
+      },
+      [r, o] = s[e.kind] || ["—", "פעולה"];
+    return n.visible && n.dist < 5.5 ? (this.ui.setPrompt(r), t.textContent = o, t.onclick = () => this.openCounter(e.kind), !0) : (this.ui.setPrompt(e.he || e.name || null), t.textContent = "פעולה", t.onclick = () => this.doAction(), !0);
+  }
+  openCounter(e) {
+    if (audio.sfx("ui"), e === "clinic") {
+      this.ui.openPanel("clinic");
+      return;
+    }
+    if (e === "shop") {
+      this.ui.openPanel("shop");
+      return;
+    }
+    if (e === "workshop") {
+      this.openBase();
+      return;
+    }
+    if (e === "archive") {
+      this.ui.openPanel("quests");
+      return;
+    }
+  }
+  openBase(e) {
+    this.net.send("baseOpen"), this.ui.openPanel("base", e), audio.sfx("ui");
+  }
+  hooks() {
+    let e = (t, n) => this.net.send(t, n);
+    return {
+      openBase: () => this.openBase(),
+      clinicHeal: () => e("clinicHeal"),
+      swapCreature: t => e("switchCreature", {
+        uid: t
+      }),
+      openCard: t => {
+        e("card", {
+          uid: t
+        }), this.ui.openPanel("card");
+      },
+      baseOpen: () => e("baseOpen"),
+      baseBuild: t => e("baseBuild", {
+        id: t
+      }),
+      baseTrain: t => e("baseTrain", {
+        uid: t
+      }),
+      baseCollect: t => e("baseCollect", {
+        slotId: t
+      }),
+      baseCancel: t => e("baseCancel", {
+        slotId: t
+      }),
+      baseCraft: t => e("baseCraft", {
+        recipe: t
+      }),
+      viewMode: () => this.world.viewMode,
+      toggleView: () => this.setView(this.world.viewMode === "first" ? "third" : "first"),
+      chat: t => e("chat", t),
+      travel: t => e("travel", {
+        zone: t,
+        token: this.net.token
+      }),
+      dungeon: t => e("dungeonEnter", {
+        dungeonId: t
+      }),
+      useItem: t => e("useItem", {
+        itemId: t
+      }),
+      buy: (t, n) => e("shopBuy", {
+        itemId: t,
+        qty: n
+      }),
+      claimQuest: t => e("questClaim", {
+        questId: t
+      }),
+      addFriend: t => e("friendAdd", {
+        name: t
+      }),
+      respondFriend: (t, n) => e("friendRespond", {
+        fromId: t,
+        accept: n
+      }),
+      partyInvite: t => e("partyInvite", {
+        name: t
+      }),
+      partyLeave: () => e("partyLeave"),
+      guildCreate: (t, n) => e("guildCreate", {
+        name: t,
+        tag: n
+      }),
+      guildJoin: t => e("guildJoin", {
+        guildId: t
+      }),
+      guildLeave: () => e("guildLeave"),
+      guildContribute: t => e("guildContribute", {
+        gold: t
+      }),
+      guildUpgrade: t => e("guildUpgrade", {
+        upgradeId: t
+      }),
+      guildList: () => new Promise(t => {
+        this._guildListResolve = t, e("guildList"), setTimeout(() => t([]), 2500);
+      }),
+      setLead: t => {
+        let n = this.profile;
+        if (!n) return;
+        let s = [...n.team, ...n.box];
+        e("setTeam", {
+          team: [t, ...s.filter(r => r !== t)].slice(0, 6)
+        });
+      },
+      leaderboard: () => this.net.leaderboard("level").catch(() => []),
+      logout: () => {
+        this.net.logout(), location.reload();
+      },
+      useSkill: t => {
+        this.net.send("skill", {
+          skill: t
+        }), MOVES[t] && (this.cooldowns[t] = Date.now() + MOVES[t].cd);
+      },
+      swapCreature: t => {
+        this.net.send("swap", {
+          uid: t
+        }), this.cooldowns = {};
+      },
+      trainerAction: t => {
+        let n = {
+          action: t
+        };
+        t === "sphere" && (n.sphere = this.bestSphere()), t === "potion" && (n.item = this.bestPotion()), this.net.send("trainer", n), this.cooldowns[`trainer:${t}`] = Date.now() + (ACTIONS[t]?.cd || 2e3);
+      }
+    };
+  }
+  bestSphere() {
+    let e = this.battle.inventory || {};
+    for (let t of ["sphere_ultra", "sphere_great", "sphere_basic"]) if (e[t] > 0) return t;
+    return "sphere_basic";
+  }
+  bestPotion() {
+    let e = this.battle.inventory || {};
+    for (let t of ["potion_s", "potion_m", "potion_l"]) if (e[t] > 0) return t;
+    return "potion_s";
+  }
+  worldState() {
+    return this.mode === "world" ? this.net.room?.state : null;
+  }
+  attackBoss(e) {
+    let t = Date.now();
+    this.cooldowns.__boss > t || (this.cooldowns.__boss = t + 900, e && MOVES[e] && (this.cooldowns[e] = t + Math.max(900, MOVES[e].cd * 0.5)), this.net.send("bossAttack", {
+      skill: e
+    }));
+  }
+  doAction(e) {
+    let t = this.worldState();
+    if (!t) return;
+    if (this.pendingDuel) {
+      this.net.send("duelAccept", {
+        fromId: this.pendingDuel
+      }), this.pendingDuel = null;
+      return;
+    }
+    let n = this.world.selfPosition();
+    if (t.boss?.active && dist2d(t.boss, n) < 15) {
+      this.attackBoss(e);
+      return;
+    }
+    let s = this.nearestNpc(n);
+    if (s && s.d < 4.2) {
+      this.net.send("talk", {
+        npcId: s.id
+      });
+      return;
+    }
+    let r = this.nearestLandmark(n);
+    if (r && r.d < (r.r ? r.r + 1 : 9)) {
+      if (r.interior) {
+        this.net.send("enterBuilding", {
+          id: r.interior
+        });
+        return;
+      }
+      r.kind === "portal" ? this.net.send("travel", {
+        zone: r.to,
+        token: this.net.token
+      }) : r.kind === "dungeon" ? this.net.send("dungeonEnter", {
+        dungeonId: r.to
+      }) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
+        target: r.id || r.kind
+      });
+      return;
+    }
+    let o = this.nearestWild(n);
+    if (o && o.d < 7.5) {
+      if (this.transitioning || Date.now() < this.engagePending) return;
+      this.engagePending = Date.now() + 5e3, this.net.send("engage", {
+        wildId: o.id
+      });
+      return;
+    }
+    let a = this.nearestPlayer(n);
+    if (a && a.d < 6) {
+      this.net.send("duel", {
+        targetId: a.id
+      }), this.ui.toast("נשלחה הזמנה לדו-קרב");
+      return;
+    }
+    this.ui.toast("אין מה לעשות כאן — התקרב ליצור, לשער או ל-NPC");
+  }
+  nearestWild(e) {
+    let t = this.worldState(),
+      n = null;
+    return t?.wilds?.forEach((s, r) => {
+      if (s.engagedBy) return;
+      let o = dist2d(s, e);
+      (!n || o < n.d) && (n = {
+        id: r,
+        d: o,
+        w: s
+      });
+    }), n;
+  }
+  nearestPlayer(e) {
+    let t = this.worldState(),
+      n = null;
+    return t?.players?.forEach((s, r) => {
+      if (r === this.net.room?.sessionId) return;
+      let o = dist2d(s, e);
+      (!n || o < n.d) && (n = {
+        id: s.id,
+        key: r,
+        d: o,
+        p: s
+      });
+    }), n;
+  }
+  nearestLandmark(e) {
+    let t = null;
+    for (let n of this.zone?.landmarks || []) {
+      let s = Math.hypot(n.x - e.x, n.z - e.z);
+      (!t || s < t.d) && (t = {
+        ...n,
+        d: s
+      });
+    }
+    return t;
+  }
+  nearestNpc(e) {
+    let t = null;
+    for (let n of Object.keys(NPCS)) {
+      let s = this.world.npcPosition?.(n);
+      if (!s) continue;
+      let r = Math.hypot(s.x - e.x, s.z - e.z);
+      (!t || r < t.d) && (t = {
+        id: n,
+        npc: NPCS[n],
+        x: s.x,
+        z: s.z,
+        d: r
+      });
+    }
+    return t;
+  }
+  punch(e, t = 0) {
+    this.shake = Math.min(1.4, this.shake + e), t && (this.freezeUntil = performance.now() + t);
+  }
+  loop(e) {
+    requestAnimationFrame(this.loop);
+    let t = performance.now(),
+      n = Math.min(0.05, (t - (this._last || t)) / 1e3);
+    if (this._last = t, t < this.freezeUntil) {
+      this.applyShake(0);
+      return;
+    }
+    this.mode === "world" ? this.tickWorld(n, e) : (this.mode === "battle" || this.mode === "dungeon") && this.tickBattle(n, e), this.shake = Math.max(0, this.shake - n * 3.4), this.applyShake(n);
+    let s = this.net.room?.state?.phase,
+      r = (this.mode === "battle" || this.mode === "dungeon") && s !== void 0 && s !== "active";
+    this.ui.tickCooldowns(this.cooldowns, Date.now(), r);
+  }
+  applyShake() {
+    let e = this.mode === "world" ? this.world.camera : this.battleView.camera;
+    if (!e || (this._shakeApplied && (e.position.sub(this._shakeApplied), this._shakeApplied = null), this.shake < 0.004)) return;
+    let t = this.shake * 0.34,
+      n = new Vector3((Math.random() - 0.5) * t, (Math.random() - 0.5) * t * 0.8, (Math.random() - 0.5) * t);
+    e.position.add(n), this._shakeApplied = n;
+  }
+  tickWorld(e, t) {
+    let n = this.net.room,
+      s = n?.state;
+    if (!s?.players) return;
+    let r = new Set();
+    s.players.forEach((d, u) => {
+      r.add(u);
+      let f = this.world.ensureActor(u, {
+        kind: "player",
+        signature: `p:${d.body}:${d.skin}:${d.hair}:${d.outfit}`,
+        appearance: {
+          body: d.body,
+          skin: d.skin,
+          hair: d.hair,
+          outfit: d.outfit
+        },
+        petSpecies: d.petSpecies
+      });
+      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.camYaw = d.rot || 0), f.pet?.species !== d.petSpecies && this.world.attachPet(f, d.petSpecies);
+    }), s.wilds.forEach((d, u) => {
+      r.add(u), this.world.ensureActor(u, {
+        kind: "wild",
+        signature: `w:${d.species}`,
+        species: d.species
+      }), this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving !== !1);
+    }), s.boss?.active && (r.add("boss"), this.world.ensureActor("boss", {
+      kind: "boss",
+      signature: `b:${s.boss.species}`,
+      species: s.boss.species
+    }), this.world.setActorTarget("boss", s.boss.x, s.boss.z, 0, !1)), this.world.pruneActors(r), this.world.setSelf(n.sessionId);
+    let o = this.stick.value.magnitude > 0.05 ? this.stick.value : this.keys.value,
+      a = null;
+    if (o.magnitude > 0.05) {
+      let d = this.world.camYaw,
+        u = Math.cos(d),
+        f = Math.sin(d),
+        p = kb * Math.min(1, o.magnitude),
+        x = (-o.x * u - o.y * f) * p,
+        g = (o.x * f - o.y * u) * p;
+      a = this.world.moveSelf(x, g, e), this.walkPhase += p * e, this.walkPhase > 1.55 && (this.walkPhase = 0, audio.sfx("step"));
+    } else a = this.world.moveSelf(0, 0, e), this.walkPhase = 1.2;
+    let l = Date.now();
+    a && l - this.lastNetSend > 1e3 / zb && (this.lastNetSend = l, this.net.send("move", a));
+    let c = (s.serverTime || Date.now()) % wp / wp;
+    this.world.setTimeOfDay(c), this.updateObjective(s);
+    let h = Number.isFinite(this.world.night) ? this.world.night : 0;
+    Math.abs(h - (this._lastNight ?? -1)) > 0.08 && (this._lastNight = h, audio.setNight(h)), this.world.update(e, t), this.ui.drawMinimap(this.world, s, n.sessionId), this.ui.setBoss(s.boss), this.updateNameplates(s, n.sessionId), this.updatePrompt();
+  }
+  underHud(e) {
+    let t = performance.now();
+    (!this._hudRects || t - this._hudRectsAt > 1e3) && (this._hudRectsAt = t, this._hudRects = ["#minimap", ".vitals", ".top-right", "#tracker", "#chat-mini", "#action-cluster", "#boss-banner"].map(s => document.querySelector(s)).filter(s => s && !s.classList.contains("hidden")).map(s => s.getBoundingClientRect()));
+    let n = {
+      left: e.x - 62,
+      right: e.x + 62,
+      top: e.y - 36,
+      bottom: e.y + 4
+    };
+    return this._hudRects.some(s => n.left < s.right && n.right > s.left && n.top < s.bottom && n.bottom > s.top);
+  }
+  updateObjective(e) {
+    let t = $("#objective");
+    if (!t) return;
+    let n = this.currentObjective();
+    if (globalThis.__hobileQuestNpc = n?.goal?.kind === "talk" && !n.done ? n.goal.target : null, !n) {
+      t.classList.add("hidden");
+      return;
+    }
+    let s = this.world.selfPosition(),
+      r = this.objectivePoint(n, e, s);
+    if (!r) {
+      t.classList.add("hidden");
+      return;
+    }
+    let o = Math.hypot(r.x - s.x, r.z - s.z);
+    t.classList.remove("hidden"), t.querySelector(".what").textContent = n.label, t.querySelector(".far").textContent = `${Math.round(o)} מ׳`;
+    let a = this.world.project(new Vector3(r.x, (r.y ?? 0) + 2.2, r.z)),
+      l = this.world.canvas.clientWidth,
+      c = this.world.canvas.clientHeight,
+      h = 46,
+      d = t.querySelector(".arrow");
+    if (a.visible && a.x > h && a.x < l - h && a.y > h && a.y < c - h) t.style.left = `${a.x}px`, t.style.top = `${Math.max(h, a.y)}px`, d.style.transform = "rotate(180deg)", t.classList.remove("edge");else {
+      let u = l / 2,
+        f = c / 2,
+        p = a.x - u,
+        x = a.y - f;
+      (a.z >= 1 || !a.visible) && (p = -p, x = -x);
+      let v = Math.min((u - 86) / Math.abs(p || 0.001), (f - 58) / Math.abs(x || 0.001));
+      t.style.left = `${u + p * v}px`, t.style.top = `${f + x * v}px`, d.style.transform = `rotate(${Math.atan2(x, p) * 180 / Math.PI + 90}deg)`, t.classList.add("edge");
+    }
+  }
+  currentObjective() {
+    let e = this.profile?.quests?.active || {};
+    for (let t of Object.values(QUESTS)) {
+      if (t.chain !== "main") continue;
+      let n = e[t.id];
+      if (!(!n || n.claimed)) return {
+        label: loc(t),
+        goal: t.goal,
+        done: n.done
+      };
+    }
+    return null;
+  }
+  objectivePoint(e, t, n) {
+    let s = e.goal,
+      r = this.zone?.landmarks || [],
+      o = (l, c) => ({
+        x: l,
+        z: c,
+        y: this.world.heightAt(l, c)
+      });
+    if (s.kind === "talk") {
+      let l = this.world.npcPosition?.(s.target);
+      if (l) return o(l.x, l.z);
+      let c = r.find(h => h.npc === s.target || h.id === s.target) || r.find(h => h.kind === "npc");
+      return c ? o(c.x, c.z) : null;
+    }
+    if (s.kind === "visit") {
+      let l = r.find(c => c.kind === s.target);
+      return l ? o(l.x, l.z) : null;
+    }
+    if (s.kind === "craft" || s.kind === "star") {
+      let l = r.find(c => c.kind === "base");
+      return l ? o(l.x, l.z) : null;
+    }
+    if (s.kind === "dungeon") {
+      let l = r.find(c => c.kind === "dungeon" && (!s.target || c.to === s.target));
+      return l ? {
+        x: l.x,
+        z: l.z,
+        y: this.world.heightAt(l.x, l.z)
+      } : null;
+    }
+    if (s.zone && s.zone !== this.zone?.id) {
+      let l = r.find(c => c.kind === "portal" && c.to === s.zone);
+      return l ? {
+        x: l.x,
+        z: l.z,
+        y: this.world.heightAt(l.x, l.z)
+      } : null;
+    }
+    if (s.kind === "boss") return t?.boss?.active ? {
+      x: t.boss.x,
+      z: t.boss.z
+    } : null;
+    let a = this.nearestWild(n);
+    return a ? {
+      x: a.w.x,
+      z: a.w.z,
+      y: this.world.heightAt(a.w.x, a.w.z)
+    } : null;
+  }
+  updateNameplates(e, t) {
+    let n = [];
+    for (let [s, r] of this.world.actors) {
+      let o = r.holder.position.clone().add(new Vector3(0, r.kind === "boss" ? 4.6 : 2.1, 0)),
+        a = this.world.project(o);
+      if (!(!a.visible || this.underHud(a))) if (r.kind === "player") {
+        let l = e.players.get(s);
+        if (!l) continue;
+        let c = l.guildTag ? `<span class="tag">[${l.guildTag}]</span> ` : "";
+        n.push({
+          key: s,
+          kind: s === t ? "self" : "",
+          x: a.x,
+          y: a.y,
+          visible: !0,
+          label: `${c}${escapeHtml(l.name)} <span class="mono">${l.level}</span>`,
+          hp: l.hpRatio
+        });
+      } else if (r.kind === "wild") {
+        let l = e.wilds.get(s);
+        if (!l) continue;
+        n.push({
+          key: s,
+          kind: "wild",
+          x: a.x,
+          y: a.y,
+          visible: !0,
+          label: `${loc(SPECIES[l.species])} <span class="mono">${l.level}</span>`
+        });
+      } else r.kind === "boss" && e.boss?.active && n.push({
+        key: s,
+        kind: "boss",
+        x: a.x,
+        y: a.y,
+        visible: !0,
+        label: `☠ ${loc(SPECIES[e.boss.species])} <span class="mono">${e.boss.level}</span>`,
+        hp: e.boss.hp / Math.max(1, e.boss.maxHp)
+      });
+    }
+    this.ui.syncNameplates(n);
+  }
+  updatePrompt() {
+    let e = this.worldState();
+    if (!e) return;
+    let t = this.world.selfPosition();
+    if (e.boss?.active && dist2d(e.boss, t) < 15) {
+      this.ui.setPrompt(`☠ תקוף את ${loc(SPECIES[e.boss.species])}`), $("#btn-action").textContent = "תקוף";
+      return;
+    }
+    if (this.interiorPrompt()) return;
+    let n = this.nearestNpc(t);
+    if (n && n.d < 4.2) {
+      this.ui.setPrompt(`${n.npc.icon} דבר עם ${n.npc.he}`), $("#btn-action").textContent = "דבר", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
+    let s = this.nearestLandmark(t);
+    if (s && s.d < (s.r ? s.r + 1 : 9)) {
+      let o = {
+          portal: [`מעבר ל${loc(ZONES[s.to] || {})}`, "עבור"],
+          dungeon: [`כניסה ל${loc(DUNGEONS[s.to] || {
+            he: "מבוך"
+          })}`, "היכנס"],
+          base: ["🔨 החצר שלך — בנייה, ייצור ואימון", "פתח"],
+          workshop: ["🛠 המסגרייה — מתכונים ושדרוגים", "פתח"],
+          shop: ["🛒 שוק הרחוב", "חנות"],
+          archive: ["📜 הארכיון", "היכנס"],
+          clinic: ["🩺 מרפאת הגאות — ריפוי והחייאה", "היכנס"],
+          plaza: ["⛲ כיכר הרסיס — מנוחה וריפוי", "מנוחה"],
+          pier: ["🌀 מזח הקרע", "התבונן"],
+          gate: ["🛡 השער הצפוני", "דבר"]
+        },
+        [a, l] = o[s.kind] || [loc(s) || "מנוחה וריפוי", "פעולה"];
+      this.ui.setPrompt(a), $("#btn-action").textContent = l, s.kind === "base" || s.kind === "workshop" ? $("#btn-action").onclick = () => this.openBase() : s.kind === "shop" ? $("#btn-action").onclick = () => this.ui.openPanel("shop") : $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
+    let r = this.nearestWild(t);
+    if (r && r.d < 7.5) {
+      let o = e.wilds.get(r.id);
+      this.ui.setPrompt(`⚔ ${loc(SPECIES[o.species])} Lv ${o.level}`), $("#btn-action").textContent = "קרב", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
+    this.ui.setPrompt(null), $("#btn-action").textContent = "פעולה", $("#btn-action").onclick = () => this.doAction();
+  }
+  bestSphere() {
+    let e = this.battle.inventory || {};
+    for (let t of ["sphere_ultra", "sphere_great", "sphere_basic"]) if ((e[t] || 0) > 0) return t;
+    return "sphere_basic";
+  }
+  liveTeam(e) {
+    let t = new Map((this.battle.team || []).map(n => [n.id, n]));
+    return e.filter(n => n.kind === "creature" && n.side === this.battle.mySide).sort((n, s) => (n.slot ?? 0) - (s.slot ?? 0)).map(n => ({
+      uid: t.get(n.id)?.uid || n.id,
+      id: n.id,
+      species: n.species,
+      level: n.level,
+      hp: n.hp,
+      maxHp: n.maxHp,
+      benched: n.benched
+    }));
+  }
+  tickBattle(e, t) {
+    let n = this.net.room?.state;
+    if (n?.combatants) {
+      let s = [];
+      n.combatants.forEach(r => s.push({
+        id: r.id,
+        side: r.side,
+        kind: r.kind,
+        name: r.name,
+        species: r.species,
+        level: r.level,
+        hp: r.hp,
+        maxHp: r.maxHp,
+        stamina: r.stamina,
+        benched: !!r.benched,
+        slot: r.slot,
+        frozenUntil: r.frozenUntil,
+        skills: [...r.skills],
+        effects: r.effects.map(o => ({
+          kind: o.kind,
+          until: o.until
+        }))
+      })), this.battle.combatants = s, this.ui.battleTeam = this.liveTeam(s), this.ui.bestSphere = this.bestSphere(), this.ui.capture = {
+        target: n.captureTarget || "",
+        until: n.captureUntil || 0,
+        chance: n.captureChance || 0
+      }, this.battleView.sync(s, this.battle.youId), this.ui.renderBattle(s, this.battle.youId, this.battle.inventory);
+    }
+    this.battleView.update(e, t);
+  }
+};
+
+function Sp(i, e) {
+  return Promise.race([i, new Promise((t, n) => setTimeout(() => n(new Error("timeout")), e))]);
+}
+
+function dist2d(i, e) {
+  return Math.hypot(i.x - e.x, i.z - e.z);
+}
+
+function escapeHtml(i) {
+  return String(i ?? "").replace(/[&<>"']/g, e => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  })[e]);
+}
+
+function Oc(i) {
+  return {
+    invalid_username: "שם משתמש לא תקין (2–16 תווים)",
+    weak_password: "סיסמה קצרה מדי (לפחות 6 תווים)",
+    username_taken: "שם המשתמש תפוס",
+    bad_credentials: "שם משתמש או סיסמה שגויים",
+    invalid_name: "שם דמות לא תקין",
+    name_taken: "שם הדמות תפוס",
+    not_enough_gold: "אין מספיק זהב",
+    already_in_guild: "אתה כבר בגילדה",
+    level_too_low: "הרמה שלך נמוכה מדי",
+    too_far: "רחוק מדי",
+    not_leader: "רק מנהיג הקבוצה יכול",
+    no_healthy_creature: "אין לך יצור כשיר לקרב",
+    wild_gone: "היצור נעלם",
+    not_found: "לא נמצא",
+    full: "הקבוצה מלאה",
+    offline: "השחקן לא מחובר",
+    no_portal: "אין שער כאן",
+    solo_mode: "זה מצב אימון לשחקן יחיד — המערכות החברתיות פועלות בגרסה עם השרת",
+    pvp_offline: "דו-קרב דורש שחקן אמיתי נוסף"
+  }[i] || i || "שגיאה";
+}
+
+export { Game, Oc, Sp, dist2d, escapeHtml };

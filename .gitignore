@@ -1,0 +1,11 @@
+node_modules/
+dist/
+shots/
+recovered/bundle*.js
+recovered/raw/
+recovered/*.json
+recovered/*.err
+recovered/tail.js
+recovered/index.html
+.DS_Store
+*.log

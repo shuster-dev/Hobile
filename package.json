@@ -1,0 +1,32 @@
+{
+  "name": "hobile-online",
+  "version": "0.9.0",
+  "private": true,
+  "type": "module",
+  "description": "Hobile Online — browser/PWA monster-collecting MMO",
+  "scripts": {
+    "build:web": "node tools/build.mjs",
+    "build:solo": "node tools/build.mjs --solo",
+    "dev": "node server/index.js",
+    "qa": "node tools/qa.mjs",
+    "shot": "node tools/shot.mjs",
+    "recover": "node tools/split.mjs && node tools/finalize.mjs"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.16.24",
+    "@colyseus/schema": "3.0.76",
+    "@colyseus/ws-transport": "0.16.5",
+    "colyseus.js": "0.16.22",
+    "express": "4.21.2",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@babel/core": "7.25.2",
+    "@babel/generator": "7.25.0",
+    "@babel/parser": "7.25.3",
+    "@babel/traverse": "7.25.3",
+    "esbuild": "0.23.1",
+    "playwright": "^1.63.0",
+    "prettier": "3.3.3"
+  }
+}

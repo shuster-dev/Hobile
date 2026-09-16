@@ -1,0 +1,29 @@
+Id     len=  18766 fn/kb=   0.1 @689871  {cindcub:{plan:"quad",mood:"curious",q:{bodyY:.72,rise:.05,chest:[.3,.29,.31],chestZ:.14,waist:[.225,.215,.2],
+G_     len=  11915 fn/kb=   1.8 @773542  {maro:[{when:i=>!i.hasStarter,lines:["\u05D0\u05D6 \u05D4\u05D2\u05E2\u05EA. \u05DE\u05D0\u05D6 \u05E9\u05D4\u
+He     len=  11752 fn/kb=     0 @609305  {cindcub:yt({id:"cindcub",name:"Cindcub",he:"\u05E1\u05D9\u05E0\u05D3\u05E7\u05D0\u05D1",types:["ember"],rarit
+yp     len=   9388 fn/kb=     0 @884532  {invalid_username:"\u05E9\u05DD \u05DE\u05E9\u05EA\u05DE\u05E9 \u05DC\u05D0 \u05EA\u05E7\u05D9\u05DF \u2014 \u
+rn     len=   7334 fn/kb=     0 @632239  {q_main_01:{id:"q_main_01",chain:"main",step:1,name:"First Bond",he:"\u05D4\u05E7\u05E9\u05E8 \u05D4\u05E8\u05
+Pn     len=   6229 fn/kb=     0 @624337  {aetherport:{id:"aetherport",name:"Aetherport",he:"\u05E0\u05DE\u05DC \u05D4\u05D0\u05EA\u05E8",levels:[2,5],g
+Ot     len=   5540 fn/kb=     0 @603196  {tackle:{id:"tackle",name:"Tackle",he:"\u05E0\u05D2\u05D9\u05D7\u05D4",type:null,kind:"physical",power:34,acc:
+De     len=   4604 fn/kb=     0 @472422  {shaderID:N,shaderType:y.type,shaderName:y.name,vertexShader:Ee,fragmentShader:Pe,defines:y.defines,customVert
+Pd     len=   3669 fn/kb=     0 @669719  {ember(i,e){let t=Math.round(3+i.tier*1.6);if(a_(i,{n:Math.round(t*e)+1,mat:i.P.HOT,len:.1+i.tier*.03}),e>.6){
+m      len=   3440 fn/kb=     0 @463260  [Zf(t),"#define SHADER_TYPE "+t.shaderType,"#define SHADER_NAME "+t.shaderName,p,t.useFog&&t.fog?"#define USE_
+e      len=   3240 fn/kb=     0 @821675  {aetherport:{sky:{top:2973598,horizon:12899294,ground:2835280,sun:16771787},fog:11518930,fogNear:44,fogFar:158
+ht     len=   3217 fn/kb=     0 @621116  {sphere_basic:{id:"sphere_basic",name:"Aether Sphere",he:"\u05DB\u05D3\u05D5\u05E8 \u05D0\u05EA\u05E8",kind:"s
+it     len=   3194 fn/kb=     0 @395668  {alphahash_fragment:og,alphahash_pars_fragment:ag,alphamap_fragment:lg,alphamap_pars_fragment:cg,alphatest_fra
+ki     len=   3090 fn/kb=     0 @401741  {basic:{uniforms:Tn([Me.common,Me.specularmap,Me.envmap,Me.aomap,Me.lightmap,Me.fog]),vertexShader:it.meshbasi
+Me     len=   2871 fn/kb=     0 @398866  {common:{diffuse:{value:new le(16777215)},opacity:{value:1},map:{value:null},mapTransform:{value:new Je},alpha
+Cf     len=   2696 fn/kb=     0 @123066  {aliceblue:15792383,antiquewhite:16444375,aqua:65535,aquamarine:8388564,azure:15794175,beige:16119260,bisque:1
+Yo     len=   2232 fn/kb=   3.6 @643575  {pod:{id:"pod",name:"Training Pod",he:"\u05EA\u05D0 \u05D0\u05D9\u05DE\u05D5\u05DF",icon:"\u{1F6D6}",desc:"Cre
+Es     len=   1632 fn/kb=   0.6 @645811  {...Object.fromEntries(Object.keys(Lt).map(i=>[`refine_${i}`,{id:`refine_${i}`,at:"refinery",mins:20,name:`Ref
+i      len=   1593 fn/kb=  29.5 @78267  {enabled:!0,workingColorSpace:yo,spaces:{},convert:function(s,r,o){return this.enabled===!1||r===o||!r||!o||(t
+ii     len=   1477 fn/kb=     0 @771491  {maro:{id:"maro",name:"Elder Maro",he:"\u05D4\u05D6\u05E7\u05DF \u05DE\u05D0\u05E8\u05D5",role:"guide",icon:"\
+o      len=   1380 fn/kb=     0 @972813  {portal:[`\u05DE\u05E2\u05D1\u05E8 \u05DC${ze(Pn[s.to]||{})}`,"\u05E2\u05D1\u05D5\u05E8"],dungeon:[`\u05DB\u05
+G0     len=   1318 fn/kb=     0 @753118  {clinic:{hw:6.2,d:10.8,h:4.3,floor:13031126,floor2:11585223,wall:15200238,wain:2778475,trim:16055033,ceil:1454
+Vr     len=   1284 fn/kb=     0 @630605  {undercity_cistern:{id:"undercity_cistern",name:"Undercity Cistern",he:"\u05D1\u05D5\u05E8\u05D5\u05EA \u05D4\
+wn     len=   1281 fn/kb=     0 @55177  ["00","01","02","03","04","05","06","07","08","09","0a","0b","0c","0d","0e","0f","10","11","12","13","14","15"
+zi     len=   1170 fn/kb=     0 @641328  {createCost:5e3,maxMembers:40,ranks:["member","officer","master"],buffs:[{level:1,cost:0,id:"gb_vigor",name:"V
+Tc     len=   1107 fn/kb=     0 @873308  {ember:{shards:14,size:.065,speed:4.8,rise:2.6,grav:-3.4,drag:2.8,spin:9,arc:2.5,tail:.4},aqua:{shards:13,size
+Lt     len=    901 fn/kb=     0 @601675  {ember:{name:"Ember",he:"\u05D0\u05E9",color:16739133,ui:"#ff6b3d",icon:"\u{1F525}"},aqua:{name:"Aqua",he:"\u0
+C0     len=    897 fn/kb=  12.3 @674064  {paw:(i,e,t)=>[{geo:C(oe(i*1.5,i*.85,i*1.75,3.2,9),{z:i*.45}),mat:t},...[-1,0,1].map(n=>({geo:C(Ut(i*.36,i*.85
+s      len=    722 fn/kb=     0 @960228  {clinic:["\u{1FA7A} \u05D8\u05D9\u05E4\u05D5\u05DC, \u05E9\u05D9\u05E7\u05D5\u05D9\u05D9\u05DD \u05D5\u05D4\u0
