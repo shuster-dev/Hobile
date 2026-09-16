@@ -40,7 +40,8 @@ const dump = async (why) => {
 };
 const step = async (label, fn) => { try { await fn(); console.log('  ok  ' + label); } catch (e) { console.log('  FAIL ' + label + ' :: ' + String(e).split('\n')[0].slice(0, 130)); await dump('failure detail'); await browser.close(); server.close(); process.exit(1); } };
 
-await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
+const PAGE = process.env.SMOKE_PAGE || 'solo.html';
+await page.goto(`http://127.0.0.1:${PORT}/${PAGE}`, { waitUntil: 'load' });
 await step('boot: character creation appears', () => page.waitForSelector('#pick-starter .starter', { timeout: 25000 }));
 await step('pick a starter', async () => { await page.click('#pick-starter .starter'); });
 await step('name the trainer', () => page.fill('#in-charname', 'QA'));
