@@ -91,6 +91,104 @@ ok('every door has a building behind it',
   Object.values(ZONES).every((z) => (z.landmarks || [])
     .filter((l) => l.door).every((l) => l.interior)));
 
+// ---------------------------------------------------------------- solid world
+// The player used to walk into the middle of anything without a collider and
+// stand there at terrain height, which reads on screen as hovering inside the
+// rock. These three checks are the guard: nothing solid is walk-through, and
+// nothing solid walls the world off either.
+section('solid world');
+const PLAYER_R = 0.42;
+const reachOf = (colliders, p) => {
+  const hit = colliders.filter((c) => c.r !== undefined && Math.hypot(c.x - p.x, c.z - p.z) < 0.001);
+  return hit.length ? Math.max(...hit.map((c) => c.r)) + PLAYER_R : 0;
+};
+let thinRocks = [];
+for (const z of Object.values(ZONES)) {
+  const { rocks, colliders } = P.propsFor(z);
+  // a rock is drawn as a radius-1 solid scaled by s, roughened outward by 16%
+  for (const r of rocks || []) if (reachOf(colliders, r) < r.s * 1.16) thinRocks.push(`${z.id}:${r.s.toFixed(2)}`);
+}
+ok('the player cannot walk into a rock', thinRocks.length === 0, thinRocks.slice(0, 4).join(' '));
+
+const SOLID = ['bench', 'bin', 'hydrant', 'bollard', 'fence', 'workbench', 'lamp', 'planter', 'stall', 'fountain'];
+const openProps = [];
+for (const z of Object.values(ZONES)) {
+  const { props, colliders } = P.propsFor(z);
+  for (const pr of props || []) {
+    if (!SOLID.includes(pr.kind)) continue;
+    const near = colliders.some((c) => Math.hypot(c.x - pr.x, c.z - pr.z) < 0.4);
+    if (!near) openProps.push(`${z.id}:${pr.kind}`);
+  }
+}
+ok('every solid street prop stops the player', openProps.length === 0,
+  [...new Set(openProps)].slice(0, 4).join(' '));
+
+// One connected walkable region per zone, with every door and landmark in it.
+// This is what catches a new collider quietly sealing a courtyard shut.
+const STEP = 1;
+const walkable = (z) => {
+  const { colliders } = P.propsFor(z);
+  const half = z.size / 2, n = Math.ceil((half * 2) / STEP);
+  const at = (i, j) => ({ x: -half + i * STEP, z: -half + j * STEP });
+  const id = (i, j) => j * n + i;
+  const cell = 5, grid = new Map();
+  for (const c of colliders) {
+    const reach = (c.r ?? Math.hypot(c.hw, c.hd)) + PLAYER_R + 1;
+    for (let gx = Math.floor((c.x - reach) / cell); gx <= Math.floor((c.x + reach) / cell); gx++)
+      for (let gz = Math.floor((c.z - reach) / cell); gz <= Math.floor((c.z + reach) / cell); gz++) {
+        const k = `${gx},${gz}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(c);
+      }
+  }
+  const blocked = (x, zz) => (grid.get(`${Math.floor(x / cell)},${Math.floor(zz / cell)}`) || []).some((c) => {
+    if (c.hw === undefined) return Math.hypot(x - c.x, zz - c.z) < c.r + PLAYER_R;
+    const co = c.rot ? Math.cos(-c.rot) : 1, si = c.rot ? Math.sin(-c.rot) : 0;
+    const a = (x - c.x) * co - (zz - c.z) * si, b = (x - c.x) * si + (zz - c.z) * co;
+    return Math.abs(a) < c.hw + PLAYER_R && Math.abs(b) < c.hd + PLAYER_R;
+  });
+  const free = new Uint8Array(n * n), lab = new Int32Array(n * n).fill(-1);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const p = at(i, j);
+    free[id(i, j)] = Math.hypot(p.x, p.z) <= half - 2 && !blocked(p.x, p.z) ? 1 : 0;
+  }
+  const sizes = [];
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (!free[id(i, j)] || lab[id(i, j)] >= 0) continue;
+    const c = sizes.length; sizes.push(0);
+    const st = [[i, j]]; lab[id(i, j)] = c;
+    while (st.length) {
+      const [a, b] = st.pop(); sizes[c]++;
+      for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const u = a + da, v = b + db;
+        if (u < 0 || v < 0 || u >= n || v >= n || !free[id(u, v)] || lab[id(u, v)] >= 0) continue;
+        lab[id(u, v)] = c; st.push([u, v]);
+      }
+    }
+  }
+  const main = sizes.indexOf(Math.max(...sizes));
+  const componentAt = (p, tol) => {
+    const i0 = Math.round((p.x + half) / STEP), j0 = Math.round((p.z + half) / STEP);
+    const span = Math.ceil(tol / STEP);
+    let best = null, bd = Infinity;
+    for (let i = i0 - span; i <= i0 + span; i++) for (let j = j0 - span; j <= j0 + span; j++) {
+      if (i < 0 || j < 0 || i >= n || j >= n || !free[id(i, j)]) continue;
+      const q = at(i, j), d = Math.hypot(q.x - p.x, q.z - p.z);
+      if (d < bd) { bd = d; best = lab[id(i, j)]; }
+    }
+    return best;
+  };
+  return { main, componentAt };
+};
+for (const z of Object.values(ZONES)) {
+  const { main, componentAt } = walkable(z);
+  const stranded = (z.landmarks || []).filter((l) => {
+    const p = l.door ?? { x: l.x, z: l.z };
+    return componentAt(p, l.door ? 3 : (l.r || 3) + 3) !== main;
+  }).map((l) => l.kind + (l.door ? '/door' : ''));
+  ok(`${z.id} is walkable in one piece`, stranded.length === 0, stranded.join(','));
+}
+
 // ---------------------------------------------------------------- battle rules
 section('battle rules');
 const doc = C.createPlayerDoc('u1', 'QA', {}, 'cindcub');

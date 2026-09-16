@@ -4852,8 +4852,12 @@ function mergePlain(i) {
 
 var eb = new MeshBasicMaterial();
 
+// How tall the camera should believe a prop is. A rock's collider radius is now
+// its own scale, and a rock is drawn 1.1 of that tall, so it can answer exactly
+// instead of claiming the flat 1.7 every small prop used to claim — which made
+// the camera duck behind knee-high stones it flies well above.
 function propRadius(i) {
-  return i.kind === "building" ? 4.4 : i.kind === "tree" ? 2.8 : i.kind === "gate" ? 4 : 1.7;
+  return i.kind === "building" ? 4.4 : i.kind === "tree" ? 2.8 : i.kind === "gate" ? 4 : i.kind === "rock" ? i.r * 1.1 : 1.7;
 }
 
 function buildingIndex(i) {
@@ -4874,7 +4878,10 @@ function buildingIndex(i) {
       hd: t.hd,
       rot: t.rot || 0,
       kind: t.kind,
-      top: n ?? 9
+      // A box collider that is not a building keeps whatever height it declared.
+      // The old fallback of 9 was written for buildings and made the camera slam
+      // in behind a park bench.
+      top: n ?? t.top ?? 9
     };
   });
 }

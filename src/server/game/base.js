@@ -198,7 +198,10 @@ var StoreBase = class {
       for (let t = 0; t < 24; t++) {
         let n = (Math.random() * 2 - 1) * e,
           s = (Math.random() * 2 - 1) * e;
-        if (!this.zone.landmarks.some(r => r.r && Math.hypot(r.x - n, r.z - s) < r.r + 4) && !this.colliders.some(r => Math.hypot(r.x - n, r.z - s) < r.r + 1.2)) return {
+        // `r.r` is undefined on a box collider and NaN loses every comparison,
+        // so buildings and benches were invisible here — same hole as the one
+        // in WorldRoom.randomFieldPoint, and the two have to agree.
+        if (!this.zone.landmarks.some(r => r.r && Math.hypot(r.x - n, r.z - s) < r.r + 4) && !this.colliders.some(r => Math.hypot(r.x - n, r.z - s) < (r.r ?? Math.max(r.hw, r.hd)) + 1.2)) return {
           x: n,
           z: s
         };

@@ -195,7 +195,10 @@ export class WorldRoom extends Room {
       const x = (Math.random() * 2 - 1) * half;
       const z = (Math.random() * 2 - 1) * half;
       const onLandmark = this.zone.landmarks.some((l) => l.r && Math.hypot(l.x - x, l.z - z) < l.r + 4);
-      const inProp = this.colliders.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.2);
+      // `c.r` is undefined on a box collider, and `undefined + 1.2` is NaN,
+      // which every comparison answers false to — so buildings, gatehouses and
+      // benches were invisible here and a wild could be spawned inside one.
+      const inProp = this.colliders.some((c) => Math.hypot(c.x - x, c.z - z) < (c.r ?? Math.max(c.hw, c.hd)) + 1.2);
       if (!onLandmark && !inProp) return { x, z };
     }
     return { x: half * 0.6, z: half * 0.6 };

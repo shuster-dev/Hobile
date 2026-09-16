@@ -393,7 +393,7 @@ function generateUrbanProps(i) {
       phase: e() * TAU_W
     });
   }
-  return s.push(...boundaryRing(i)), {
+  return s.push(...propColliders(r, s)), s.push(...boundaryRing(i)), {
     trees: o,
     rocks: [],
     bushes: [],
@@ -403,6 +403,77 @@ function generateUrbanProps(i) {
     props: r,
     urban: !0
   };
+}
+
+// Street furniture the player used to walk straight through. Lamps, planters,
+// stalls and the fountain push their own collider where they are placed;
+// nothing else did — a bench is 1.5m of slatted iron you could stand inside,
+// and the base's ring of 22 fence posts was pure decoration with a gate in it.
+// Half-extents, because that is what `resolveCollision` takes; `top` is the
+// drawn height, which is what the camera reads to decide whether a prop is
+// worth ducking behind.
+var PROP_COLLIDER = {
+  bench: {
+    hw: 0.78,
+    hd: 0.3,
+    top: 0.95
+  },
+  bin: {
+    r: 0.36,
+    top: 1
+  },
+  hydrant: {
+    r: 0.3,
+    top: 0.95
+  },
+  bollard: {
+    r: 0.34,
+    top: 1.05
+  },
+  fence: {
+    hw: 1.1,
+    hd: 0.14,
+    top: 1.6
+  },
+  workbench: {
+    hw: 1.25,
+    hd: 0.58,
+    top: 1.15
+  }
+};
+
+// Most props are placed by a transform whose local +x lands on world
+// (cos rot, -sin rot), so the collider that matches turns by -rot. The fence
+// is the one exception: it builds itself at -rot - PI/2 so its panel lies along
+// the tangent of the ring, and its collider has to turn the other way.
+function propRot(i) {
+  return i.kind === "fence" ? (i.rot || 0) + Math.PI / 2 : -(i.rot || 0);
+}
+
+// Run over the finished prop list rather than at each call site, so a prop
+// pushed somewhere new cannot quietly go back to being walk-through.
+function propColliders(i, e) {
+  let t = [];
+  for (let n of i) {
+    let s = PROP_COLLIDER[n.kind];
+    if (!s || e.some(r => Math.hypot(r.x - n.x, r.z - n.z) < 0.4)) continue;
+    t.push(s.r === void 0 ? {
+      x: n.x,
+      z: n.z,
+      hw: s.hw,
+      hd: s.hd,
+      rot: propRot(n),
+      kind: "prop",
+      top: s.top
+    } : {
+      x: n.x,
+      z: n.z,
+      r: s.r,
+      kind: "prop",
+      top: s.top
+    });
+  }
+  return t;
 }
 
 function generateProps(i) {
@@ -523,10 +594,24 @@ function generateProps(i) {
       rot: e() * TAU_W,
       tiltX: (e() - 0.5) * 0.5,
       tiltZ: (e() - 0.5) * 0.5
-    }), _ > 0.85 && l.push({
+    }),
+    // Every rock collides, not only the big ones. The threshold used to be
+    // 0.85, which left 94 rocks across the world — 27% of them — with nothing
+    // to stop the player, and those are not pebbles: the smallest one drawn is
+    // 0.55m tall and the tallest without a collider was 0.94m. The player
+    // walked straight into the middle of them and stood there at terrain
+    // height, which reads as hovering inside the boulder.
+    //
+    // The radius is the rock's own silhouette, not 0.8 of it. A rock is a
+    // dodecahedron of radius 1 scaled by `s`, roughened outward by up to 16%,
+    // so 0.8 * s let the player's body edge sink a quarter of a metre into the
+    // biggest ones. At r = s the player's edge — capsule radius 0.42, which
+    // `resolveCollision` adds on — stops exactly on the rock's mean surface.
+    // Cost of blocking all of them: 1.9% of the walkable area of a zone.
+    l.push({
       x: v,
       z: E,
-      r: _ * 0.8,
+      r: _,
       kind: "rock"
     });
   }
