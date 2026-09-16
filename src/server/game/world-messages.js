@@ -17,7 +17,7 @@ import { resolveCollision } from '../../shared/props.js';
 import {
   activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
   collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
-  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding,
+  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView,
 } from './combat.js';
 import { hpRatio } from './player.js';
 
@@ -178,6 +178,11 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = ctx.zone.landmarks.find(a => a.id === t.target || a.kind === t.target);
             if (!o) return;
             o.kind === "npc" ? ctx.speak(n, o.id || o.npc) : (o.kind === "plaza" || o.kind === "town" || o.kind === "camp") && (healTeam(n, 1), s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("healed", {}), ctx.net.emit("profile", publicProfile(n)));
+            break;
+          }
+        case "dex":
+          {
+            ctx.net.emit("dex", dexView(n));
             break;
           }
         case "enterBuilding":

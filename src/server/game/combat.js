@@ -838,8 +838,80 @@ function ensureQuests(i) {
   return (!e.active || typeof e.active != "object") && (e.active = {}), (!e.dailies || typeof e.dailies != "object") && (e.dailies = {}), Array.isArray(e.done) || (e.done = []), e;
 }
 
+/**
+ * The dex: one row per species the player has ever caught.
+ *
+ * It is what makes a second Cindcub mean something. The first of a species
+ * opens its card; every one after that is a duplicate, and duplicates refine
+ * into the crystals a star upgrade actually costs — so a species you keep
+ * running into becomes the one you can afford to promote.
+ */
+function dexRow(doc, species) {
+  const dex = doc.dex || (doc.dex = {});
+  return dex[species] || (dex[species] = { caught: 0, first: 0, best: 1 });
+}
+
+function dexRecord(doc, species, creature) {
+  const row = dexRow(doc, species);
+  const isNew = row.caught === 0;
+  row.caught += 1;
+  if (isNew) row.first = Date.now();
+  if (creature?.star > (row.best || 1)) row.best = creature.star;
+  return { isNew, caught: row.caught };
+}
+
+const DUPLICATE_TIER = { common: 1, starter: 1, evolved: 2, final: 3, rare: 3, legendary: 5, boss: 4 };
+
+/** What a duplicate capture pays out, in the materials star upgrades consume. */
+function duplicateReward(doc, species) {
+  const sp = SPECIES[species];
+  if (!sp) return {};
+  const element = sp.types[0];
+  const tier = DUPLICATE_TIER[sp.rarity] ?? 1;
+  const out = {};
+  const shards = 2 + tier;
+  if (giveItem(doc, `shard_${element}`, shards)) out[`shard_${element}`] = shards;
+  // Every third duplicate refines into a crystal, and anything above evolved
+  // always does — otherwise the rare species you can barely catch twice would
+  // pay the same as the one underfoot in the starting zone.
+  const crystals = (dexRow(doc, species).caught % 3 === 0 ? 1 : 0) + (tier >= 3 ? 1 : 0);
+  if (crystals && giveItem(doc, `crystal_${element}`, crystals)) out[`crystal_${element}`] = crystals;
+  return out;
+}
+
+/** Everything the dex panel needs, without shipping the whole species table. */
+function dexView(doc) {
+  const rows = [];
+  for (const sp of Object.values(SPECIES)) {
+    if (sp.rarity === "boss") continue;
+    const row = doc.dex?.[sp.id];
+    rows.push({
+      id: sp.id,
+      name: sp.name,
+      he: sp.he,
+      rarity: sp.rarity,
+      types: sp.types,
+      caught: row?.caught || 0,
+      best: row?.best || 0,
+    });
+  }
+  const seen = rows.filter((r) => r.caught > 0).length;
+  return { rows, seen, total: rows.length };
+}
+
 function normalizeDoc(i) {
   ensureQuests(i);
+  // Saves that predate the dex get one built from what they already hold, so
+  // an existing player does not find their collection empty.
+  if (!i.dex) {
+    i.dex = {};
+    for (const c of Object.values(i.creatures || {})) {
+      const row = dexRow(i, c.species);
+      row.caught += 1;
+      row.first = row.first || (c.caughtAt || Date.now());
+      if ((c.star || 1) > row.best) row.best = c.star || 1;
+    }
+  }
   let e = dayStamp();
   if (i.quests.dailyStamp === e && Object.keys(i.quests.dailies).length) return !1;
   i.quests.dailyStamp = e, i.quests.dailies = {};
@@ -1337,4 +1409,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { swapToUid, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

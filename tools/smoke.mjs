@@ -49,6 +49,21 @@ await step('start the journey', () => page.click('#btn-create'));
 await step('world is live', () => page.waitForFunction(() => window.__hobile?.zone && window.__hobile.mode !== 'boot', null, { timeout: 30000 }));
 await page.waitForTimeout(2500);
 
+// The collection panel: open it the way a player does, through the menu.
+await step('the collection panel opens', async () => {
+  await page.evaluate(() => window.__hobile.ui.openPanel('dex'));
+  await page.waitForFunction(() => document.querySelectorAll('.dex-tile').length > 0, null, { timeout: 8000 });
+});
+const dex = await page.evaluate(() => ({
+  tiles: document.querySelectorAll('.dex-tile').length,
+  locked: document.querySelectorAll('.dex-tile.locked').length,
+  header: document.querySelector('#panel .section h4')?.textContent || '',
+}));
+console.log(`  dex: ${dex.tiles} tiles, ${dex.locked} locked — "${dex.header}"`);
+if (dex.tiles - dex.locked !== 1) { console.log('  FAIL exactly the starter should be unlocked'); errors.push('dex unlock count'); }
+await page.evaluate(() => window.__hobile.ui.closePanel());
+await page.waitForTimeout(400);
+
 const info = await page.evaluate(() => {
   const g = window.__hobile;
   const r = g.world?.renderer?.info;

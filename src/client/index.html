@@ -22,6 +22,19 @@ body.hud-lean #minimap{width:60px;height:60px}
 #tracker.collapsed .q{display:none}
 #tracker.collapsed .q-lead{margin-bottom:0}
 
+/* --- collection ---------------------------------------------------------- */
+.dex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:var(--s2)}
+.dex-tile{display:flex;flex-direction:column;align-items:center;gap:2px;padding:var(--s2) var(--s1);
+  border-radius:var(--r2);background:var(--raise);border:1px solid var(--stroke);box-shadow:var(--e1);
+  font-size:var(--t-xs);line-height:1.25;min-height:74px;justify-content:center;
+  border-inline-start:3px solid var(--elem,transparent);transition:transform .09s var(--ease),background var(--dur) var(--ease)}
+.dex-tile:active{transform:scale(.97);background:var(--raise-2)}
+.dex-tile .ico{font-size:19px}
+.dex-tile b{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.dex-tile .n{color:var(--muted);font-size:10px}
+.dex-tile.locked{opacity:.38;border-inline-start-color:var(--stroke);cursor:default}
+.dex-tile.locked b{color:var(--faint)}
+
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
@@ -153,7 +166,7 @@ body.hud-lean #minimap{width:60px;height:60px}
       <div class="msg" id="loading-msg">טוען את העולם…</div>
       <!-- Which build is this? Without it, "did my change ship?" can only be
            answered by hunting for a symptom. -->
-      <div class="msg" id="build-stamp" dir="ltr" style="opacity:.45;font-size:11px;margin-top:6px">v0.10</div>
+      <div class="msg" id="build-stamp" dir="ltr" style="opacity:.45;font-size:11px;margin-top:6px">v0.11</div>
     </div>
   </div>
 </div>

@@ -203,6 +203,8 @@ var Game = class {
       t.starUp && (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve"), this.ui.toast(`${loc(SPECIES[t.starUp.species])} הגיע ל-${t.starUp.star} כוכבים!`, "good")), t.built && (audio.sfx("quest"), this.ui.toast(`נבנה — רמה ${t.built.level}`, "good")), t.craft && audio.sfx("ui"), this.ui.openPanelId === "base" && this.ui.renderPanel("base");
     }), e.on("card", t => {
       this.ui.card = t, this.ui.openPanelId === "card" && this.ui.renderPanel("card");
+    }), e.on("dex", t => {
+      this.ui.dex = t, this.ui.openPanelId === "dex" && this.ui.renderPanel("dex");
     }), e.on("healed", () => {
       audio.sfx("heal"), this.ui.toast("הצוות שלך הבריא במלואו", "good");
     }), e.on("building", t => {
@@ -290,8 +292,19 @@ var Game = class {
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
       for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level")), r.kind === "evolve" && (audio.sfx("evolve"), this.ui.celebrate(`${loc(SPECIES[r.into])}!`, "evolve"));
       this.ui.battleBanner(t.won ? "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא");
+      // A first catch of a species opens its card; a duplicate says what it
+      // refined into. Catching the same thing twice should not feel identical.
+      if (t.captured && t.duplicate && Object.keys(t.duplicate).length) {
+        let parts = Object.entries(t.duplicate).map(([id, count]) => `${ITEMS[id]?.icon || ""} ${loc(ITEMS[id]) || id} ×${count}`);
+        n.push(`כפול — ${parts.join(" · ")}`);
+      }
       let s = t.outcome === "captured" ? 4200 : 2e3;
       n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), s - 1400), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
+      if (t.captured && t.newSpecies && t.card) setTimeout(() => {
+        audio.sfx("quest"), this.ui.celebrate(`${loc(SPECIES[t.captured.species])} — קלף חדש!`, "quest");
+        this.ui.card = t.card;
+        this.ui.openPanel("card");
+      }, s + 700);
     }), e.on("dungeonEnd", t => {
       t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile)), this.ui.battleBanner(t.success ? "המבוך נוקה!" : "הקבוצה הובסה", 1800);
       let n = [`+${t.xp} XP`, `+${t.gold}⛁`];
@@ -389,6 +402,8 @@ var Game = class {
     let e = (t, n) => this.net.send(t, n);
     return {
       openBase: () => this.openBase(),
+      dexOpen: () => e("dex"),
+      openSpecies: t => e("card", { species: t }),
       clinicHeal: () => e("clinicHeal"),
       // NB: swapCreature is defined once, further down in this same object.
       // It used to be declared here too, sending an unhandled "switchCreature"

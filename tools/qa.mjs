@@ -164,6 +164,65 @@ ok('synced combatants carry benched', 'benched' in row);
 ok('synced combatants carry slot', 'slot' in row);
 ok('synced combatants carry frozenUntil', 'frozenUntil' in row);
 
+// ---------------------------------------------------------------- collection
+section('collection');
+ok('the main chain asks you to catch something second, not sixth', (() => {
+  const main = Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step);
+  return main[1]?.goal?.kind === 'capture';
+})(), Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step).map((q) => q.goal.kind).join(','));
+ok('main quest steps are unique and in order', (() => {
+  const steps = Object.values(QUESTS).filter((q) => q.chain === 'main').map((q) => q.step).sort((a, b) => a - b);
+  return new Set(steps).size === steps.length && steps.every((v, i) => i === 0 || v > steps[i - 1]);
+})());
+ok('rewards never go backwards along the chain', (() => {
+  const main = Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step);
+  return main.every((q, i) => i === 0 || q.reward.gold >= main[i - 1].reward.gold);
+})());
+
+const ddoc = C.createPlayerDoc('u6', 'QA6', {}, 'cindcub');
+C.normalizeDoc(ddoc);
+ok('the starter is already in the dex', (ddoc.dex?.cindcub?.caught || 0) === 1, JSON.stringify(ddoc.dex));
+
+const first = C.dexRecord(ddoc, 'mossnail', C.makeCreature('mossnail', 5));
+ok('a first catch is a new species', first.isNew && first.caught === 1);
+const second = C.dexRecord(ddoc, 'mossnail', C.makeCreature('mossnail', 5));
+ok('a second catch is a duplicate', !second.isNew && second.caught === 2);
+
+const invBefore = { ...ddoc.inventory };
+const paid = C.duplicateReward(ddoc, 'mossnail');
+const el = SPECIES.mossnail.types[0];
+ok('a duplicate pays shards of its own element', (paid[`shard_${el}`] || 0) > 0, JSON.stringify(paid));
+ok('the shards actually land in the inventory',
+  (ddoc.inventory[`shard_${el}`] || 0) > (invBefore[`shard_${el}`] || 0));
+ok('a duplicate only pays materials that exist as items',
+  Object.keys(paid).every((id) => !!ITEMS[id]), Object.keys(paid).join(','));
+
+// Crystals are what a star upgrade costs, so duplicates have to reach them.
+const rdoc = C.createPlayerDoc('u7', 'QA7', {}, 'cindcub');
+C.normalizeDoc(rdoc);
+let crystals = 0;
+for (let i = 0; i < 6; i++) { C.dexRecord(rdoc, 'mossnail', null); crystals += C.duplicateReward(rdoc, 'mossnail')[`crystal_${el}`] || 0; }
+ok('six duplicates of a common yield crystals', crystals >= 2, String(crystals));
+const rareSp = Object.values(SPECIES).find((sp) => sp.rarity === 'rare');
+C.dexRecord(rdoc, rareSp.id, null); C.dexRecord(rdoc, rareSp.id, null);
+ok('a rare duplicate always yields a crystal',
+  (C.duplicateReward(rdoc, rareSp.id)[`crystal_${rareSp.types[0]}`] || 0) >= 1);
+
+const view = C.dexView(ddoc);
+ok('the dex view covers every catchable species',
+  view.total === Object.values(SPECIES).filter((sp) => sp.rarity !== 'boss').length, String(view.total));
+ok('the dex view counts what has been seen', view.seen === 2, String(view.seen));
+ok('bosses are not collectable', !view.rows.some((r) => SPECIES[r.id].rarity === 'boss'));
+
+// a document written before the dex existed must not come back empty
+const legacy = C.createPlayerDoc('u8', 'QA8', {}, 'sproutle');
+C.addCreature(legacy, C.makeCreature('mossnail', 4));
+delete legacy.dex;
+C.normalizeDoc(legacy);
+ok('an older save is backfilled from the creatures it holds',
+  (legacy.dex?.sproutle?.caught || 0) === 1 && (legacy.dex?.mossnail?.caught || 0) === 1,
+  JSON.stringify(legacy.dex));
+
 // ---------------------------------------------------------------- world interaction
 section('world interaction');
 const { NPCS, npcAt, npcLines } = await import('../src/shared/npcs.js');

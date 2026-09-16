@@ -2233,7 +2233,7 @@ var MOVES = {
     q_main_02: {
       id: "q_main_02",
       chain: "main",
-      step: 2,
+      step: 3,
       name: "Shards in the Street",
       he: "רסיסים ברחוב",
       desc: "Tavi runs Market Row. Go hear what she has been buying lately.",
@@ -2243,15 +2243,15 @@ var MOVES = {
         target: "tavi"
       },
       reward: {
-        gold: 300,
+        gold: 400,
         items: [["potion_s", 3]],
-        xp: 70
+        xp: 130
       }
     },
     q_main_03: {
       id: "q_main_03",
       chain: "main",
-      step: 3,
+      step: 4,
       name: "Your Yard",
       he: "החצר שלך",
       desc: "The city granted you the empty lot east of the plaza. Go and stand in it.",
@@ -2262,15 +2262,15 @@ var MOVES = {
         zone: "aetherport"
       },
       reward: {
-        gold: 400,
+        gold: 500,
         items: [["scrap_iron", 6], ["fiber", 6]],
-        xp: 110
+        xp: 190
       }
     },
     q_main_04: {
       id: "q_main_04",
       chain: "main",
-      step: 4,
+      step: 5,
       name: "The First Forge",
       he: "ההיתוך הראשון",
       desc: "Ren will not explain twice. Craft anything at all in your yard.",
@@ -2280,15 +2280,15 @@ var MOVES = {
         count: 1
       },
       reward: {
-        gold: 500,
+        gold: 650,
         items: [["sphere_basic", 8]],
-        xp: 160
+        xp: 260
       }
     },
     q_main_05: {
       id: "q_main_05",
       chain: "main",
-      step: 5,
+      step: 6,
       name: "Beyond the Gate",
       he: "מעבר לשער",
       desc: "Sela holds the North Gate. Get her to open it, then defeat 5 creatures in the Meadow.",
@@ -2299,15 +2299,15 @@ var MOVES = {
         zone: "verdant_meadow"
       },
       reward: {
-        gold: 600,
+        gold: 800,
         items: [["potion_s", 4]],
-        xp: 240
+        xp: 340
       }
     },
     q_main_06: {
       id: "q_main_06",
       chain: "main",
-      step: 6,
+      step: 2,
       name: "A Companion",
       he: "בן לוויה",
       desc: "Capture your first wild creature.",
@@ -2317,9 +2317,9 @@ var MOVES = {
         count: 1
       },
       reward: {
-        gold: 700,
+        gold: 300,
         items: [["sphere_basic", 10]],
-        xp: 320
+        xp: 80
       }
     },
     q_main_07: {

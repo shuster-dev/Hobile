@@ -316,7 +316,7 @@ var UI = class {
     this.openPanelId === e ? this.closePanel() : this.openPanel(e);
   }
   openPanel(e) {
-    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), this.renderPanel(e);
+    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), this.renderPanel(e);
   }
   closePanel() {
     this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
@@ -337,6 +337,7 @@ var UI = class {
         leaders: "טבלת מובילים",
         base: "הבסיס",
         card: "כרטיס יצור",
+        dex: "אוסף היצורים",
         clinic: "מרפאת הגאות"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
@@ -359,12 +360,45 @@ var UI = class {
       leaders: () => this.panelLeaders(o),
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
+      dex: () => this.panelDex(o),
       clinic: () => this.panelClinic(o)
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
+  /**
+   * The collection. One tile per species, dim until it has been caught once,
+   * with the number of duplicates on it — duplicates are what pay for star
+   * upgrades, so the count is the useful number, not a trophy.
+   */
+  panelDex(host) {
+    let dex = this.dex;
+    if (!dex) { host.appendChild(emptyState("📕", "טוען את האוסף…", null, "loading")); return; }
+    host.appendChild(section(`נתפסו ${dex.seen} מתוך ${dex.total}`, `${Math.round(dex.seen / Math.max(1, dex.total) * 100)}%`));
+    let byRarity = {};
+    for (let row of dex.rows) (byRarity[row.rarity] ||= []).push(row);
+    let labels = { starter: "פותחים", common: "נפוצים", evolved: "מתפתחים", final: "סופיים", rare: "נדירים", legendary: "אגדיים" };
+    for (let rarity of ["starter", "common", "evolved", "final", "rare", "legendary"]) {
+      let rows = byRarity[rarity];
+      if (!rows?.length) continue;
+      host.appendChild(section(labels[rarity] || rarity, `${rows.filter((r) => r.caught).length}/${rows.length}`));
+      let grid = el("div", "dex-grid");
+      for (let row of rows) {
+        let tile = el("button", `dex-tile ${row.caught ? "" : "locked"}`);
+        let el0 = ELEMENTS[row.types[0]];
+        tile.style.setProperty("--elem", el0?.ui || "#7d87ab");
+        tile.innerHTML = row.caught
+          ? `<span class="ico">${el0?.icon || "•"}</span><b>${row.he}</b>` +
+            `<span class="n">${row.caught > 1 ? `×${row.caught}` : "חדש"}</span>`
+          : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}</span>`;
+        if (row.caught) tile.onclick = () => this.hooks.openSpecies?.(row.id);
+        grid.appendChild(tile);
+      }
+      host.appendChild(grid);
+    }
+  }
+
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["👁 מבט", "__view"]];
+      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["👁 מבט", "__view"]];
     for (let [c, h] of n) {
       let d = el("button", "btn", c);
       if (h === "__view") {
