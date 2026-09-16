@@ -1353,65 +1353,120 @@ function buildAvian(i) {
       rz: h * 0.7
     }), t.B);
   }
-  for (let c of [-1, 1]) limb(i, {
-    x: c * e.stance,
-    y: e.hipY,
-    z: e.legZ ?? 0,
-    len: e.legLen,
-    r: e.legR,
-    mat: e.legMat === "dark" ? t.DARK : t.LIGHT,
-    kind: "bird",
-    foot: "talon",
-    splay: c * 0.06
-  });
+  // Every avian used to hang its legs from the design's own hipY, which sat
+  // below the belly: five creatures — including the legendary and a boss —
+  // rendered as a floating body with a detached pair of legs under it. The hip
+  // belongs just inside the underside, and the leg reaches the ground from
+  // there, so the length follows from the body rather than being set by hand.
+  let belly = e.bodyY - e.body[1] * 0.58,
+    hipY = Math.max(e.hipY ?? belly, belly),
+    legLen = Math.max(0.08, hipY - (e.footY ?? 0));
+  for (let c of [-1, 1]) {
+    // A haunch blends the leg into the body; without it even a correctly
+    // placed leg reads as a stick pushed into a balloon.
+    i.add(xf2(blobGeo(e.body[0] * 0.3, e.body[1] * 0.34, e.body[2] * 0.34, 2.5, n - 5), {
+      x: c * e.stance * 1.15,
+      y: hipY + e.body[1] * 0.16,
+      z: (e.legZ ?? 0) - e.body[2] * 0.04
+    }), t.A);
+    limb(i, {
+      x: c * e.stance,
+      y: hipY,
+      z: e.legZ ?? 0,
+      len: legLen,
+      r: e.legR,
+      mat: e.legMat === "dark" ? t.DARK : t.LIGHT,
+      kind: "bird",
+      foot: "talon",
+      splay: c * 0.06
+    });
+  }
   buildWings(i, e.wing);
 }
 
+/**
+ * A wing built from solid feathers.
+ *
+ * This is the mane lesson again. The old wing was `finProfile` sheets — zero
+ * thickness, all sharing one plane — so from most angles it was a two-pixel
+ * line and the bird read as plucked. Raising or sweeping the sheets does not
+ * help: a sheet is thin from every direction except straight on.
+ *
+ * Each feather is a flattened ellipsoid instead: still thin, but never
+ * *nothing*, and it catches light on its rounded edge. They are fanned in the
+ * horizontal plane with the middle ones longest, which is where the wing shape
+ * actually comes from, and a dark quill along the leading edge gives the
+ * silhouette a spine.
+ */
 function buildWings(i, e) {
   if (!e) return;
   let t = i.P,
     n = e.tint === "a" ? i.sp.model.a : e.tint === "acc" ? t.accent : i.sp.model.b,
     s = e.glass ? mat(n, {
       roughness: 0.25,
-      side: DoubleSide,
       transparent: !0,
-      opacity: 0.7,
+      opacity: 0.72,
       env: 1.4
     }) : mat(n, {
-      roughness: 0.55,
-      side: DoubleSide,
+      roughness: 0.5,
       env: 1
+    }),
+    count = Math.max(4, Math.round(e.feathers ?? 4 + e.span * 3)),
+    spread = e.spread ?? 1.45,          // radians covered by the fan
+    back = e.back ?? 0.34;              // how far the fan is rotated backwards
+  for (let side of [-1, 1]) {
+    let parts = [];
+    // The covert: a mass at the shoulder so the wing grows out of the bird
+    // rather than being stuck onto it.
+    parts.push({
+      geo: xf2(blobGeo(e.chord * 0.36, e.chord * 0.34, e.chord * 0.44, 2.4, 9), {
+        y: e.chord * 0.02,
+        z: -e.chord * 0.04
+      }),
+      mat: s
     });
-  for (let r of [-1, 1]) {
-    let o = [],
-      a = e.layers ?? 2;
-    for (let c = 0; c < a; c++) {
-      let h = 1 - c * (e.falloff ?? 0.26);
-      o.push({
-        geo: xf2(finProfile(e.span * h, e.chord * h), {
-          y: -c * e.chord * 0.1,
-          z: -c * e.chord * 0.22,
-          rx: e.raise ?? 0.95,
-          ry: -c * 0.14
+    for (let k = 0; k < count; k++) {
+      let u = count === 1 ? 0.5 : k / (count - 1),
+        // Longest through the middle of the fan, like a real primary sequence.
+        len = e.span * (0.56 + 0.44 * Math.sin(Math.PI * (0.22 + u * 0.66))),
+        w = e.chord * (0.3 - u * 0.11),
+        ang = -back + spread * (u - 0.5) * 2 * 0.5,   // fan back around +X
+        lift = (0.5 - Math.abs(u - 0.5)) * e.chord * 0.3;
+      parts.push({
+        // A flattened ellipsoid: thin, but with a rounded edge that always
+        // catches light. `profile` sheets here disappear edge-on.
+        geo: xf2(blobGeo(len * 0.5, w * 0.5, Math.max(0.012, w * 0.17), 2.2, 9), {
+          x: Math.cos(ang) * len * 0.5 + e.chord * 0.12,
+          y: lift + e.chord * 0.04,
+          z: Math.sin(ang) * len * 0.5 - e.chord * 0.1,
+          ry: -ang,
+          rz: (e.tilt ?? 0.12) * (u - 0.4)
         }),
         mat: s
       });
     }
-    e.bone && o.push({
-      geo: xf2(taperGeo(0.008, 0.026, e.span * 0.96, 5), {
-        x: e.span * 0.48,
-        y: Math.sin(e.raise ?? 0.95) * e.chord * 0.14,
-        z: Math.cos(e.raise ?? 0.95) * e.chord * 0.14,
-        rz: HALF_PI
+    if (e.bone !== !1) parts.push({
+      geo: xf2(taperGeo(0.016, 0.04, e.span * 0.8, 6), {
+        x: e.span * 0.4 + e.chord * 0.1,
+        y: e.chord * 0.13,
+        z: -e.chord * 0.14,
+        rz: HALF_PI,
+        ry: -0.12
       }),
       mat: t.DARK
     });
-    let l = mergeByMaterial(o, {
+    let node = mergeByMaterial(parts, {
       castShadow: !1
     });
-    l.position.set(r * (e.root ?? 0.14), e.y, e.z ?? 0), l.scale.x = r, l.rotation.z = r * (e.dihedral ?? 0.22), l.rotation.y = r * (e.sweep ?? -0.3), l.userData.noOutline = !!e.glass, i.group.add(l), i.rig.wings.push({
-      node: l,
-      side: r
+    node.position.set(side * (e.root ?? 0.14), e.y, e.z ?? 0);
+    node.scale.x = side;
+    node.rotation.z = side * (e.dihedral ?? 0.22);
+    node.rotation.y = side * (e.sweep ?? -0.3);
+    node.userData.noOutline = !!e.glass;
+    i.group.add(node);
+    i.rig.wings.push({
+      node,
+      side
     });
   }
 }
