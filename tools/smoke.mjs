@@ -47,7 +47,23 @@ await step('pick a starter', async () => { await page.click('#pick-starter .star
 await step('name the trainer', () => page.fill('#in-charname', 'QA'));
 await step('start the journey', () => page.click('#btn-create'));
 await step('world is live', () => page.waitForFunction(() => window.__hobile?.zone && window.__hobile.mode !== 'boot', null, { timeout: 30000 }));
+// Pin the clock: the day cycle is 12 minutes, so screenshots and the render
+// budget would otherwise be measured at whatever time of day it happens to be.
+await page.evaluate(() => window.__hobile.world.holdTimeOfDay(0.34));
 await page.waitForTimeout(2500);
+
+// The quest panel must not sit on top of the buttons above it. It did: the
+// density toggle added a row to the top-right stack and nothing told the
+// tracker the stack had grown.
+const overlap = await page.evaluate(() => {
+  const t = document.querySelector('#tracker')?.getBoundingClientRect();
+  const b = document.querySelector('[data-panel="base"]')?.getBoundingClientRect();
+  if (!t || !b) return null;
+  return { overlaps: !(t.bottom <= b.top || t.top >= b.bottom || t.right <= b.left || t.left >= b.right),
+    trackerTop: Math.round(t.top), baseBottom: Math.round(b.bottom) };
+});
+if (overlap && !overlap.overlaps) { console.log('  ok  the quest panel clears the buttons above it'); }
+else { console.log('  FAIL the quest panel overlaps the buttons above it :: ' + JSON.stringify(overlap)); errors.push('tracker overlap'); }
 
 // The collection panel: open it the way a player does, through the menu.
 await step('the collection panel opens', async () => {

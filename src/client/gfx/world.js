@@ -1,5 +1,6 @@
 import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, Vector3 } from 'three';
 import { QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
+import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { NPCS, npcList } from '../../shared/npcs.js';
@@ -2972,7 +2973,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
   eo = new Vector3(),
   WorldView = class {
     constructor(e) {
-      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 600), this.camDist = 12, this.camHeight = 6.4, this.camYaw = 0, this.camPitch = 0.32, this._camPos = new Vector3(), this.actors = new Map(), this.effects = [], this.zone = null, this.props = null, this.colliders = [], this.blockers = [], this.npcs = new Map(), this.city = null, this.self = null, this.time = 0, this.night = 0, this.lights = makeLights(this.scene, {
+      this.canvas = e, this.renderer = makeRenderer(e),
+        // Off on the low tier: an extra full-resolution target is exactly the
+        // wrong thing to spend on a phone that is already struggling.
+        this.grade = QUALITY.tier === "low" ? null : new Grade(this.renderer),
+        this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 600), this.camDist = 12, this.camHeight = 6.4, this.camYaw = 0, this.camPitch = 0.32, this._camPos = new Vector3(), this.actors = new Map(), this.effects = [], this.zone = null, this.props = null, this.colliders = [], this.blockers = [], this.npcs = new Map(), this.city = null, this.self = null, this.time = 0, this.night = 0, this.lights = makeLights(this.scene, {
         sunDir: SUN_DIR,
         sunColor: 16773853,
         skyColor: 12376319,
@@ -4300,7 +4305,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let s = this.effects[n];
         s.t += e, s.kind === "ring" ? (s.mesh.scale.setScalar((1 + s.t * 7) * s.scale), s.mesh.material.opacity = Math.max(0, 0.95 - s.t * 1.7), s.t > 0.65 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1))) : s.t > 1.4 && this.effects.splice(n, 1);
       }
-      this.updateCamera(e), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera);
+      this.updateCamera(e), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.grade ? (this.grade.setNight(this.night || 0), this.grade.render(this.scene, this.camera)) : this.renderer.render(this.scene, this.camera);
     }
     updateCamera(e) {
       let t = this.selfActor();
@@ -4359,7 +4364,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       }
       u.y = Math.max(u.y, this.heightAt(u.x, u.z) + 1.1), this._inside && (u.y = Math.min(u.y, this._inside.floorY + this._inside.room.dims.h - 0.35)), this.camera.lookAt(s);
     }
+    /** Pin the clock. The day cycle is 12 minutes, so without this a QA
+     *  screenshot lands wherever the wall clock happens to be. */
+    holdTimeOfDay(e) {
+      this._holdPhase = e;
+    }
     setTimeOfDay(e) {
+      if (this._holdPhase != null) e = this._holdPhase;
       if (this._phase = e, this._inside || !this.sky || !this.palette) return;
       let t = this.palette,
         n = Math.PI * 2,
@@ -4375,7 +4386,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         d = 2372186,
         u = 16751196,
         f = this.sky.material.uniforms;
-      f.uTop.value.copy(c(h, t.sky.top, a)), f.uHorizon.value.copy(c(d, t.sky.horizon, a).lerp(new Color(u), l * 0.55)), f.uSunColor.value.copy(c(12374271, t.sky.sun, a)), f.uSunDir.value.copy(o), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = 0.42 + a * 2.05, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
+      f.uTop.value.copy(c(h, t.sky.top, a)), f.uHorizon.value.copy(c(d, t.sky.horizon, a).lerp(new Color(u), l * 0.55)), f.uSunColor.value.copy(c(12374271, t.sky.sun, a)), f.uSunDir.value.copy(o),
+      // Clouds drift on their own clock so they keep moving while the day
+      // cycle is paused, and thin out at night rather than turning to soot.
+      f.uTime && (f.uTime.value = performance.now() * 0.001),
+      f.uNight && (f.uNight.value = this.night),
+      f.uClouds && (f.uClouds.value = t.clouds ?? 0.5), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = 0.42 + a * 2.05, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
       let p = t.ambient ?? 1;
       if (this.lights.hemi.intensity = (0.46 + a * 0.5) * p, this.lights.hemi.color.copy(c(3358827, t.sky.horizon, a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
         this.scene.fog.color.copy(c(1186352, t.fog, a).lerp(new Color(u), l * 0.4));

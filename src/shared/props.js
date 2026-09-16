@@ -58,7 +58,11 @@ function heightAt(i, e, t) {
   let n = hash(i),
     s = n % 1e3,
     r = Math.sin((e + s) * 0.055) * Math.cos((t - s) * 0.062) * 2.1 + Math.sin((e * 0.021 + t * 0.017 + s) * 1.7) * 0.55 + fbm(e * 0.016, t * 0.016, n, 3) * 3.1 + fbm(e * 0.075, t * 0.075, n + 7, 2) * 0.42,
-    o = Math.min(1, Math.hypot(e, t) / 26);
+    // The relief used to be multiplied to nothing within 26 metres of the
+    // centre, which is exactly where the player spawns and spends the first
+    // hour — so every outdoor zone read as a flat table with scenery on it.
+    // A floor keeps gentle ground underfoot and still opens out further away.
+    o = 0.28 + 0.72 * Math.min(1, Math.hypot(e, t) / 26);
   return r * o;
 }
 

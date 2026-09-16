@@ -66,6 +66,26 @@ var jv = `
   uniform vec3 uGround;
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
+  uniform float uTime;
+  uniform float uClouds;      // 0 clear .. 1 overcast
+  uniform float uNight;
+
+  // Value noise. Cheap, and the banding a hash this simple produces is hidden
+  // by the octaves — a gradient-noise version costs more than the sky is worth.
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 5; i++) { v += a * vnoise(p); p *= 2.02; a *= 0.5; }
+    return v;
+  }
 
   void main() {
     vec3 dir = normalize(vWorld);
@@ -75,6 +95,48 @@ var jv = `
     // stays thin and the zenith holds its colour
     vec3 col = mix(uHorizon, uTop, pow(clamp(h, 0.0, 1.0), 0.62));
     col = mix(col, uGround, pow(clamp(-h * 1.6, 0.0, 1.0), 0.7));
+
+    // Clouds on a flat plane above the camera: project the view direction onto
+    // it, which stretches the noise toward the horizon exactly the way real
+    // cloud cover foreshortens. Below the horizon there is no plane to hit.
+    if (h > 0.015) {
+      vec2 cp = dir.xz / max(h, 0.05);
+      float drift = uTime * 0.0065;
+
+      // Two decks. The lower one carries the shape, the upper one thin wisps
+      // moving faster, which is what stops a single layer reading as wallpaper.
+      //
+      // The frequency is set by what the zenith needs, not the horizon. Looking
+      // straight up you only see the patch of plane directly overhead — about
+      // half a unit across — so at a low frequency the whole sky above you is
+      // one noise cell and reads as a flat smear.
+      float lower = fbm(cp * 2.4 + vec2(drift, drift * 0.6));
+      float upper = fbm(cp * 5.6 + vec2(-drift * 2.1, drift * 1.4));
+      float mask = lower * 0.72 + upper * 0.28;
+
+      // Coverage as a threshold, not a multiply: clouds have edges.
+      float cover = mix(0.62, 0.30, uClouds);
+      float density = smoothstep(cover, cover + 0.22, mask);
+
+      // Fade out toward the horizon, where the projection stretches the noise
+      // into streaks that no amount of frequency fixes. The fade has to start
+      // low, though: at a normal third-person camera you are looking at the
+      // bottom of the sky, and a fade that begins too high leaves it empty.
+      density *= smoothstep(0.012, 0.075, h);
+      // Thin them out as they stretch, so the streaks read as haze.
+      density *= mix(0.55, 1.0, smoothstep(0.05, 0.3, h));
+
+      // Lighting: the sun side of a cloud is bright, the bulk is the shadowed
+      // body colour. Using the noise itself as a stand-in for thickness is
+      // wrong physically and reads correctly.
+      float sunAmt = max(dot(dir, normalize(uSunDir)), 0.0);
+      vec3 lit = mix(vec3(0.62), vec3(1.05), smoothstep(0.35, 0.95, mask));
+      lit = mix(lit, lit * 1.25 + uSunColor * 0.35, pow(sunAmt, 2.5));
+      vec3 cloudCol = mix(uHorizon, vec3(1.0), 0.55) * lit;
+      cloudCol = mix(cloudCol * vec3(0.30, 0.34, 0.46), cloudCol, 1.0 - uNight * 0.75);
+
+      col = mix(col, cloudCol, density * 0.92);
+    }
 
     // sun: a soft disc plus a wide bloom halo
     float sun = max(dot(dir, normalize(uSunDir)), 0.0);
@@ -110,6 +172,15 @@ function makeSky({
         },
         uSunColor: {
           value: new Color(n)
+        },
+        uTime: {
+          value: 0
+        },
+        uClouds: {
+          value: 0.5
+        },
+        uNight: {
+          value: 0
         },
         uSunDir: {
           value: s.clone().normalize()
