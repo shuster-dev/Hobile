@@ -1724,8 +1724,11 @@ var U_ = 0.4,
       streetLow: 8354672,
       lit: {
         sky: 15786684,
-        ground: 5917748,
-        hemi: 1.6,
+        // The bounce was dark enough that the shelf faces, which point away
+        // from every lamp in the room, stayed black. Lifted just far enough to
+        // read the books; the shaft is additive and does not wash out.
+        ground: 7232578,
+        hemi: 1.95,
         sun: 16772804,
         sunI: 1.25,
         rim: 14206874,
@@ -2176,9 +2179,12 @@ function buildInterior(i, e) {
     z: L
   }, tintHex(t.wood, 0, 0.3));
   if (m(0, L, O * 2 + 0.3, 1.1, 1.2), i === "clinic") {
-    for (let Y = 0; Y < 3; Y++) {
-      let ce = -2.2 - Y * 2.5,
-        Ee = -n + 1.3;
+    // Three beds down one wall and nothing at all down the other left the ward
+    // reading as a tiled hall with some furniture pushed to one side. Two more
+    // go opposite, past the tank, and `Ge` turns the bedside table and monitor
+    // to face the room instead of the wall.
+    for (let [Ee, ce, Ge] of [[-n + 1.3, -2.2, 1], [-n + 1.3, -4.7, 1], [-n + 1.3, -7.2, 1],
+      [n - 1.3, -7.4, -1], [n - 1.3, -9.5, -1]]) {
       h.box(1.1, 0.46, 2.1, {
         x: Ee,
         y: 0.3,
@@ -2202,11 +2208,11 @@ function buildInterior(i, e) {
         z: ce + G
       }, tintHex(a.metal, 0, 0.4));
       h.box(0.07, 0.95, 0.07, {
-        x: Ee + 0.52,
+        x: Ee + Ge * 0.52,
         y: 0.95,
         z: ce - 1
       }, a.metal), d.box(0.34, 0.24, 0.05, {
-        x: Ee + 0.52,
+        x: Ee + Ge * 0.52,
         y: 1.48,
         z: ce - 0.98
       }, 8384740), m(Ee, ce, 1.3, 2.2, 1);
@@ -2251,6 +2257,80 @@ function buildInterior(i, e) {
       power: 3.4,
       range: 7
     });
+    // A supply press by the door, a dressings trolley parked off the walkway,
+    // and two planters — the things that make a ward look staffed rather than
+    // swept. Everything hugs a wall or a corner so the run from the door to the
+    // counter stays clear.
+    let CAB = n - 0.62;
+    h.box(0.78, 2.15, 1.7, {
+      x: CAB,
+      y: 1.07,
+      z: -1.45
+    }, tintHex(t.wain, 16777215, 0.35)), h.box(0.72, 1.5, 1.52, {
+      x: CAB - 0.08,
+      y: 1.24,
+      z: -1.45
+    }, tintHex(12577002, 16777215, 0.2));
+    for (let Y = 0; Y < 3; Y++) {
+      h.box(0.7, 0.05, 1.5, {
+        x: CAB - 0.06,
+        y: 0.72 + Y * 0.5,
+        z: -1.45
+      }, tintHex(t.trim, 0, 0.1));
+      for (let ce = 0; ce < 5; ce++) h.add(xf2(new CylinderGeometry(0.055, 0.065, 0.2, 7), {
+        x: CAB - 0.06,
+        y: 0.85 + Y * 0.5,
+        z: -2.05 + ce * 0.3
+      }), [7329999, 15253599, 14250859, 11129983][(ce + Y) % 4]);
+    }
+    h.box(0.82, 0.1, 1.76, {
+      x: CAB,
+      y: 2.2,
+      z: -1.45
+    }, t.trim), m(CAB, -1.45, 0.9, 1.8, 2.25);
+    let TR = n - 2.7;
+    for (let Y of [0, 1]) h.box(0.66, 0.06, 1, {
+      x: TR,
+      y: 0.55 + Y * 0.36,
+      z: -2.5
+    }, a.metal);
+    for (let [Y, ce] of [[-0.27, -0.42], [0.27, -0.42], [-0.27, 0.42], [0.27, 0.42]]) h.box(0.05, 0.52, 0.05, {
+      x: TR + Y,
+      y: 0.29,
+      z: -2.5 + ce
+    }, tintHex(a.metal, 0, 0.3));
+    h.box(0.42, 0.13, 0.62, {
+      x: TR,
+      y: 0.65,
+      z: -2.5
+    }, 16117479), h.add(xf2(blobGeo(0.2, 0.09, 0.2, 2.6, 10), {
+      x: TR,
+      y: 0.99,
+      z: -2.62
+    }), 15397874), v(TR, -2.5, 0.62, 1.05);
+    for (let [Y, ce] of [[-n + 0.85, -0.95], [n - 0.9, -s + 0.95]]) {
+      h.add(xf2(new CylinderGeometry(0.34, 0.27, 0.52, 12), {
+        x: Y,
+        y: 0.26,
+        z: ce
+      }), tintHex(t.wain, 16777215, 0.45)), h.add(xf2(new CylinderGeometry(0.36, 0.36, 0.06, 12), {
+        x: Y,
+        y: 0.53,
+        z: ce
+      }), 4864038);
+      for (let Ge = 0; Ge < 7; Ge++) {
+        let Pe = Ge / 7 * Math.PI * 2;
+        h.add(xf2(blobGeo(0.1, 0.52, 0.26, 2.2, 8), {
+          x: Y + Math.cos(Pe) * 0.15,
+          y: 0.82,
+          z: ce + Math.sin(Pe) * 0.15,
+          ry: Pe,
+          rz: Math.cos(Pe) * 0.42,
+          rx: Math.sin(Pe) * 0.42
+        }), tintHex(5147194, 16777215, g() * 0.28));
+      }
+      v(Y, ce, 0.42, 1.15);
+    }
     for (let Y = 0; Y < 3; Y++) {
       let ce = 1.25 + Y * 0.78;
       h.box(n * 1.5, 0.09, 0.42, {
@@ -2496,37 +2576,55 @@ function buildInterior(i, e) {
         }
       },
       N = r - 0.9;
+    // Every book on these walls was already modelled — a spine at a time, six
+    // shelves a side, both walls and the back — and not one of them could be
+    // seen. The carcass was a solid box half a metre deep with the books set on
+    // its centre line, so each shelf swallowed its own contents whole and the
+    // wall read as dark panelling with lines on it. It is the same shape of
+    // mistake as the fins that were a sheet of zero thickness: the geometry was
+    // right and its place in space was not. The carcass is a back panel now,
+    // and the boards and the books stand in front of it.
+    let BACK = 0.18,
+      SHELF_D = 0.56,
+      BOOK_D = 0.2;
     for (let fe of [-1, 1]) {
-      let Ye = fe * (n - 0.28);
-      h.box(0.5, N, s - 1.2, {
+      let Ye = fe * (n - BACK / 2),
+        je = fe * (n - BACK - SHELF_D / 2),
+        mt = fe * (n - BACK - BOOK_D / 2 - 0.05);
+      h.box(BACK, N, s - 1.2, {
         x: Ye,
         y: N / 2,
         z: -s / 2 - 0.1
+      }, tintHex(t.wood, 0, 0.45));
+      for (let dt of [-1, 1]) h.box(SHELF_D + BACK, N, 0.16, {
+        x: fe * (n - (SHELF_D + BACK) / 2),
+        y: N / 2,
+        z: -s / 2 - 0.1 + dt * (s - 1.2) / 2
       }, tintHex(t.wood, 0, 0.3));
-      for (let je = 0; je < 6; je++) {
-        let mt = 0.5 + je * (N - 0.7) / 6;
-        h.box(0.56, 0.07, s - 1.2, {
-          x: Ye,
-          y: mt,
+      for (let dt = 0; dt < 6; dt++) {
+        let ot = 0.5 + dt * (N - 0.7) / 6;
+        h.box(SHELF_D, 0.07, s - 1.36, {
+          x: je,
+          y: ot,
           z: -s / 2 - 0.1
-        }, t.wood), U(Ye, mt + 0.035, -s / 2 - 0.1, s - 1.5, Math.PI / 2);
+        }, t.wood), U(mt, ot + 0.035, -s / 2 - 0.1, s - 1.5, Math.PI / 2);
       }
-      h.box(0.62, 0.18, s - 1, {
-        x: Ye,
+      h.box(SHELF_D + BACK + 0.06, 0.18, s - 1, {
+        x: fe * (n - (SHELF_D + BACK) / 2),
         y: N + 0.09,
         z: -s / 2 - 0.1
-      }, t.trim), m(Ye, -s / 2 - 0.1, 0.78, s - 1.2, 2.4);
+      }, t.trim), m(fe * (n - (SHELF_D + BACK) / 2), -s / 2 - 0.1, SHELF_D + BACK + 0.2, s - 1.2, 2.4);
     }
-    h.box(n * 2 - 1.2, N, 0.5, {
+    h.box(n * 2 - 1.2, N, BACK, {
       y: N / 2,
-      z: -s + 0.28
-    }, tintHex(t.wood, 0, 0.3));
+      z: -s + BACK / 2
+    }, tintHex(t.wood, 0, 0.45));
     for (let fe = 0; fe < 6; fe++) {
       let Ye = 0.5 + fe * (N - 0.7) / 6;
-      h.box(n * 2 - 1.2, 0.07, 0.56, {
+      h.box(n * 2 - 1.2, 0.07, SHELF_D, {
         y: Ye,
-        z: -s + 0.28
-      }, t.wood), U(0, Ye + 0.035, -s + 0.28, n * 2 - 1.5, 0);
+        z: -s + BACK + SHELF_D / 2
+      }, t.wood), U(0, Ye + 0.035, -s + BACK + BOOK_D / 2 + 0.05, n * 2 - 1.5, 0);
     }
     let X = -3.4,
       Y = 0.12,
@@ -2633,6 +2731,53 @@ function buildInterior(i, e) {
       power: 3.4,
       range: 11
     });
+    // Six aisle lamps, hung low on long cords. Every book on these walls was
+    // already modelled — a spine at a time, six shelves a side — and none of it
+    // was visible: the room's only lights were the desk lamp and two faint
+    // sources on the centre line, so the shelves read as dark panelling with
+    // horizontal lines on it. The light shaft is what the room is for, and it
+    // survives this because it is additive; what it cannot do is light a wall
+    // it does not touch.
+    for (let fe of [-1, 1]) for (let Ye = 0; Ye < 3; Ye++) {
+      let je = fe * (n - 1.7),
+        mt = -2.3 - Ye * 3.5;
+      h.box(0.045, r - 3.55, 0.045, {
+        x: je,
+        y: (r + 3.35) / 2,
+        z: mt
+      }, a.iron), h.add(xf2(new CylinderGeometry(0.12, 0.4, 0.3, 12), {
+        x: je,
+        y: 3.35,
+        z: mt
+      }), tintHex(a.metal, 16766720, 0.45)), d.add(xf2(new SphereGeometry(0.14, 10, 8), {
+        x: je,
+        y: 3.18,
+        z: mt
+      }), 16770748), p.push({
+        x: je,
+        y: 3.1,
+        z: mt,
+        color: 16769704,
+        power: 5.2,
+        range: 8.5
+      });
+    }
+    // Overflow on the floor, which is what an archive with six full walls of
+    // shelving would actually look like, and which breaks up a bare expanse.
+    for (let [fe, Ye, je] of [[-n + 1.5, -7.8, 5], [-n + 2.3, -9.4, 3], [n - 1.6, -8.6, 4], [n - 2.4, -2.9, 3]]) {
+      let mt = 0;
+      for (let dt = 0; dt < je; dt++) {
+        let ot = 0.36 + g() * 0.12,
+          Ct = 0.055 + g() * 0.035;
+        h.box(ot, Ct, ot * 0.78, {
+          x: fe + (g() - 0.5) * 0.09,
+          y: mt + Ct / 2,
+          z: Ye + (g() - 0.5) * 0.09,
+          ry: g() * 0.5
+        }, tintHex([8206896, 3100490, 5917298, 7166510, 3951204][Math.floor(g() * 5)], 14207398, g() * 0.4)), mt += Ct;
+      }
+      v(fe, Ye, 0.34, mt + 0.1);
+    }
     let ae = {
         x: -n + 0.4,
         y: r - 1.5,
@@ -2865,6 +3010,84 @@ function buildInterior(i, e) {
       y: 1.3,
       z: L
     }, tintHex(a.iron, 16777215, 0.2));
+    // The left wall was five metres of bare plaster and the floor in front of
+    // it was bare tile: a smithy with a forge, an anvil and a slack tub and
+    // nothing to work. Stock goes where stock goes — against the long wall,
+    // sorted, within reach of the anvil at (-3, -4.9).
+    let ST = -n + 0.62,
+      stock = -7.4;
+    for (let G = 0; G < 3; G++) {
+      let ae = -2.8 - G * 2.3;
+      for (let re of [0, 1]) h.box(1.05, 0.1, 0.1, {
+        x: ST,
+        y: 0.42 + re * 0.72,
+        z: ae
+      }, a.iron);
+      for (let re of [-1, 1]) h.box(0.1, 1.5, 0.1, {
+        x: ST,
+        y: 0.75,
+        z: ae + re * 0.95
+      }, a.iron);
+      // bar stock on the lower rail, ingots stacked on the upper
+      for (let re = 0; re < 5; re++) h.box(0.9, 0.09, 0.09, {
+        x: ST + (g() - 0.5) * 0.12,
+        y: 0.52 + Math.floor(re / 3) * 0.1,
+        z: ae - 0.34 + re % 3 * 0.34,
+        ry: (g() - 0.5) * 0.1
+      }, tintHex(a.metal, G === 1 ? 12087612 : 0, G === 1 ? 0.55 : 0.22));
+      for (let re = 0; re < 4; re++) h.box(0.62, 0.11, 0.22, {
+        x: ST,
+        y: 1.2 + re * 0.115,
+        z: ae + (re % 2 ? 0.16 : -0.16),
+        ry: (g() - 0.5) * 0.08
+      }, tintHex(a.metal, 16766720, G === 0 ? 0.45 : 0.08));
+      m(ST, ae, 1.3, 2, 1.6);
+    }
+    // long stock leaning into the corner, and a stack of sawn timber
+    for (let G = 0; G < 5; G++) h.box(0.09, 3.2, 0.09, {
+      x: ST + 0.1 + G % 3 * 0.16,
+      y: 1.6,
+      z: stock + Math.floor(G / 3) * 0.26,
+      rz: -0.07 - g() * 0.05
+    }, a.metal);
+    v(ST + 0.3, stock, 0.6, 3);
+    for (let G = 0; G < 6; G++) h.box(0.72, 0.17, 2.4, {
+      x: -n + 1.1 + G % 2 * 0.76,
+      y: 0.09 + Math.floor(G / 2) * 0.18,
+      z: -1.6
+    }, tintHex(t.wood, 0, 0.18 + g() * 0.2));
+    m(-n + 1.5, -1.6, 1.7, 2.6, 0.62);
+    // A board of tools on the back wall, beside the forge, hung the way a smith
+    // hangs them: biggest to the left, everything within one step of the anvil.
+    let peg = -s + 0.34;
+    h.box(4.2, 1.7, 0.09, {
+      x: 1.1,
+      y: 2.1,
+      z: peg
+    }, tintHex(t.wood, 0, 0.3));
+    for (let G = 0; G < 7; G++) {
+      let ae = -0.7 + G * 0.6,
+        re = 0.72 - G * 0.055;
+      h.box(0.07, re, 0.07, {
+        x: ae,
+        y: 2.62 - re / 2,
+        z: peg + 0.1
+      }, tintHex(t.wood, 0, 0.42));
+      G % 3 === 0 ? h.box(0.3, 0.17, 0.16, {
+        x: ae,
+        y: 2.62 - re - 0.06,
+        z: peg + 0.11
+      }, a.iron) : G % 3 === 1 ? h.add(xf2(new CylinderGeometry(0.03, 0.03, 0.5, 6), {
+        x: ae,
+        y: 2.62 - re - 0.2,
+        z: peg + 0.11,
+        rz: 0.22
+      }), a.metal) : h.box(0.2, 0.3, 0.06, {
+        x: ae,
+        y: 2.62 - re - 0.13,
+        z: peg + 0.11
+      }, tintHex(a.metal, 0, 0.25));
+    }
     let Pe = buildDust({
       x: U,
       hw: 1,

@@ -18,7 +18,7 @@ const out = process.argv[2] || 'shots/rooms.png';
 const cols = Number(process.argv[3] || 2);
 const rooms = process.env.ROOMS ? process.env.ROOMS.split(',').map((s) => s.trim()) : null;
 const PORT = 2637;
-const CELL_W = 560, CELL_H = 460;
+const CELL_W = 560, CELL_H = 420;
 
 const bundle = await esbuild.build({
   entryPoints: ['tools/rooms/preview.js'],
@@ -42,7 +42,7 @@ const browser = await chromium.launch({
   executablePath: CHROME,
   args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'],
 });
-const page = await browser.newPage({ viewport: { width: CELL_W * cols, height: CELL_H * 3 } });
+const page = await browser.newPage({ viewport: { width: CELL_W * cols, height: CELL_H * 5 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

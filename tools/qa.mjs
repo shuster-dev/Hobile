@@ -123,14 +123,15 @@ for (const z of Object.values(ZONES)) {
 ok('every solid street prop stops the player', openProps.length === 0,
   [...new Set(openProps)].slice(0, 4).join(' '));
 
-// One connected walkable region per zone, with every door and landmark in it.
-// This is what catches a new collider quietly sealing a courtyard shut.
-const STEP = 1;
-const walkable = (z) => {
-  const { colliders } = P.propsFor(z);
-  const half = z.size / 2, n = Math.ceil((half * 2) / STEP);
-  const at = (i, j) => ({ x: -half + i * STEP, z: -half + j * STEP });
-  const id = (i, j) => j * n + i;
+// One connected walkable region, with every door and landmark in it. This is
+// what catches a new collider quietly sealing a courtyard — or a room — shut.
+// Written against a collider list and a bounds test so the same grid serves an
+// outdoor zone and a 6 by 11 metre archive.
+const STEP = 0.5;
+const region = (colliders, x0, x1, z0, z1, inBounds, step = STEP) => {
+  const nx = Math.ceil((x1 - x0) / step) + 1, nz = Math.ceil((z1 - z0) / step) + 1;
+  const at = (i, j) => ({ x: x0 + i * step, z: z0 + j * step });
+  const id = (i, j) => j * nx + i;
   const cell = 5, grid = new Map();
   for (const c of colliders) {
     const reach = (c.r ?? Math.hypot(c.hw, c.hd)) + PLAYER_R + 1;
@@ -147,13 +148,13 @@ const walkable = (z) => {
     const a = (x - c.x) * co - (zz - c.z) * si, b = (x - c.x) * si + (zz - c.z) * co;
     return Math.abs(a) < c.hw + PLAYER_R && Math.abs(b) < c.hd + PLAYER_R;
   });
-  const free = new Uint8Array(n * n), lab = new Int32Array(n * n).fill(-1);
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+  const free = new Uint8Array(nx * nz), lab = new Int32Array(nx * nz).fill(-1);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
     const p = at(i, j);
-    free[id(i, j)] = Math.hypot(p.x, p.z) <= half - 2 && !blocked(p.x, p.z) ? 1 : 0;
+    free[id(i, j)] = inBounds(p.x, p.z) && !blocked(p.x, p.z) ? 1 : 0;
   }
   const sizes = [];
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
     if (!free[id(i, j)] || lab[id(i, j)] >= 0) continue;
     const c = sizes.length; sizes.push(0);
     const st = [[i, j]]; lab[id(i, j)] = c;
@@ -161,24 +162,29 @@ const walkable = (z) => {
       const [a, b] = st.pop(); sizes[c]++;
       for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const u = a + da, v = b + db;
-        if (u < 0 || v < 0 || u >= n || v >= n || !free[id(u, v)] || lab[id(u, v)] >= 0) continue;
+        if (u < 0 || v < 0 || u >= nx || v >= nz || !free[id(u, v)] || lab[id(u, v)] >= 0) continue;
         lab[id(u, v)] = c; st.push([u, v]);
       }
     }
   }
   const main = sizes.indexOf(Math.max(...sizes));
   const componentAt = (p, tol) => {
-    const i0 = Math.round((p.x + half) / STEP), j0 = Math.round((p.z + half) / STEP);
-    const span = Math.ceil(tol / STEP);
+    const i0 = Math.round((p.x - x0) / step), j0 = Math.round((p.z - z0) / step);
+    const span = Math.ceil(tol / step);
     let best = null, bd = Infinity;
     for (let i = i0 - span; i <= i0 + span; i++) for (let j = j0 - span; j <= j0 + span; j++) {
-      if (i < 0 || j < 0 || i >= n || j >= n || !free[id(i, j)]) continue;
+      if (i < 0 || j < 0 || i >= nx || j >= nz || !free[id(i, j)]) continue;
       const q = at(i, j), d = Math.hypot(q.x - p.x, q.z - p.z);
       if (d < bd) { bd = d; best = lab[id(i, j)]; }
     }
     return best;
   };
-  return { main, componentAt };
+  return { main, componentAt, blocked, free: sizes[main] ?? 0 };
+};
+const walkable = (z) => {
+  const half = z.size / 2;
+  return region(P.propsFor(z).colliders, -half, half, -half, half,
+    (x, zz) => Math.hypot(x, zz) <= half - 2, 1);
 };
 for (const z of Object.values(ZONES)) {
   const { main, componentAt } = walkable(z);
@@ -187,6 +193,33 @@ for (const z of Object.values(ZONES)) {
     return componentAt(p, l.door ? 3 : (l.r || 3) + 3) !== main;
   }).map((l) => l.kind + (l.door ? '/door' : ''));
   ok(`${z.id} is walkable in one piece`, stranded.length === 0, stranded.join(','));
+}
+
+// ---------------------------------------------------------------- interiors
+// Furniture is the easiest thing in the game to add too much of: a press against
+// the wrong wall walls the keeper off behind his own counter, and nothing in the
+// headless suite would notice. The rooms are built here for real — `world.js`
+// imports cleanly in node — and walked.
+section('interiors');
+const Wld = await import('../src/client/gfx/world.js');
+const roomTheme = Wld.zoneTheme({ id: 'aetherport', urban: true, element: 'verdant' });
+for (const kind of Object.keys(Wld.INTERIORS)) {
+  const room = Wld.buildInterior(kind, roomTheme);
+  const { hw, d } = room.dims;
+  const r = region(room.colliders, -hw, hw, -d, 0,
+    (x, zz) => x > -hw + 0.1 && x < hw - 0.1 && zz > -d + 0.1 && zz < -0.1, 0.25);
+  // The customer side is whatever the spawn is standing in — not the largest
+  // piece. In the shop the keeper's strip behind the counter is the larger of
+  // the two, and it is meant to be a separate piece: that is what a counter is.
+  const home = r.componentAt(room.spawn, 0.8);
+  ok(`${kind}: the spawn is not inside the furniture`, !r.blocked(room.spawn.x, room.spawn.z) && home !== null);
+  const front = { x: room.counter.x, z: room.counter.z + 1.15 };
+  const away = [['exit', room.exit, 1.2], ['counter', front, 1]]
+    .filter(([, p, tol]) => r.componentAt(p, tol) !== home).map(([nm]) => nm);
+  ok(`${kind}: the door and the counter are on the same side of the room`, away.length === 0, away.join(','));
+  ok(`${kind}: the keeper is not standing inside the furniture`, !r.blocked(room.npc.x, room.npc.z));
+  const area = r.free * 0.25 * 0.25;
+  ok(`${kind}: there is room to walk`, area > 14, `${area.toFixed(0)}m2 of ${(hw * 2 * d).toFixed(0)}`);
 }
 
 // ---------------------------------------------------------------- battle rules
