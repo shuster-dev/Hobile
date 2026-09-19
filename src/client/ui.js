@@ -953,6 +953,17 @@ var UI = class {
     let t = $("#prompt");
     t.classList.toggle("hidden", !e), e && (t.textContent = e);
   }
+  /** The weather chip. Touched every frame, so it writes only on a change —
+   *  setting textContent to the string it already holds still costs a layout
+   *  invalidation on some engines, and this sits over a 3D canvas. */
+  setSky(e) {
+    if (!e || this._skyId === e.id && this._seasonId === e.season?.id) return;
+    this._skyId = e.id, this._seasonId = e.season?.id;
+    let t = $("#v-sky"),
+      n = $("#v-season");
+    t && (t.textContent = SKY_ICON[e.id] + " " + e.he), n && (n.textContent = e.season?.he || "");
+  }
+
   setBoss(e) {
     let t = $("#boss-banner");
     if (!e?.active) {
@@ -1179,7 +1190,16 @@ function Ib() {
   };
 }
 
-var kb = 7.4,
+var SKY_ICON = {
+  clear: "☀",
+  cloud: "☁",
+  rain: "☂",
+  storm: "⚡",
+  snow: "❄",
+  fog: "≈",
+  ash: "✦"
+},
+  kb = 7.4,
   zb = 12,
   wp = 720 * 1e3;
 

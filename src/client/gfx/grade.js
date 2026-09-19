@@ -26,6 +26,7 @@ uniform float uVignette;
 uniform vec3  uLift;      // pushed into the shadows
 uniform vec3  uGain;      // pushed into the highlights
 uniform float uNight;
+uniform float uFlash;     // lightning, added flat
 
 void main() {
   vec3 c = texture2D(tScene, vUv).rgb;
@@ -46,6 +47,11 @@ void main() {
   vec2 d = vUv - 0.5;
   float v = 1.0 - dot(d, d) * (uVignette + uNight * 0.35);
   c *= clamp(v, 0.0, 1.0);
+
+  // Lightning. Flat and after the vignette, because a strike lights the whole
+  // frame including its corners — that is most of what tells the eye it came
+  // from outside the scene rather than from something in it.
+  c += uFlash;
 
   gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }
@@ -72,8 +78,16 @@ export class Grade {
         uLift: { value: opts.lift ?? { x: -0.012, y: -0.004, z: 0.028 } },
         uGain: { value: opts.gain ?? { x: 0.030, y: 0.014, z: -0.014 } },
         uNight: { value: 0 },
+        uFlash: { value: 0 },
       },
     });
+    // What the grade looks like with nothing happening. Weather and season bend
+    // these; without a copy of the originals every bend would compound on the
+    // last one and a week of overcast would end up monochrome.
+    this.base = {
+      contrast: this.material.uniforms.uContrast.value,
+      saturation: this.material.uniforms.uSaturation.value,
+    };
     this.scene = new Scene();
     this.camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.quad = new Mesh(new PlaneGeometry(2, 2), this.material);
@@ -83,6 +97,14 @@ export class Grade {
   }
 
   setNight(n) { this.material.uniforms.uNight.value = n; }
+
+  setFlash(v) { this.material.uniforms.uFlash.value = v; }
+
+  /** Bend contrast and saturation away from the base, never from the current. */
+  setMood({ contrast = 1, saturation = 1 } = {}) {
+    this.material.uniforms.uContrast.value = this.base.contrast * contrast;
+    this.material.uniforms.uSaturation.value = this.base.saturation * saturation;
+  }
 
   /** Render the scene through the grade, or straight to the screen when off. */
   render(scene, camera) {

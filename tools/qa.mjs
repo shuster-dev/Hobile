@@ -195,6 +195,94 @@ for (const z of Object.values(ZONES)) {
   ok(`${z.id} is walkable in one piece`, stranded.length === 0, stranded.join(','));
 }
 
+// ---------------------------------------------------------------- weather
+// Nothing about the sky is replicated: it is a pure function of the server
+// clock and the zone's id, which is what lets two clients agree without a
+// packet. That makes it worth testing hard, because a schedule that is not a
+// function of exactly those two things is a desync nobody will reproduce.
+section('weather');
+const Wx = await import('../src/shared/weather.js');
+const Wv = await import('../src/client/gfx/world.js');
+const zoneList = Object.values(ZONES);
+const T0 = 1750000000000;
+
+ok('the same millisecond gives the same sky twice',
+  zoneList.every((z) => {
+    for (let i = 0; i < 200; i++) {
+      const t = T0 + i * 97001;
+      if (Wx.weatherAt(z, t).id !== Wx.weatherAt(z, t).id) return false;
+    }
+    return true;
+  }));
+ok('two zones do not share a schedule',
+  new Set(zoneList.map((z) => Array.from({ length: 40 }, (_, i) => Wx.weatherAt(z, T0 + i * Wx.SPELL_MS).id).join())).size === zoneList.length);
+const seen = new Set();
+for (const z of zoneList) for (let i = 0; i < 3000; i++) seen.add(Wx.weatherAt(z, T0 + i * Wx.SPELL_MS).id);
+ok('every sky the tables can produce is a known one',
+  [...seen].every((id) => Wx.WEATHER[id]), [...seen].filter((id) => !Wx.WEATHER[id]).join(','));
+ok('every sky has a look to draw it with',
+  Object.keys(Wx.WEATHER).every((id) => Wv.WEATHER_LOOK[id]),
+  Object.keys(Wx.WEATHER).filter((id) => !Wv.WEATHER_LOOK[id]).join(','));
+ok('every season has a look to draw it with',
+  Wx.SEASONS.every((s) => Wv.SEASON_LOOK[s.id]));
+
+// A spell holds, then turns over. Sampling inside one block must never change
+// the answer until the last TURN_MS of it.
+const zone = ZONES.verdant_meadow;
+const blockStart = Math.ceil(T0 / Wx.SPELL_MS) * Wx.SPELL_MS;
+const held = Wx.weatherAt(zone, blockStart + 1000);
+ok('a spell holds for its whole block',
+  [0.05, 0.3, 0.6, 0.8].every((f) => {
+    const w = Wx.weatherAt(zone, blockStart + f * (Wx.SPELL_MS - Wx.TURN_MS));
+    return w.from === held.from && w.blend === 0;
+  }));
+const turn = Wx.weatherAt(zone, blockStart + Wx.SPELL_MS - Wx.TURN_MS / 2);
+ok('the turn-over blend runs 0 to 1 in the last window', near(turn.blend, 0.5, 0.02), turn.blend.toFixed(3));
+ok('the reported id flips at the halfway point',
+  Wx.weatherAt(zone, blockStart + Wx.SPELL_MS - Wx.TURN_MS * 0.9).id === turn.from
+  && Wx.weatherAt(zone, blockStart + Wx.SPELL_MS - Wx.TURN_MS * 0.1).id === turn.to);
+ok('a block ends where the next one begins',
+  Wx.weatherAt(zone, blockStart + Wx.SPELL_MS - 1).to === Wx.weatherAt(zone, blockStart + Wx.SPELL_MS + 1).from);
+
+// Season bias. A zero in the table is a real zero.
+const inSeason = (name) => {
+  const out = new Set();
+  for (const z of zoneList) for (let i = 0; i < 4000; i++) {
+    const t = T0 + i * Wx.SPELL_MS;
+    const w = Wx.weatherAt(z, t);
+    if (w.season.id === name) out.add(w.from);
+  }
+  return out;
+};
+ok('nothing snows in summer', !inSeason('summer').has('snow'));
+ok('it still snows in winter', inSeason('winter').has('snow'));
+ok('the ember canyon never snows',
+  !Array.from({ length: 4000 }, (_, i) => Wx.weatherAt(ZONES.emberfall_canyon, T0 + i * Wx.SPELL_MS).from).includes('snow'));
+ok('seasons turn in order and wrap',
+  [0, 1, 2, 3, 4].map((i) => Wx.seasonAt(i * Wx.SEASON_MS).id).join() === 'spring,summer,autumn,winter,spring');
+
+// The one thing weather does to the rules.
+const boosted = Object.values(Wx.WEATHER).filter((w) => w.boost);
+ok('every weather boost names a real element', boosted.every((w) => ELEMENTS[w.boost]),
+  boosted.filter((w) => !ELEMENTS[w.boost]).map((w) => w.boost).join(','));
+// One pair, measured three times. Rolling a fresh creature per measurement
+// rolls fresh IVs with it, and the difference being looked for is smaller than
+// that noise — which is also why `computeDamage` now takes its rolls from the
+// Combat's own `rand` rather than Math.random.
+const wSim = new C.Combat({ mode: 'pve', rand: () => 0.5 });
+const wA = wSim.add(new C.Combatant({
+  side: 'a', kind: 'creature', name: 'a', creature: C.makeCreature('puddlet', 30), level: 30,
+}));
+const wB = wSim.add(new C.Combatant({
+  side: 'b', kind: 'creature', name: 'b', creature: C.makeCreature('puddlet', 30), level: 30,
+}));
+const wMove = { type: 'aqua', kind: 'special', power: 60 };
+const bigHit = (weather) => { wSim.weather = weather; return wSim.computeDamage(wA, wB, wMove, null).dmg; };
+const dry = bigHit(null), wet = bigHit({ boost: 'aqua' });
+ok('rain makes a water move hit harder', wet > dry * 1.1, `${dry} -> ${wet}`);
+ok('rain does nothing for a move of another type', bigHit({ boost: 'volt' }) === dry);
+ok('the same seed gives the same damage twice', bigHit(null) === dry);
+
 // ---------------------------------------------------------------- interiors
 // Furniture is the easiest thing in the game to add too much of: a press against
 // the wrong wall walls the keeper off behind his own counter, and nothing in the

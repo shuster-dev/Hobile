@@ -91,9 +91,10 @@ var Combatant = class {
       };
     }
   },
+  WEATHER_BOOST = 1.2,
   Combat = class {
     constructor(e = {}) {
-      this.mode = e.mode || "pve", this.onEvent = e.onEvent || (() => {}), this.rand = typeof e.rand == "function" ? e.rand : Math.random, this.combatants = new Map(), this.startedAt = Date.now(), this.finished = !1, this.result = null, this.contribution = new Map(), this.pendingThrow = null, this.pendingSwitch = new Map(), this.switchReady = new Map();
+      this.mode = e.mode || "pve", this.onEvent = e.onEvent || (() => {}), this.rand = typeof e.rand == "function" ? e.rand : Math.random, this.weather = e.weather || null, this.combatants = new Map(), this.startedAt = Date.now(), this.finished = !1, this.result = null, this.contribution = new Map(), this.pendingThrow = null, this.pendingSwitch = new Map(), this.switchReady = new Map();
     }
     add(e) {
       return this.combatants.set(e.id, e), e;
@@ -147,14 +148,23 @@ var Combatant = class {
         h = Math.min(0.85, t.modifier("shield")),
         d = n.type && e.types.includes(n.type) ? 1.5 : 1,
         u = n.type ? typeMultiplier(n.type, t.types) : 1,
-        f = Math.random() < 0.0625 ? 1.6 : 1,
-        p = 0.85 + Math.random() * 0.3,
+        // `this.rand` exists so a fight can be replayed; the damage roll —
+        // the one place it matters most — was calling Math.random directly, so
+        // seeding a Combat changed everything about it except the numbers.
+        f = this.rand() < 0.0625 ? 1.6 : 1,
+        p = 0.85 + this.rand() * 0.3,
+        // The sky is worth something. Rain behind a water move, a storm behind
+        // a volt one — fixed at the start of the battle rather than sampled per
+        // hit, so a spell turning over mid-fight cannot change what a move is
+        // doing halfway through it.
+        m = n.type && this.weather?.boost === n.type ? WEATHER_BOOST : 1,
         x = (2 * e.level / 5 + 2) * n.power * (o * l / Math.max(1, a * c)) / 50 + 2,
-        g = Math.floor(x * d * u * f * p * (1 - h));
+        g = Math.floor(x * d * u * f * p * m * (1 - h));
       return g = Math.max(1, g), {
         dmg: g,
         eff: u,
-        crit: f > 1
+        crit: f > 1,
+        weather: m > 1
       };
     }
     applyHit(e, t, n, s, r, o = {}) {
@@ -1409,4 +1419,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

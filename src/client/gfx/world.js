@@ -1892,6 +1892,157 @@ function buildDust(i, e) {
   };
 }
 
+// ---------------------------------------------------------------- weather
+//
+// What each sky does to the scene. `shared/weather.js` decides which one is
+// overhead; everything here is only the look of it, so the two can be argued
+// about separately — and a headless test of the schedule does not need a GPU.
+//
+// The numbers are multipliers on the zone's own palette rather than absolute
+// colours, so a rainy Emberfall is still Emberfall. `fogHue` is the one thing
+// weather is allowed to state outright: the colour of the air is the weather.
+var WEATHER_LOOK = {
+  clear: {
+    clouds: 0.12, sun: 1, amb: 1, fog: 1, fogMix: 0, fogHue: 0xB9C7D6,
+    exposure: 0, sat: 1.04, contrast: 1, wind: 0.05, precip: null,
+  },
+  cloud: {
+    clouds: 0.8, sun: 0.64, amb: 1.06, fog: 0.84, fogMix: 0.28, fogHue: 0xA9B3C2,
+    exposure: -0.05, sat: 0.9, contrast: 0.97, wind: 0.14, precip: null,
+  },
+  rain: {
+    clouds: 0.95, sun: 0.36, amb: 0.94, fog: 0.56, fogMix: 0.46, fogHue: 0x8794A6,
+    exposure: -0.1, sat: 0.82, contrast: 1.02, wind: 0.2,
+    precip: { count: 2400, size: 7, fall: 24, sway: 0.1, streak: 6, color: 0xD3E4F5, alpha: 0.6, half: 11, height: 19 },
+  },
+  storm: {
+    clouds: 1, sun: 0.24, amb: 0.82, fog: 0.42, fogMix: 0.56, fogHue: 0x707E90,
+    exposure: -0.14, sat: 0.74, contrast: 1.08, wind: 0.44,
+    precip: { count: 3200, size: 8, fall: 32, sway: 0.18, streak: 7, color: 0xC6D9EE, alpha: 0.62, half: 11, height: 19 },
+  },
+  snow: {
+    clouds: 0.86, sun: 0.52, amb: 1.16, fog: 0.62, fogMix: 0.52, fogHue: 0xD7E2EC,
+    exposure: -0.02, sat: 0.86, contrast: 0.95, wind: 0.1,
+    precip: { count: 2600, size: 1.7, fall: 3.2, sway: 0.9, streak: 1, color: 0xFFFFFF, alpha: 0.95, half: 12, height: 20 },
+  },
+  fog: {
+    clouds: 0.58, sun: 0.46, amb: 1.12, fog: 0.3, fogMix: 0.76, fogHue: 0xC6CDD6,
+    exposure: -0.04, sat: 0.7, contrast: 0.92, wind: 0.06, precip: null,
+  },
+  ash: {
+    clouds: 0.5, sun: 0.72, amb: 0.96, fog: 0.6, fogMix: 0.5, fogHue: 0xC98E63,
+    exposure: -0.02, sat: 1.06, contrast: 1.04, wind: 0.12,
+    precip: { count: 900, size: 1.9, fall: 1.6, sway: 1.2, streak: 1, color: 0xFFB26B, alpha: 0.8, half: 13, height: 20 },
+  },
+};
+
+// A season does not repaint a zone, it leans on it — the same way the weather
+// tables do. `amt` is how far toward the season's colour the zone's own leaf or
+// grass travels, which keeps Umbral Grove dark in spring and Frostpeak pale in
+// summer.
+var SEASON_LOOK = {
+  spring: { leaf: 0x9BE06A, leafAmt: 0.3, grass: 0x8ED36A, grassAmt: 0.24, sat: 1.06, contrast: 1 },
+  summer: { leaf: 0x2F8F3A, leafAmt: 0.18, grass: 0x4CA84A, grassAmt: 0.14, sat: 1.02, contrast: 1 },
+  autumn: { leaf: 0xD98A2B, leafAmt: 0.55, grass: 0xC6A24E, grassAmt: 0.32, sat: 1.04, contrast: 1.01 },
+  winter: { leaf: 0xB9C6CE, leafAmt: 0.5, grass: 0xAEBAC0, grassAmt: 0.44, sat: 0.9, contrast: 0.98 },
+};
+
+var PRECIP_VERT = `
+  attribute vec3 aStart;
+  attribute float aSeed;
+  uniform float uTime, uSize, uFall, uSway, uHalf, uHeight, uWind;
+  void main() {
+    vec3 p = aStart;
+    // Each drop falls at its own speed and wraps, so the field never empties
+    // and never needs respawning on the CPU.
+    float sp = uFall * (0.72 + aSeed * 0.56);
+    p.y = uHeight * 0.72 - mod(aStart.y + uTime * sp, uHeight);
+    float drop = clamp((uHeight * 0.72 - p.y) / uHeight, 0.0, 1.0);
+    p.x += uWind * drop * 7.0 + sin(uTime * 0.9 + aSeed * 6.283) * uSway;
+    p.z += uWind * drop * 2.5 + cos(uTime * 0.77 + aSeed * 4.11) * uSway;
+    // Wrap sideways too, or a wind strong enough to be worth having blows the
+    // whole field off the side of the player within a minute.
+    p.x = mod(p.x + uHalf, uHalf * 2.0) - uHalf;
+    p.z = mod(p.z + uHalf, uHalf * 2.0) - uHalf;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_PointSize = uSize * (0.7 + aSeed * 0.6) * (30.0 / max(0.8, -mv.z));
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+
+var PRECIP_FRAG = `
+  uniform vec3 uColor;
+  uniform float uAlpha, uStreak;
+  void main() {
+    // One sprite shape for everything: squash the sample coordinate in x and a
+    // round flake becomes a rain streak. Cheaper than two materials and it
+    // means rain and snow can cross-fade without swapping shaders.
+    vec2 uv = (gl_PointCoord - 0.5) * vec2(uStreak, 1.0);
+    float a = smoothstep(0.5, 0.05, length(uv));
+    if (a <= 0.003) discard;
+    gl_FragColor = vec4(uColor, a * uAlpha);
+  }
+`;
+
+function buildPrecip(spec) {
+  // `size` is in the same units the dust field uses — multiplied by 30 over the
+  // distance to the camera — so a flake near the lens is fifteen times its
+  // number in pixels. Snow at 4 photographs as bokeh, not weather.
+  //
+  // The box is small on purpose. Spread the same drops over a 50-metre cube and
+  // the density near the camera — which is the only density anyone sees — falls
+  // by an order of magnitude, and rain reads as three streaks and a rumour.
+  let n = Math.round(spec.count * (QUALITY.tier === "low" ? 0.32 : QUALITY.tier === "medium" ? 0.68 : 1)),
+    half = spec.half ?? 12,
+    height = spec.height ?? 20,
+    rnd = rngFromFloat(0.37),
+    start = new Float32Array(n * 3),
+    seed = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    start[i * 3] = (rnd() * 2 - 1) * half;
+    start[i * 3 + 1] = rnd() * height;
+    start[i * 3 + 2] = (rnd() * 2 - 1) * half;
+    seed[i] = rnd();
+  }
+  let geo = new BufferGeometry();
+  geo.setAttribute("position", new BufferAttribute(new Float32Array(n * 3), 3));
+  geo.setAttribute("aStart", new BufferAttribute(start, 3));
+  geo.setAttribute("aSeed", new BufferAttribute(seed, 1));
+  let uniforms = {
+      uTime: { value: 0 },
+      uSize: { value: spec.size },
+      uFall: { value: spec.fall },
+      uSway: { value: spec.sway },
+      uWind: { value: 0.1 },
+      uHalf: { value: half },
+      uHeight: { value: height },
+      uColor: { value: new Color(spec.color) },
+      uAlpha: { value: spec.alpha },
+      uStreak: { value: spec.streak },
+    },
+    points = new Points(geo, new ShaderMaterial({
+      vertexShader: PRECIP_VERT,
+      fragmentShader: PRECIP_FRAG,
+      uniforms,
+      transparent: !0,
+      depthWrite: !1
+    }));
+  // The field is parked on the player every frame, so its own box is always in
+  // view and culling it by that box is wrong.
+  return points.frustumCulled = !1, points.userData.noOutline = !0, {
+    points,
+    uniforms,
+    alpha: spec.alpha
+  };
+}
+
+function lerpLook(a, b, t) {
+  if (!(t > 0)) return a;
+  let out = {};
+  for (let k of ["clouds", "sun", "amb", "fog", "fogMix", "exposure", "sat", "contrast", "wind"]) out[k] = a[k] + (b[k] - a[k]) * t;
+  return out.fogHue = mixHex(a.fogHue, b.fogHue, t), out;
+}
+
 function buildRug(i, e, t, n, s) {
   let r = new Color(s),
     o = [],
@@ -3206,7 +3357,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         skyColor: 12376319,
         groundColor: 4867126,
         shadowRadius: 26
-      }), this.viewMode = "third", this.camPitch = 0, this.interior = null, this._inside = null, this.camMin = 3.2, this.zoneGroup = new Group(), this.scene.add(this.zoneGroup), this.windMaterials = [], this.adapt = sizeRenderer(this.renderer), this.density = {
+      }), this.viewMode = "third", this.camPitch = 0, this.interior = null, this._inside = null, this.camMin = 3.2, this.zoneGroup = new Group(), this.scene.add(this.zoneGroup), this.windMaterials = [], this.seasonTint = [], this._season = "summer", this.adapt = sizeRenderer(this.renderer), this.density = {
         low: 0.45,
         medium: 0.75,
         high: 1
@@ -3239,7 +3390,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.seasonTint = [], this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3582,7 +3733,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           }), t.length);
         h.castShadow = !0, d.castShadow = !0, t.forEach((u, f) => {
           n.position.set(u.x, this.heightAt(u.x, u.z), u.z), n.rotation.set(0, u.rot, 0), n.scale.setScalar(0.85 + u.s * 0.35), n.updateMatrix(), h.setMatrixAt(f, n.matrix), d.setMatrixAt(f, n.matrix);
-        }), this.zoneGroup.add(h, d), this.watchCanopy(d, t, 1.9, 5.6);
+        }), this.zoneGroup.add(h, d), this.watchCanopy(d, t, 1.9, 5.6),
+        // The street trees are the only foliage on the dock, and leaving them
+        // out would make the harbour the one place where it is always summer.
+        this.seasonTint.push({
+          mat: d.material,
+          base: e.leaf,
+          kind: "leaf"
+        });
       }
       let s = this.props.grass.filter((l, c) => c % Math.max(1, Math.round(1 / this.density)) === 0);
       if (!s.length) return;
@@ -3604,7 +3762,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         a = new InstancedMesh(r, o, s.length);
       s.forEach((l, c) => {
         n.position.set(l.x, this.heightAt(l.x, l.z), l.z), n.rotation.set(0, l.rot, 0), n.scale.setScalar(l.s), n.updateMatrix(), a.setMatrixAt(c, n.matrix);
-      }), this.zoneGroup.add(a);
+      }), this.zoneGroup.add(a), this.seasonTint.push({
+        mat: o,
+        base: e.grass,
+        kind: "grass"
+      }), this.applySeason();
     }
     /**
      * Remember a canopy so the camera can see past it.
@@ -3728,7 +3890,23 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       M.receiveShadow = !1, a.forEach((A, k) => {
         let L = heightAt(this.zone.id, A.x, A.z);
         l.position.set(A.x, L, A.z), l.rotation.set(0, A.rot, 0), l.scale.setScalar(A.s), l.updateMatrix(), M.setMatrixAt(k, l.matrix);
-      }), this.zoneGroup.add(M);
+      }), this.zoneGroup.add(M),
+      // Keep the three materials the season is allowed to touch, and the colour
+      // each started at. Tinting from the current colour instead would compound
+      // every turn of the year until a wood came out grey.
+      this.seasonTint.push({
+        mat: u,
+        base: e.leaf,
+        kind: "leaf"
+      }, {
+        mat: S,
+        base: mixHex(e.leaf, 662032, 0.25),
+        kind: "leaf"
+      }, {
+        mat: y,
+        base: e.grass,
+        kind: "grass"
+      }), this.applySeason();
       function P(A) {
         let k = A === "arid" ? [xf2(blobGeo(1.9, 0.42, 1.9, 3.4, 14), {
           y: 2.9
@@ -4573,7 +4751,76 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let s = this.effects[n];
         s.t += e, s.kind === "ring" ? (s.mesh.scale.setScalar((1 + s.t * 7) * s.scale), s.mesh.material.opacity = Math.max(0, 0.95 - s.t * 1.7), s.t > 0.65 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1))) : s.t > 1.4 && this.effects.splice(n, 1);
       }
-      this.updateCamera(e), this.cullCanopies(), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.grade ? (this.grade.setNight(this.night || 0), this.grade.render(this.scene, this.camera)) : this.renderer.render(this.scene, this.camera);
+      this.tickWeather(e), this.updateCamera(e), this.cullCanopies(), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.grade ? (this.grade.setNight(this.night || 0), this.grade.render(this.scene, this.camera)) : this.renderer.render(this.scene, this.camera);
+    }
+    /** The sky `shared/weather.js` says is overhead. Called every frame; the
+     *  particle fields are rebuilt only when the weather ids actually change. */
+    setWeather(e) {
+      if (!e) return;
+      // Same reason as `holdTimeOfDay`: a spell lasts six minutes, so without
+      // this a screenshot of the rain is a screenshot of whatever is overhead.
+      // The unheld value is kept, or releasing the hold would leave the sky
+      // pinned to whatever it was pinned to.
+      this._rawWeather = e, this._holdWeather && (e = {
+        ...e,
+        from: this._holdWeather,
+        to: this._holdWeather,
+        blend: 0,
+        id: this._holdWeather
+      }), this._holdSeason && (e = {
+        ...e,
+        season: {
+          ...e.season,
+          id: this._holdSeason
+        }
+      });
+      let t = WEATHER_LOOK[e.from] || WEATHER_LOOK.clear,
+        n = WEATHER_LOOK[e.to] || t;
+      this.weather = e, this.look = lerpLook(t, n, e.blend),
+      // Two fields cross-faded: rain does not become snow, it stops while snow
+      // starts. Keying the rebuild on the id is what stops a spell change from
+      // allocating two thousand points sixty times a second.
+      this._pFrom?.id !== e.from && (this._pFrom = this.swapPrecip(this._pFrom, e.from)),
+      this._pTo?.id !== e.to && (this._pTo = this.swapPrecip(this._pTo, e.to)),
+      this._pFrom?.field && (this._pFrom.field.uniforms.uAlpha.value = this._pFrom.field.alpha * (1 - e.blend)),
+      this._pTo?.field && (this._pTo.field.uniforms.uAlpha.value = this._pTo.field.alpha * e.blend),
+      e.season && this._season !== e.season.id && (this._season = e.season.id, this.applySeason());
+    }
+    swapPrecip(e, t) {
+      e?.field && (this.scene.remove(e.field.points), e.field.points.geometry.dispose(), e.field.points.material.dispose());
+      let n = (WEATHER_LOOK[t] || WEATHER_LOOK.clear).precip;
+      if (!n) return {
+        id: t,
+        field: null
+      };
+      let s = buildPrecip(n);
+      return this.scene.add(s.points), {
+        id: t,
+        field: s
+      };
+    }
+    /** Lean the zone's own leaf and grass colours toward the season's. */
+    applySeason() {
+      let e = SEASON_LOOK[this._season] || SEASON_LOOK.summer;
+      for (let t of this.seasonTint || []) t.mat.color.set(mixHex(t.base, t.kind === "grass" ? e.grass : e.leaf, t.kind === "grass" ? e.grassAmt : e.leafAmt));
+    }
+    tickWeather(e) {
+      if (this._inside || !this.look) {
+        this._pFrom?.field && (this._pFrom.field.points.visible = !1), this._pTo?.field && (this._pTo.field.points.visible = !1), this.grade?.setFlash(0);
+        return;
+      }
+      let t = this.camera.position,
+        n = this.heightAt(t.x, t.z);
+      for (let s of [this._pFrom, this._pTo]) s?.field && (s.field.points.position.set(t.x, n, t.z), s.field.uniforms.uTime.value = this.time, s.field.uniforms.uWind.value = this.look.wind, s.field.points.visible = s.field.uniforms.uAlpha.value > 0.004);
+      // Lightning. Strikes come in pairs more often than not, because a single
+      // flash on its own reads as a bug in the exposure rather than as weather.
+      let r = (this.weather?.from === "storm" ? 1 - this.weather.blend : 0) + (this.weather?.to === "storm" ? this.weather.blend : 0);
+      if (!this.grade) return;
+      if (r < 0.25) {
+        this._bolt = 0, this._nextBolt = 0, this.grade.setFlash(0);
+        return;
+      }
+      this._nextBolt = (this._nextBolt || 0) - e, this._nextBolt <= 0 && (this._bolt = 0.5 + Math.random() * 0.35, this._nextBolt = Math.random() < 0.4 ? 0.12 + Math.random() * 0.2 : 4 + Math.random() * 9), this._bolt = Math.max(0, (this._bolt || 0) - e * 6.5), this.grade.setFlash(this._bolt * r);
     }
     updateCamera(e) {
       let t = this.selfActor();
@@ -4637,6 +4884,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     holdTimeOfDay(e) {
       this._holdPhase = e;
     }
+    /** Pin the sky and the season, for the same reason. */
+    holdWeather(e, t) {
+      this._holdWeather = e || null, this._holdSeason = t || null, this._rawWeather && this.setWeather(this._rawWeather), this.setTimeOfDay(this._phase ?? 0.34);
+    }
     setTimeOfDay(e) {
       if (this._holdPhase != null) e = this._holdPhase;
       if (this._phase = e, this._inside || !this.sky || !this.palette) return;
@@ -4653,21 +4904,30 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         h = 725808,
         d = 2372186,
         u = 16751196,
-        f = this.sky.material.uniforms;
+        f = this.sky.material.uniforms,
+        // Weather rides on top of the day cycle rather than beside it: the sun,
+        // the cloud deck, the air and the exposure are all set here from the
+        // palette, so this is the only place they can be bent without two
+        // systems fighting over the same uniform.
+        w = this.look || WEATHER_LOOK.clear;
       f.uTop.value.copy(c(h, t.sky.top, a)), f.uHorizon.value.copy(c(d, t.sky.horizon, a).lerp(new Color(u), l * 0.55)), f.uSunColor.value.copy(c(12374271, t.sky.sun, a)), f.uSunDir.value.copy(o),
       // Clouds drift on their own clock so they keep moving while the day
       // cycle is paused, and thin out at night rather than turning to soot.
       f.uTime && (f.uTime.value = performance.now() * 0.001),
       f.uNight && (f.uNight.value = this.night),
-      f.uClouds && (f.uClouds.value = t.clouds ?? 0.5), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = 0.42 + a * 2.05, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
+      f.uClouds && (f.uClouds.value = MathUtils.clamp((t.clouds ?? 0.5) * 0.3 + w.clouds * 0.8, 0, 1)), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = (0.42 + a * 2.05) * w.sun, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
       let p = t.ambient ?? 1;
-      if (this.lights.hemi.intensity = (0.46 + a * 0.5) * p, this.lights.hemi.color.copy(c(3358827, t.sky.horizon, a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
-        this.scene.fog.color.copy(c(1186352, t.fog, a).lerp(new Color(u), l * 0.4));
-        let x = t.fogNear ?? 62,
-          g = t.fogFar ?? 168;
+      if (this.lights.hemi.intensity = (0.46 + a * 0.5) * p * w.amb, this.lights.hemi.color.copy(c(3358827, t.sky.horizon, a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
+        this.scene.fog.color.copy(c(1186352, t.fog, a).lerp(new Color(u), l * 0.4).lerp(new Color(w.fogHue), w.fogMix * (0.35 + a * 0.65)));
+        let x = (t.fogNear ?? 62) * w.fog,
+          g = (t.fogFar ?? 168) * w.fog;
         this.scene.fog.near = x - this.night * x * 0.26, this.scene.fog.far = g - this.night * g * 0.26, this.hazeWall && this.hazeWall.uniforms.uColor.value.copy(this.scene.fog.color);
       }
-      this.renderer && (this.renderer.toneMappingExposure = 1.02 - this.night * 0.08), this.city?.setNight(this.night), this.plazaLight && (this.plazaLight.intensity = 0.4 + this.night * 5.5), this.setNpcs(e);
+      let S = SEASON_LOOK[this._season] || SEASON_LOOK.summer;
+      this.grade?.setMood({
+        saturation: w.sat * S.sat,
+        contrast: w.contrast * S.contrast
+      }), this.renderer && (this.renderer.toneMappingExposure = 1.02 - this.night * 0.08 + w.exposure), this.city?.setNight(this.night), this.plazaLight && (this.plazaLight.intensity = 0.4 + this.night * 5.5), this.setNpcs(e);
     }
     project(e) {
       let t = e.clone().project(this.camera);
@@ -5162,4 +5422,4 @@ function disposeTree(i) {
   });
 }
 
-export { $_, A_, B_, C_, DOOR_W, INTERIORS, O_, PartBuilder, R_, SUN_DIR, SUN_STRENGTH, U_, V_, WALL_H, W_, WorldView, X_, boxHit, buildAmbientMotes, buildBuildingBlock, buildBush, buildCityGround, buildDust, buildEdgeWall, buildFogWall, buildGroundMesh, buildInterior, buildLamp, buildNpcBody, buildReed, buildRimRange, buildRockProp, buildRug, buildTerrainMesh, buildTreeProp, buildWainscot, buildWaterPlane, buildingIndex, circleHit, collectColliders, disposeTree, eb, eo, interiorOf, jitter, mergePlain, mergeProps, npcNear, offsetGeometry, propRadius, q_, rngFromFloat, rotateLocal, tintHex, vertexColorMat, zoneTheme };
+export { $_, A_, B_, C_, DOOR_W, INTERIORS, SEASON_LOOK, WEATHER_LOOK, O_, PartBuilder, R_, SUN_DIR, SUN_STRENGTH, U_, V_, WALL_H, W_, WorldView, X_, boxHit, buildAmbientMotes, buildBuildingBlock, buildBush, buildCityGround, buildDust, buildEdgeWall, buildFogWall, buildGroundMesh, buildInterior, buildLamp, buildNpcBody, buildReed, buildRimRange, buildRockProp, buildRug, buildTerrainMesh, buildTreeProp, buildWainscot, buildWaterPlane, buildingIndex, circleHit, collectColliders, disposeTree, eb, eo, interiorOf, jitter, mergePlain, mergeProps, npcNear, offsetGeometry, propRadius, q_, rngFromFloat, rotateLocal, tintHex, vertexColorMat, zoneTheme };

@@ -8,6 +8,7 @@ import { Net } from './net.js';
 import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
 import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
 import { NPCS } from '../shared/npcs.js';
+import { weatherAt } from '../shared/weather.js';
 
 var Game = class {
   constructor(e) {
@@ -287,12 +288,21 @@ var Game = class {
         }
       }
     }), e.on("battleInit", t => {
-      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer));
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer));
       let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
       this.battleView.setTheme(n || this.zoneElement(), !1);
     }), e.on("dungeonInit", t => {
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer)), this.battleView.setTheme(t.dungeon.element, !0), this.ui.battleBanner(`${loc(t.dungeon)} — קומה 1`, 1800);
-    }), e.on("battleStart", () => this.ui.battleBanner("הקרב מתחיל!", 1e3)), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
+    }), e.on("battleStart", () => {
+      this.ui.battleBanner("הקרב מתחיל!", 1e3);
+      // The sky is doing something to the numbers, so say so once. Without this
+      // the only way to find out rain helps a water move is to notice it.
+      let w = this.battle.weather;
+      if (w?.boost && ELEMENTS[w.boost]) {
+        let el = ELEMENTS[w.boost];
+        setTimeout(() => this.ui.battleBanner(`${el.icon} ${w.he} · מהלכי ${el.he} מתחזקים`, 1600), 1100);
+      }
+    }), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
       this.battle.inventory = t;
     }), e.on("battleEvent", t => {
       this.battleView.playEvent(t);
@@ -746,8 +756,13 @@ var Game = class {
     } else a = this.world.moveSelf(0, 0, e), this.walkPhase = 1.2;
     let l = Date.now();
     a && l - this.lastNetSend > 1e3 / zb && (this.lastNetSend = l, this.net.send("move", a));
-    let c = (s.serverTime || Date.now()) % wp / wp;
-    this.world.setTimeOfDay(c), this.updateObjective(s);
+    let l2 = s.serverTime || Date.now(),
+      c = l2 % wp / wp,
+      sky = weatherAt(this.world.zone, l2);
+    // Weather before the clock: `setTimeOfDay` is where the sun, the cloud deck
+    // and the air are set from the palette, and it reads what the weather has
+    // bent them by.
+    this.world.setWeather(sky), this.world.setTimeOfDay(c), this.ui.setSky(sky), this.updateObjective(s);
     let h = Number.isFinite(this.world.night) ? this.world.night : 0;
     Math.abs(h - (this._lastNight ?? -1)) > 0.08 && (this._lastNight = h, audio.setNight(h)), this.world.update(e, t), this.ui.drawMinimap(this.world, s, n.sessionId), this.ui.setBoss(s.boss), this.updateNameplates(s, n.sessionId), this.updatePrompt();
   }

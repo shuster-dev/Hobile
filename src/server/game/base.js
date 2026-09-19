@@ -4,6 +4,7 @@ import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
 import { handleWorldMessage } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
+import { weatherAt } from '../../shared/weather.js';
 
 var StoreBase = class {
     constructor() {
@@ -448,8 +449,13 @@ var StoreBase = class {
         finished: !1,
         outcome: "",
         combatants: new Map()
-      }, this.sim = new Combat({
+      },
+      // The sky at the moment the fight starts, held for its duration. Same
+      // function the client draws from, so the rain the player can see is the
+      // rain that is buffing the water move.
+      this.weather = weatherAt(ZONES[this.zoneId], Date.now()), this.sim = new Combat({
         mode: "pve",
+        weather: this.weather,
         onEvent: a => this.onSimEvent(a)
       });
       let r = e.doc;
@@ -508,6 +514,11 @@ var StoreBase = class {
           you: this.you.id,
           team: this.roster,
           trainer: this.trainer?.id || null,
+          weather: this.weather && {
+            id: this.weather.id,
+            he: this.weather.he,
+            boost: this.weather.boost
+          },
           inventory: this.net.doc.inventory,
           profile: publicProfile(this.net.doc)
         }), this.state.phase = "active", this.net.emit("battleStart", {
