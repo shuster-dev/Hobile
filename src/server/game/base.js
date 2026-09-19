@@ -38,12 +38,21 @@ var StoreBase = class {
       this.doc = null;
     }
     async me() {
+      // `local` tells the UI there is no account to claim here: the offline
+      // build has no server to hold one, and its save lives in this browser.
       return this.doc ? (normalizeDoc(this.doc), {
         hasCharacter: !0,
+        local: !0,
         profile: publicProfile(this.doc)
       }) : {
-        hasCharacter: !1
+        hasCharacter: !1,
+        local: !0
       };
+    }
+    async claim() {
+      throw Object.assign(new Error("offline"), {
+        code: "offline"
+      });
     }
     async guest() {
       return {

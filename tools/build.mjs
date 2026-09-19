@@ -5,6 +5,11 @@ import * as esbuild from 'esbuild';
 const solo = process.argv.includes('--solo');
 const artifact = process.argv.includes('--artifact');
 const dev = process.argv.includes('--dev');
+// Where the client should look for the server. Only needed when the two are on
+// different origins — the server serves `dist/web` itself, so a same-origin
+// deploy leaves this empty and the client uses `location.host`. A static host
+// like Pages needs it: `--server=https://hobile.up.railway.app`.
+const serverArg = (process.argv.find((a) => a.startsWith('--server=')) || '').slice(9).replace(/\/+$/, '');
 const outDir = 'dist/web';
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -78,12 +83,18 @@ if (artifact) {
   console.log(`dist/solo.html  ${(html.length / 1024).toFixed(0)} KB  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)`);
 } else {
   fs.writeFileSync(path.join(outDir, 'main.js'), js);
-  fs.writeFileSync(path.join(outDir, 'index.html'), shell);
+  // `Ib()` in ui.js reads `?server=` first and this second, so a baked default
+  // can still be overridden by a query string when testing against staging.
+  const page = serverArg
+    ? shell.replace('<script type="module" src="./main.js"></script>',
+      () => `<script>window.HOBILE_SERVER=${JSON.stringify(serverArg)}</script>\n<script type="module" src="./main.js"></script>`)
+    : shell;
+  fs.writeFileSync(path.join(outDir, 'index.html'), page);
   // The app shell: without these on the served origin there is no Add to Home
   // Screen, and on iPhone that is the only route to a chrome-free screen.
   for (const f of ['manifest.webmanifest', 'sw.js', 'icon.svg']) {
     fs.copyFileSync(path.join('src/client', f), path.join(outDir, f));
   }
   const m = copyModels(outDir);
-  console.log(`${outDir}/  index.html + main.js  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)`);
+  console.log(`${outDir}/  index.html + main.js  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)${serverArg ? `  server=${serverArg}` : ''}`);
 }

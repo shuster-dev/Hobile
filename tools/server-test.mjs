@@ -55,6 +55,43 @@ ok('the character persists', me.json.hasCharacter && me.json.profile.name === 'A
 ok('a second character on one account is refused',
   (await api('/api/character', { name: 'Again' }, a.json.token)).status === 409);
 
+// The whole point of the guest-first flow: an account that is real from the
+// first click, and a claim that keeps everything it earned.
+const g = await api('/api/guest', {});
+ok('a guest gets a session with no form', g.status === 200 && !!g.json.token);
+const gMe = await api('/api/me', null, g.json.token);
+ok('a guest is reported as one', gMe.json.guest === true && gMe.json.username === '');
+ok('/me hands back a fresh token', typeof gMe.json.token === 'string' && gMe.json.token.length > 10);
+await api('/api/character', { name: 'Ghost', starter: 'sproutle' }, g.json.token);
+const asGuest = await api('/api/me', null, g.json.token);
+ok('a guest can play and be saved', asGuest.json.hasCharacter && asGuest.json.profile.name === 'Ghost');
+
+ok('claiming a name that is taken is refused',
+  (await api('/api/claim', { username: 'alice', password: 'hunter2' }, g.json.token)).status === 409);
+ok('claiming with a short password is refused',
+  (await api('/api/claim', { username: 'ghosty', password: 'abc' }, g.json.token)).status === 400);
+const claim = await api('/api/claim', { username: 'ghosty', password: 'hunter2' }, g.json.token);
+ok('a guest can claim a username', claim.status === 200 && claim.json.username === 'ghosty', JSON.stringify(claim.json));
+
+const asOwner = await api('/api/me', null, claim.json.token);
+ok('the character survives the claim',
+  asOwner.json.hasCharacter && asOwner.json.profile.name === 'Ghost'
+  && asOwner.json.profile.id === asGuest.json.profile.id,
+  `${asGuest.json.profile?.id} -> ${asOwner.json.profile?.id}`);
+ok('the claimed account is no longer a guest', asOwner.json.guest === false && asOwner.json.username === 'ghosty');
+ok('the old token still points at the same character',
+  (await api('/api/me', null, g.json.token)).json.profile?.id === asGuest.json.profile.id);
+ok('claiming twice is refused',
+  (await api('/api/claim', { username: 'ghostier', password: 'hunter2' }, claim.json.token)).status === 409);
+
+// and the reason any of this matters: coming back from a different browser
+const back = await api('/api/login', { username: 'ghosty', password: 'hunter2' });
+ok('the claimed account logs in from nowhere', back.status === 200 && back.json.hasCharacter === true);
+ok('and lands on the same character',
+  (await api('/api/me', null, back.json.token)).json.profile?.id === asGuest.json.profile.id);
+ok('the guest username is gone from the lookup',
+  (await api('/api/login', { username: 'ghosty', password: 'wrong' })).status === 401);
+
 // world
 const clientA = new Client(`ws://127.0.0.1:${PORT}`);
 const clientB = new Client(`ws://127.0.0.1:${PORT}`);

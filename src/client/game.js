@@ -10,6 +10,8 @@ import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, S
 import { NPCS } from '../shared/npcs.js';
 import { weatherAt } from '../shared/weather.js';
 
+var WANT_LOGIN = "hobile.wantLogin";
+
 var Game = class {
   constructor(e) {
     this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
@@ -70,20 +72,44 @@ var Game = class {
   }
 
   async boot() {
+    let e = !1;
+    try {
+      e = sessionStorage.getItem(WANT_LOGIN) === "1", e && sessionStorage.removeItem(WANT_LOGIN);
+    } catch {}
     if (this.ui.setLoading(!0, "מתחבר לשרת…"), !this.net.hasSession()) {
-      this.ui.setLoading(!1), this.showLogin();
-      return;
+      if (e) {
+        this.ui.setLoading(!1), this.showLogin();
+        return;
+      }
+      // No form on the first click. A guest here is a real account — the server
+      // holds its document from the first step — and it can be claimed later
+      // with a username and a password without losing any of it. A sign-up wall
+      // in front of a game link is where most people stop.
+      try {
+        await this.net.guest();
+      } catch {
+        this.ui.setLoading(!1), this.showLogin();
+        return;
+      }
     }
     try {
-      let e = await this.net.me();
-      if (!e.hasCharacter) {
+      let t = await this.net.me();
+      if (this.setAccount(t), !t.hasCharacter) {
         this.ui.setLoading(!1), this.showCreate();
         return;
       }
-      await this.enterWorld(e.profile.zone || HOME_ZONE);
+      await this.enterWorld(t.profile.zone || HOME_ZONE);
     } catch {
       this.net.logout(), this.ui.setLoading(!1), this.showLogin();
     }
+  }
+  /** Who is playing, and whether there is still something to claim. */
+  setAccount(e) {
+    return this.account = {
+      guest: !!e?.guest,
+      username: e?.username || "",
+      local: !!e?.local
+    }, this.ui.setAccount(this.account), this.account;
   }
   showLogin() {
     this.ui.showScreen("login"), this.ui.setMode("none");
@@ -98,7 +124,7 @@ var Game = class {
       $("#login-error").textContent = "";
       try {
         let o = e ? await this.net.register(s, r) : await this.net.login(s, r);
-        this.ui.showScreen(null), o.hasCharacter ? await this.enterWorld() : this.showCreate();
+        this.ui.showScreen(null), this.setAccount(await this.net.me().catch(() => ({}))), o.hasCharacter ? await this.enterWorld() : this.showCreate();
       } catch (o) {
         $("#login-error").textContent = Oc(o.code);
       }
@@ -107,7 +133,9 @@ var Game = class {
       s.key === "Enter" && n();
     }, $("#btn-guest").onclick = async () => {
       try {
-        await this.net.guest(), this.ui.showScreen(null), this.showCreate();
+        await this.net.guest(), this.setAccount(await this.net.me().catch(() => ({
+          guest: !0
+        }))), this.ui.showScreen(null), this.showCreate();
       } catch (s) {
         $("#login-error").textContent = Oc(s.code);
       }
@@ -544,6 +572,31 @@ var Game = class {
       },
       leaderboard: () => this.net.leaderboard("level").catch(() => []),
       logout: () => {
+        this.net.logout(), location.reload();
+      },
+      claim: async (t, n) => {
+        try {
+          let s = await this.net.claim(t, n);
+          return this.setAccount({
+            guest: !1,
+            username: s.username
+          }), this.ui.closePanel(), this.ui.toast("ההתקדמות שלך שמורה. אפשר להתחבר עם השם הזה מכל מכשיר.", "good"), {
+            ok: !0
+          };
+        } catch (s) {
+          return {
+            ok: !1,
+            message: Oc(s.code)
+          };
+        }
+      },
+      switchAccount: () => {
+        // Reload rather than swap in place: half the client is bound to the
+        // room it joined, and logging into a second account over a live one is
+        // the kind of state nobody tests.
+        try {
+          sessionStorage.setItem(WANT_LOGIN, "1");
+        } catch {}
         this.net.logout(), location.reload();
       },
       useSkill: t => {
@@ -1022,7 +1075,8 @@ function escapeHtml(i) {
 
 function Oc(i) {
   return {
-    invalid_username: "שם משתמש לא תקין (2–16 תווים)",
+    invalid_username: "שם משתמש לא תקין — 3–16 תווים, אותיות קטנות באנגלית, ספרות וקו תחתון",
+    already_claimed: "החשבון הזה כבר שמור",
     weak_password: "סיסמה קצרה מדי (לפחות 6 תווים)",
     username_taken: "שם המשתמש תפוס",
     bad_credentials: "שם משתמש או סיסמה שגויים",

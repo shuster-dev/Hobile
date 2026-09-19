@@ -1,0 +1,11 @@
+# Everything the image does not need. Without this the build context carries
+# node_modules and 3.4MB of already-built models, and every deploy re-uploads
+# them only to throw them away.
+node_modules
+dist
+shots
+recovered
+.git
+.github
+*.log
+*.bundle

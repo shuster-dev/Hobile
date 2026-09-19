@@ -36,7 +36,18 @@ class MemoryStore {
   async connect() { return this; }
   async close() { this._flush(); }
   async findUser(username) { return this.users.get(username) || null; }
+  async findUserById(id) {
+    for (const u of this.users.values()) if (u.id === id) return u;
+    return null;
+  }
   async createUser(user) { this.users.set(user.username, user); this._flush(); return user; }
+  /** Claiming a guest renames it, and this map is keyed by username. */
+  async replaceUser(prevUsername, user) {
+    if (prevUsername !== user.username) this.users.delete(prevUsername);
+    this.users.set(user.username, user);
+    this._flush();
+    return user;
+  }
   async getDoc(userId) { return this.docs.get(userId) || null; }
   async saveDoc(doc) { this.docs.set(doc.id, doc); this._flush(); return doc; }
   async leaderboard(kind = 'level', limit = 50) {
@@ -63,6 +74,7 @@ class MongoStore {
     this.docsC = db.collection('docs');
     this.guildsC = db.collection('guilds');
     await this.usersC.createIndex({ username: 1 }, { unique: true });
+    await this.usersC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ level: -1 });
     await this.docsC.createIndex({ gold: -1 });
@@ -70,7 +82,12 @@ class MongoStore {
   }
   async close() { await this.client?.close(); }
   async findUser(username) { return this.usersC.findOne({ username }, { projection: { _id: 0 } }); }
+  async findUserById(id) { return this.usersC.findOne({ id }, { projection: { _id: 0 } }); }
   async createUser(user) { await this.usersC.insertOne({ ...user }); return user; }
+  async replaceUser(prevUsername, user) {
+    await this.usersC.replaceOne({ id: user.id }, { ...user });
+    return user;
+  }
   async getDoc(userId) { return this.docsC.findOne({ id: userId }, { projection: { _id: 0 } }); }
   async saveDoc(doc) { await this.docsC.replaceOne({ id: doc.id }, doc, { upsert: true }); return doc; }
   async leaderboard(kind = 'level', limit = 50) {

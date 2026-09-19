@@ -65,6 +65,16 @@ const overlap = await page.evaluate(() => {
 if (overlap && !overlap.overlaps) { console.log('  ok  the quest panel clears the buttons above it'); }
 else { console.log('  FAIL the quest panel overlaps the buttons above it :: ' + JSON.stringify(overlap)); errors.push('tracker overlap'); }
 
+// Offline there is no account to claim, and no server to hold one. The chip
+// that offers it must not appear — this build's save is the browser's.
+const claimable = await page.evaluate(() => ({
+  chip: !document.getElementById('btn-claim')?.classList.contains('hidden'),
+  local: !!window.__hobile.account?.local,
+  guest: !!window.__hobile.account?.guest,
+}));
+if (!claimable.chip && claimable.local && !claimable.guest) { console.log('  ok  the offline build offers no account to claim'); }
+else { console.log('  FAIL the offline build offers an account it cannot keep :: ' + JSON.stringify(claimable)); errors.push('claim chip offline'); }
+
 // The collection panel: open it the way a player does, through the menu.
 await step('the collection panel opens', async () => {
   await page.evaluate(() => window.__hobile.ui.openPanel('dex'));

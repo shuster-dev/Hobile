@@ -67,11 +67,37 @@ app.post('/api/guest', async (req, res) => {
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {
+  const user = await store.findUserById(req.userId);
+  // A guest's only credential is the token in their browser, so every visit
+  // renews it. Without this a player who came back after the 30-day TTL found
+  // an account they had no way to prove was theirs — which is the reset this
+  // whole flow exists to prevent.
+  const account = { guest: !!user?.guest, username: user?.guest ? '' : (user?.username || ''), token: signToken(req.userId) };
   const doc = await store.getDoc(req.userId);
-  if (!doc) return res.json({ hasCharacter: false });
+  if (!doc) return res.json({ hasCharacter: false, ...account });
   normalizeDoc(doc);
   await store.saveDoc(doc);
-  res.json({ hasCharacter: true, profile: publicProfile(doc) });
+  res.json({ hasCharacter: true, profile: publicProfile(doc), ...account });
+});
+
+// Put a name and a password on a guest account, keeping its id — and therefore
+// its document, its level, its dex and its place in the leaderboard. This is
+// the whole point of letting anyone in without a form: the account is real from
+// the first click, and claiming it only adds a way to prove it is yours.
+app.post('/api/claim', requireAuth, async (req, res) => {
+  const user = await store.findUserById(req.userId);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  if (!user.guest) return res.status(409).json({ error: 'already_claimed' });
+  const name = validateUsername(req.body?.username);
+  if (!name.ok) return res.status(400).json({ error: name.reason });
+  const password = String(req.body?.password ?? '');
+  if (password.length < 6) return res.status(400).json({ error: 'weak_password' });
+  if (await store.findUser(name.value)) return res.status(409).json({ error: 'username_taken' });
+  const { salt, hash } = hashPassword(password);
+  const prev = user.username;
+  const claimed = { ...user, username: name.value, salt, hash, guest: false, claimedAt: Date.now() };
+  await store.replaceUser(prev, claimed);
+  res.json({ token: signToken(claimed.id), username: claimed.username });
 });
 
 app.post('/api/character', requireAuth, async (req, res) => {

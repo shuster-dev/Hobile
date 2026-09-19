@@ -1,5 +1,8 @@
 FROM node:20-slim AS build
 WORKDIR /app
+# playwright is a dev dependency and its postinstall pulls a browser. Nothing in
+# the image runs a browser, and 150MB per deploy is a real cost.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 COPY package*.json ./
 RUN npm ci
 COPY . .

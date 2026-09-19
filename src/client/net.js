@@ -68,7 +68,19 @@ var Net = class {
       return !!this.token;
     }
     async me() {
-      return this.api("/me", null, "GET");
+      let e = await this.api("/me", null, "GET");
+      // The server hands back a fresh token on every visit. A guest has no
+      // password to fall back on, so letting the old one lapse would strand
+      // them — keep whatever came back.
+      return e.token && this._auth(e), e;
+    }
+    /** Put a name and a password on the guest account already in play. */
+    async claim(e, t) {
+      let n = await this.api("/claim", {
+        username: e,
+        password: t
+      });
+      return this._auth(n), n;
     }
     async createCharacter(e) {
       return this.api("/character", e);

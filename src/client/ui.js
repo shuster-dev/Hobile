@@ -141,6 +141,11 @@ var UI = class {
     t.addEventListener("click", () => this.togglePanel("chat")), t.addEventListener("keydown", n => {
       (n.key === "Enter" || n.key === " ") && (n.preventDefault(), this.togglePanel("chat"));
     }), this.minimapCtx = $("#minimap").getContext("2d");
+    // Always there while it is a guest account, never a pop-up. A nag every few
+    // minutes would be read as an ad; a chip that quietly disappears the moment
+    // the account is claimed is read as a status.
+    let claimBtn = $("#btn-claim");
+    claimBtn && (claimBtn.onclick = () => this.openPanel("account"));
   }
   setLoading(e, t) {
     $("#loading").classList.toggle("hidden", !e), t && ($("#loading-msg").textContent = t);
@@ -338,7 +343,8 @@ var UI = class {
         base: "הבסיס",
         card: "כרטיס יצור",
         dex: "אוסף היצורים",
-        clinic: "מרפאת הגאות"
+        clinic: "מרפאת הגאות",
+        account: "החשבון שלי"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -349,6 +355,7 @@ var UI = class {
     let o = el("div", "body");
     this.panel.appendChild(o), ({
       menu: () => this.panelMenu(o),
+      account: () => this.panelAccount(o),
       bag: () => this.panelBag(o),
       team: () => this.panelTeam(o),
       quests: () => this.panelQuests(o),
@@ -447,8 +454,60 @@ var UI = class {
         this.hooks.dungeon?.(h.id), this.closePanel();
       }, d.appendChild(u), e.appendChild(d);
     }
-    let l = el("button", "btn danger", "התנתקות");
-    l.style.marginTop = "var(--s3)", l.onclick = () => this.hooks.logout?.(), e.appendChild(l);
+    let l = el("button", "btn", this.account?.guest ? "🔒 שמור את ההתקדמות" : "👤 החשבון שלי");
+    l.style.marginTop = "var(--s3)", l.onclick = () => this.openPanel("account"), e.appendChild(l);
+  }
+
+  /** Where a guest turns into an account without losing anything. */
+  panelAccount(e) {
+    if (this.account?.local) {
+      e.appendChild(emptyState("💾", "שמירה מקומית", "הגרסה הזו שומרת בדפדפן הזה בלבד. בגרסה עם שרת אפשר לפתוח חשבון וההתקדמות נוסעת איתך לכל מכשיר."));
+      return;
+    }
+    if (!this.account?.guest) {
+      let d = el("div", "list-item");
+      d.innerHTML = `<div class="grow"><b>מחובר</b><span dir="ltr">${Ze(this.account?.username || "")}</span></div>`;
+      e.appendChild(d);
+      let u = el("div", "hint");
+      u.textContent = "ההתקדמות נשמרת בשרת. אפשר להתחבר עם אותו שם משתמש מכל מכשיר.";
+      e.appendChild(u);
+      let f = el("button", "btn danger", "התנתקות");
+      f.style.marginTop = "var(--s3)", f.onclick = () => this.hooks.logout?.(), e.appendChild(f);
+      return;
+    }
+    let t = el("div", "hint");
+    t.textContent = "אתה משחק כאורח. ההתקדמות שלך נשמרת בשרת כבר עכשיו, אבל הדרך היחידה להוכיח שהיא שלך היא הדפדפן הזה. בחר שם משתמש וסיסמה וההתקדמות תיקשר אליהם — שום דבר לא מתאפס.";
+    e.appendChild(t);
+    let n = el("div", "field");
+    n.innerHTML = '<label for="claim-user">שם משתמש</label>';
+    let s2 = el("input");
+    s2.id = "claim-user", s2.type = "text", s2.dir = "ltr", s2.autocomplete = "username", s2.placeholder = "אותיות קטנות באנגלית, ספרות, קו תחתון";
+    n.appendChild(s2), e.appendChild(n);
+    let r = el("div", "field");
+    r.innerHTML = '<label for="claim-pass">סיסמה</label>';
+    let o = el("input");
+    o.id = "claim-pass", o.type = "password", o.dir = "ltr", o.autocomplete = "new-password", o.placeholder = "לפחות 6 תווים";
+    r.appendChild(o), e.appendChild(r);
+    let a = el("div", "error-text");
+    e.appendChild(a);
+    let l2 = el("button", "btn primary", "שמור את ההתקדמות");
+    l2.style.marginTop = "var(--s2)", l2.onclick = async () => {
+      // The error dictionary lives with the rest of the login flow in game.js,
+      // so the hook reports rather than throws.
+      a.textContent = "", l2.disabled = !0;
+      let d = await this.hooks.claim?.(s2.value.trim(), o.value);
+      l2.disabled = !1, d?.ok || (a.textContent = d?.message || "לא הצלחנו לשמור");
+    }, e.appendChild(l2);
+    let c = el("button", "btn ghost", "כבר יש לי חשבון — התחברות");
+    c.style.marginTop = "var(--s2)", c.onclick = () => this.hooks.switchAccount?.(), e.appendChild(c);
+  }
+
+  /** Who is playing, and whether there is anything to claim. */
+  setAccount(e) {
+    this.account = e;
+    let t = $("#btn-claim");
+    t && t.classList.toggle("hidden", !e?.guest);
+    this.openPanelId === "account" && this.renderPanel("account");
   }
   panelBag(e) {
     let t = this.profile?.inventory || {},
