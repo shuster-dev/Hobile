@@ -237,7 +237,11 @@ var Game = class {
       youId: null,
       combatants: [],
       inventory: {}
-    }, this.ui.setMode("battle"), this.ui.setLoading(!1), this.net.send("arenaReady");
+    }, this.ui.setMode("battle"), this.ui.setLoading(!1),
+    // "I am on screen now, send me the state." It used to say `arenaReady`,
+    // which nothing anywhere handled; `ready` is the name the rooms answer to,
+    // and it now returns the same complete payload the fight opened with.
+    this.net.send("ready");
   }
   bindNet() {
     let e = this.net;
@@ -360,7 +364,8 @@ var Game = class {
         no_sphere: "אין כדורי לכידה",
         no_item: "אין שיקויים",
         cannot_flee: "אי אפשר לברוח",
-        no_capture_in_dungeon: "אי אפשר ללכוד במבוך"
+        no_capture_in_dungeon: "אי אפשר ללכוד במבוך",
+        no_capture_here: "אי אפשר ללכוד באזור הזה — צא מהנמל"
       }[t.reason] || t.reason;
       audio.sfx("deny"), this.ui.toast(n, "bad");
     }), e.on("battleEnd", async t => {
@@ -654,37 +659,50 @@ var Game = class {
       });
       return;
     }
-    let r = this.nearestLandmark(n);
-    if (r && r.d < (r.r ? r.r + 1 : 9)) {
-      if (r.interior) {
-        this.net.send("enterBuilding", {
-          id: r.interior
+    // Nearest wins. A fixed priority meant a gate anywhere inside nine metres
+    // beat a creature standing on top of you — and if the gate was above your
+    // level the button did nothing at all but say so, in a wide ring around
+    // every portal on the dock. Whichever is closest is what the player is
+    // pointing at.
+    let r = this.nearestLandmark(n),
+      o = this.nearestWild(n),
+      a = this.nearestPlayer(n),
+      l = [];
+    r && r.d < (r.r ? r.r + 1 : 9) && l.push({
+      d: r.d,
+      go: () => {
+        if (r.interior) {
+          this.net.send("enterBuilding", {
+            id: r.interior
+          });
+          return;
+        }
+        r.kind === "portal" ? this.net.send("travel", {
+          zone: r.to,
+          token: this.net.token
+        }) : r.kind === "dungeon" ? this.net.send("dungeonEnter", {
+          dungeonId: r.to
+        }) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
+          target: r.id || r.kind
         });
-        return;
       }
-      r.kind === "portal" ? this.net.send("travel", {
-        zone: r.to,
-        token: this.net.token
-      }) : r.kind === "dungeon" ? this.net.send("dungeonEnter", {
-        dungeonId: r.to
-      }) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
-        target: r.id || r.kind
-      });
-      return;
-    }
-    let o = this.nearestWild(n);
-    if (o && o.d < 7.5) {
-      if (this.transitioning || Date.now() < this.engagePending) return;
-      this.engagePending = Date.now() + 5e3, this.net.send("engage", {
-        wildId: o.id
-      });
-      return;
-    }
-    let a = this.nearestPlayer(n);
-    if (a && a.d < 6) {
-      this.net.send("duel", {
-        targetId: a.id
-      }), this.ui.toast("נשלחה הזמנה לדו-קרב");
+    }), o && o.d < 7.5 && l.push({
+      d: o.d,
+      go: () => {
+        this.transitioning || Date.now() < this.engagePending || (this.engagePending = Date.now() + 5e3, this.net.send("engage", {
+          wildId: o.id
+        }));
+      }
+    }), a && a.d < 6 && l.push({
+      d: a.d,
+      go: () => {
+        this.net.send("duel", {
+          targetId: a.id
+        }), this.ui.toast("נשלחה הזמנה לדו-קרב");
+      }
+    });
+    if (l.length) {
+      l.sort((c, h) => c.d - h.d)[0].go();
       return;
     }
     this.ui.toast("אין מה לעשות כאן — התקרב ליצור, לשער או ל-NPC");

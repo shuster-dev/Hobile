@@ -100,6 +100,10 @@ export function handleWorldMessage(ctx, e, t = {}) {
             break;
           }
         case "duel":
+        // The client has a whole accept path behind this — a toast, a pending
+        // id, and the action button — and nothing on the server answered the
+        // second half of it. Saying no is not the same as saying nothing.
+        case "duelAccept":
           {
             ctx.net.emit("error", {
               code: "pvp_offline"

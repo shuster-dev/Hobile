@@ -516,21 +516,32 @@ var StoreBase = class {
     get you() {
       return (this.anchor && this.sim.activeOf(this.anchor)) || this.anchor || this.trainer;
     }
+    /**
+     * One payload, two senders. `start()` sent the full thing and the "ready"
+     * handler sent a shorter one missing `team`, `trainer` and `weather` — and
+     * the client assigns all three unconditionally, so the second init wiped
+     * the bench out of the switch UI and the weather out of the banner. It is
+     * the same drift that made battle-v2 inert in v0.9, so the two senders now
+     * cannot disagree.
+     */
+    initPayload() {
+      return {
+        mode: "pve",
+        you: this.you.id,
+        team: this.roster,
+        trainer: this.trainer?.id || null,
+        weather: this.weather && {
+          id: this.weather.id,
+          he: this.weather.he,
+          boost: this.weather.boost
+        },
+        inventory: this.net.doc.inventory,
+        profile: publicProfile(this.net.doc)
+      };
+    }
     start() {
       this.sync(), setTimeout(() => {
-        this.net.emit("battleInit", {
-          mode: "pve",
-          you: this.you.id,
-          team: this.roster,
-          trainer: this.trainer?.id || null,
-          weather: this.weather && {
-            id: this.weather.id,
-            he: this.weather.he,
-            boost: this.weather.boost
-          },
-          inventory: this.net.doc.inventory,
-          profile: publicProfile(this.net.doc)
-        }), this.state.phase = "active", this.net.emit("battleStart", {
+        this.net.emit("battleInit", this.initPayload()), this.state.phase = "active", this.net.emit("battleStart", {
           at: Date.now()
         });
       }, 80), this.timer = setInterval(() => {
@@ -598,12 +609,7 @@ var StoreBase = class {
     }
     handle(e, t = {}) {
       if (e === "ready") {
-        this.net.emit("battleInit", {
-          mode: "pve",
-          you: this.you.id,
-          inventory: this.net.doc.inventory,
-          profile: publicProfile(this.net.doc)
-        });
+        this.net.emit("battleInit", this.initPayload());
         return;
       }
       if (this.state.phase !== "active") return;
@@ -627,6 +633,18 @@ var StoreBase = class {
         }), this.sync();
       } else if (e === "trainer") {
         if (t.action === "sphere") {
+          // The home dock has said `capturable: false` since the zone data was
+          // written and nothing read it: the capture path checks the mode, the
+          // target kind and the boss flag, and never the zone. A dungeon
+          // refuses a sphere outright; the starter town, which exists to be a
+          // tutorial rather than a hunting ground, did not. Refuse before
+          // taking the sphere, not after giving it back.
+          if (ZONES[this.zoneId]?.capturable === !1) {
+            this.net.emit("actionRejected", {
+              reason: "no_capture_here"
+            });
+            return;
+          }
           let s = ITEMS[t.sphere] ? t.sphere : "sphere_basic";
           if (!takeItem(n, s, 1)) {
             this.net.emit("actionRejected", {

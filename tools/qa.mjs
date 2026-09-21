@@ -30,6 +30,70 @@ const C = await import('../src/server/game/combat.js');
 const B = await import('../src/server/game/base.js');
 const { SPECIES, ZONES, MOVES, ITEMS, QUESTS, DUNGEONS, ELEMENTS, PROGRESSION, captureChance, statsFor } = G;
 
+// ---------------------------------------------------------------- wiring
+// Two classes of bug this codebase has actually shipped, made into checks.
+section('wiring');
+{
+  // A duplicate key or method wins in silence. `swapCreature` was declared
+  // twice in one hooks object and `bestSphere` twice in one class; in both
+  // cases the later definition quietly replaced the earlier one.
+  const { parse } = await import('@babel/parser');
+  const traverseMod = await import('@babel/traverse');
+  const traverse = traverseMod.default?.default || traverseMod.default;
+  const dups = [];
+  const nameOf = (k, computed) => computed ? null
+    : k.type === 'Identifier' ? k.name
+      : k.type === 'StringLiteral' ? k.value
+        : k.type === 'NumericLiteral' ? String(k.value) : null;
+  for (const f of walk('src').filter((x) => x.endsWith('.js'))) {
+    const ast = parse(fs.readFileSync(f, 'utf8'), { sourceType: 'module', plugins: ['classProperties'] });
+    traverse(ast, {
+      ObjectExpression(p) {
+        const seen = new Map();
+        for (const pr of p.node.properties) {
+          if (pr.type === 'SpreadElement' || pr.kind === 'get' || pr.kind === 'set') continue;
+          const k = nameOf(pr.key, pr.computed);
+          if (!k) continue;
+          if (seen.has(k)) dups.push(`${f}:${pr.loc.start.line} key "${k}"`);
+          else seen.set(k, pr.loc.start.line);
+        }
+      },
+      ClassBody(p) {
+        const seen = new Map();
+        for (const m of p.node.body) {
+          if ((m.type !== 'ClassMethod' && m.type !== 'ClassProperty') || m.kind === 'get' || m.kind === 'set') continue;
+          const k = nameOf(m.key, m.computed);
+          if (!k) continue;
+          const id = (m.static ? 'static ' : '') + k;
+          if (seen.has(id)) dups.push(`${f}:${m.loc.start.line} member "${id}"`);
+          else seen.set(id, m.loc.start.line);
+        }
+      },
+    });
+  }
+  ok('nothing is defined twice in the same object or class', dups.length === 0, dups.slice(0, 3).join(' · '));
+
+  // `enterBuilding` was sent from v0.7 and handled by nobody, so every door in
+  // the game was decorative for four versions and nothing said a word.
+  const sent = new Map();
+  for (const f of ['src/client/game.js', 'src/client/ui.js', 'src/client/net.js']) {
+    const src = fs.readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/(?:net\.send|\bsend)\(\s*"([a-zA-Z]\w*)"/g)) sent.set(m[1], f);
+    for (const m of src.matchAll(/(?<![.\w])e\(\s*"([a-zA-Z]\w*)"\s*,/g)) sent.set(m[1], f);
+  }
+  const handled = new Set(['ready', 'refresh', 'ping', 'leave']);
+  for (const f of ['src/server/game/world-messages.js', 'src/server/game/base.js',
+    'src/server/rooms/WorldRoom.js', 'src/server/rooms/BattleRoom.js', 'src/server/rooms/DungeonRoom.js']) {
+    const src = fs.readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/case\s+"([a-zA-Z]\w*)"\s*:/g)) handled.add(m[1]);
+    for (const m of src.matchAll(/\b[a-z]\s*===\s*"([a-zA-Z]\w*)"/g)) handled.add(m[1]);
+    for (const m of src.matchAll(/onMessage\(\s*"([a-zA-Z]\w*)"/g)) handled.add(m[1]);
+  }
+  const orphans = [...sent.keys()].filter((k) => !handled.has(k)).sort();
+  ok('every message the client sends has somewhere to land', orphans.length === 0,
+    orphans.map((o) => `${o} (${sent.get(o)})`).join(' · '));
+}
+
 // ---------------------------------------------------------------- data integrity
 section('data integrity');
 const { DESIGN } = await import('../src/client/gfx/creatures.js').catch(() => ({ DESIGN: null }));
@@ -325,6 +389,33 @@ ok('exactly one team member starts on the field',
   side('a').filter((c) => c.kind === 'creature' && !c.benched).length === 1);
 ok('the trainer is a combatant', side('a').some((c) => c.kind === 'trainer'));
 ok('the trainer starts benched', side('a').find((c) => c.kind === 'trainer').benched === true);
+// The zone has the final say on capture. `capturable: false` sat in the home
+// dock's data unread while the capture path checked the mode, the target kind
+// and the boss flag — everything except where the fight was happening.
+{
+  const sphere = (zoneId) => {
+    const doc2 = C.createPlayerDoc('u2', 'QA', {}, 'cindcub');
+    C.normalizeDoc(doc2);
+    C.giveItem(doc2, 'sphere_basic', 5);
+    const seen = [];
+    const net2 = { doc: doc2, guilds: [], emit: (k, v) => seen.push([k, v]), save: () => {}, pendingRooms: new Map() };
+    const sim = new B.BattleSim(net2, { zoneId, wild: { species: 'mossnail', level: 5 } });
+    sim.state.phase = 'active';
+    // The starting kit already carries spheres, so count the change rather than
+    // the total.
+    const had = doc2.inventory.sphere_basic;
+    sim.handle('trainer', { action: 'sphere', sphere: 'sphere_basic' });
+    const no = seen.filter(([k]) => k === 'actionRejected').map(([, v]) => v.reason);
+    return { refused: no, spent: had - doc2.inventory.sphere_basic };
+  };
+  const home = sphere('aetherport'), field = sphere('verdant_meadow');
+  ok('the home dock refuses a capture, as its own data says it should',
+    home.refused.includes('no_capture_here'), JSON.stringify(home));
+  ok('and it refuses before taking the sphere', home.spent === 0, String(home.spent));
+  ok('a capturable zone does not refuse',
+    !field.refused.includes('no_capture_here'), JSON.stringify(field));
+}
+
 ok('slots are assigned in team order',
   side('a').filter((c) => c.kind === 'creature').every((c, i) => c.slot === i));
 

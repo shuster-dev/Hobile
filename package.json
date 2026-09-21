@@ -15,7 +15,8 @@
     "test:server": "node tools/server-test.mjs",
     "test:browser": "node tools/build.mjs --solo && node tools/smoke.mjs",
     "test": "npm run qa && npm run test:server",
-    "test:session": "node tools/build.mjs && node tools/session-test.mjs"
+    "test:session": "node tools/build.mjs && node tools/session-test.mjs",
+    "test:play": "node tools/build.mjs --solo && node tools/play.mjs"
   },
   "dependencies": {
     "@colyseus/core": "0.16.24",

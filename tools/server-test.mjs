@@ -170,6 +170,22 @@ if (gotBattle) {
     [...battleRoom.state.combatants.values()].some((c) => c.kind === 'trainer'));
   ok('benched and slot survive the wire',
     [...battleRoom.state.combatants.values()].every((c) => typeof c.benched === 'boolean' && Number.isFinite(c.slot)));
+
+  // Asking for the state again must not give back less of it. The "ready"
+  // handler used to send a shorter battleInit with no team, no trainer and no
+  // weather, and the client assigns all three unconditionally — so a re-sync
+  // emptied the bench out of the switch UI.
+  const first = inits[0];
+  ok('the first init carries the team and the trainer',
+    Array.isArray(first.team) && first.team.length > 0 && !!first.trainer, JSON.stringify(Object.keys(first)));
+  battleRoom.send('ready');
+  ok('asking again returns a second init', await until(() => inits.length > 1, 6000));
+  const again = inits[inits.length - 1];
+  ok('and it is the same payload, not a shorter one',
+    JSON.stringify(again.team) === JSON.stringify(first.team)
+    && again.trainer === first.trainer
+    && JSON.stringify(again.weather ?? null) === JSON.stringify(first.weather ?? null),
+    JSON.stringify({ team: again.team?.length, trainer: again.trainer, weather: again.weather }));
   await battleRoom.leave();
 }
 
