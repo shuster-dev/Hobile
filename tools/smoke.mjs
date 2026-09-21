@@ -65,6 +65,46 @@ const overlap = await page.evaluate(() => {
 if (overlap && !overlap.overlaps) { console.log('  ok  the quest panel clears the buttons above it'); }
 else { console.log('  FAIL the quest panel overlaps the buttons above it :: ' + JSON.stringify(overlap)); errors.push('tracker overlap'); }
 
+// A tree standing between the camera and the player used to hide the entire
+// game — the cull only collapsed canopies the camera was standing *inside*,
+// and a third-person camera sits above them and looks down through. Park the
+// player so a street tree is on the line of sight and check it gets out of it.
+const canopy = await page.evaluate(async () => {
+  const w = window.__hobile.world;
+  const band = w.canopies?.[0];
+  if (!band?.items?.length) return { skipped: 'no canopies in this zone' };
+  // Nearest tree to the player, then stand far enough past it that it is
+  // between the two. The camera trails the player by camDist along camYaw.
+  const me = w.selfPosition();
+  const t = [...band.items].sort((a, b) =>
+    Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
+  const i = band.items.indexOf(t);
+  const d = 4.5;
+  w.camYaw = Math.atan2(t.x - me.x, t.z - me.z);
+  const goal = { x: t.x + Math.sin(w.camYaw) * d, z: t.z + Math.cos(w.camYaw) * d };
+  // Step, do not teleport: the offline sim reconciles the client back toward
+  // the position it believes in, so a snap alone is undone within two frames
+  // and the camera never actually moves.
+  const g = window.__hobile;
+  for (let n = 0; n < 40; n++) {
+    const p = w.selfPosition();
+    const dx = goal.x - p.x, dz = goal.z - p.z, len = Math.hypot(dx, dz);
+    if (len < 0.4) break;
+    const step = Math.min(2.5, len);
+    const nx = p.x + (dx / len) * step, nz = p.z + (dz / len) * step;
+    g.net.send('move', { x: nx, z: nz, rot: w.camYaw, moving: true });
+    w.snapSelf(nx, nz);
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  w.camYaw = Math.atan2(t.x - w.selfPosition().x, t.z - w.selfPosition().z) + Math.PI;
+  await new Promise((r) => setTimeout(r, 500));
+  const reached = Math.hypot(w.selfPosition().x - goal.x, w.selfPosition().z - goal.z);
+  return { hiddenAfter: band.hidden.has(i), reached: +reached.toFixed(2), of: band.items.length, alsoHidden: band.hidden.size };
+});
+if (canopy.skipped) { console.log('  --  canopy check skipped :: ' + canopy.skipped); }
+else if (canopy.hiddenAfter && canopy.alsoHidden <= 4) { console.log(`  ok  a tree on the line of sight gets out of it (${canopy.alsoHidden} of ${canopy.of} hidden)`); }
+else { console.log('  FAIL the line of sight is blocked, or the cull is a chainsaw :: ' + JSON.stringify(canopy)); errors.push('canopy cull'); }
+
 // Offline there is no account to claim, and no server to hold one. The chip
 // that offers it must not appear — this build's save is the browser's.
 const claimable = await page.evaluate(() => ({

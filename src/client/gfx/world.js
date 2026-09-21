@@ -3790,27 +3790,45 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     }
     cullCanopies() {
       if (!this.canopies?.length) return;
-      let e = this.camera.position;
-      for (let t of this.canopies) {
-        let n = !1;
-        for (let s = 0; s < t.items.length; s++) {
-          let r = t.items[s],
-            o = Math.hypot(r.x - e.x, r.z - e.z) < t.radius && e.y < this.heightAt(r.x, r.z) + t.top,
-            a = t.hidden.has(s);
-          if (o === a) continue;
-          let l = s * 16;
-          if (o) {
+      // The old test asked whether the camera was standing *inside* the leaves.
+      // That is only half of it: a third-person camera sits above the canopy
+      // and looks down through it, so a tree between the camera and the player
+      // hid the entire game while passing the test — which is what a street
+      // tree on the home dock did for the whole first hour.
+      //
+      // The question is whether the canopy is on the line of sight. Distance
+      // from the trunk to the camera-to-player segment, with a height gate so a
+      // tree the line passes over is left alone.
+      let e = this.camera.position,
+        t = this.selfPosition(),
+        n = t.x - e.x,
+        s = t.z - e.z,
+        r = t.y + 1.35 - e.y,
+        o = n * n + s * s || 1e-6;
+      for (let a of this.canopies) {
+        let l = !1;
+        for (let c = 0; c < a.items.length; c++) {
+          let h = a.items[c],
+            d = MathUtils.clamp(((h.x - e.x) * n + (h.z - e.z) * s) / o, 0, 1),
+            u = Math.hypot(h.x - (e.x + n * d), h.z - (e.z + s * d)) < a.radius,
+            f = e.y + r * d,
+            p = this.heightAt(h.x, h.z),
+            x = u && f > p + a.top * 0.42 && f < p + a.top + 1.2,
+            g = a.hidden.has(c);
+          if (x === g) continue;
+          let m = c * 16;
+          if (x) {
             // Collapse the instance to a point rather than deleting it: the
             // matrix has to stay valid, and this restores exactly.
-            for (let c = 0; c < 16; c++) t.mesh.instanceMatrix.array[l + c] = 0;
-            t.hidden.add(s);
+            for (let v = 0; v < 16; v++) a.mesh.instanceMatrix.array[m + v] = 0;
+            a.hidden.add(c);
           } else {
-            for (let c = 0; c < 16; c++) t.mesh.instanceMatrix.array[l + c] = t.rest[l + c];
-            t.hidden.delete(s);
+            for (let v = 0; v < 16; v++) a.mesh.instanceMatrix.array[m + v] = a.rest[m + v];
+            a.hidden.delete(c);
           }
-          n = !0;
+          l = !0;
         }
-        n && (t.mesh.instanceMatrix.needsUpdate = !0);
+        l && (a.mesh.instanceMatrix.needsUpdate = !0);
       }
     }
     buildFoliage(e) {

@@ -130,7 +130,10 @@ var UI = class {
       try { localStorage.setItem("hobile.hud", lean ? "lean" : "full"); } catch {}
     });
     let tracker = $("#tracker");
-    let collapsed = (() => { try { return localStorage.getItem("hobile.tracker") === "collapsed"; } catch { return !1; } })();
+    // Collapsed unless the player opened it. Open, the tracker is 9% of a phone
+    // screen and three of its four rows are dailies; collapsed it still shows
+    // the quest you are actually on. Opt-out, not opt-in.
+    let collapsed = (() => { try { return localStorage.getItem("hobile.tracker") !== "open"; } catch { return !0; } })();
     tracker?.classList.toggle("collapsed", collapsed);
     $("#tracker-head")?.addEventListener("click", () => {
       collapsed = !collapsed;
@@ -141,6 +144,14 @@ var UI = class {
     t.addEventListener("click", () => this.togglePanel("chat")), t.addEventListener("keydown", n => {
       (n.key === "Enter" || n.key === " ") && (n.preventDefault(), this.togglePanel("chat"));
     }), this.minimapCtx = $("#minimap").getContext("2d");
+    // The minimap is a 70-metre radar. Tapping it opens the zone.
+    let mini = $("#minimap");
+    mini && (mini.setAttribute("role", "button"), mini.setAttribute("tabindex", "0"),
+      mini.setAttribute("aria-label", "מפת האזור"), mini.removeAttribute("aria-hidden"),
+      mini.addEventListener("click", () => this.togglePanel("map")),
+      mini.addEventListener("keydown", (n) => {
+        (n.key === "Enter" || n.key === " ") && (n.preventDefault(), this.togglePanel("map"));
+      }));
     // Always there while it is a guest account, never a pop-up. A nag every few
     // minutes would be read as an ad; a chip that quietly disappears the moment
     // the account is claimed is read as a status.
@@ -268,29 +279,172 @@ var UI = class {
     }
   }
   drawMinimap(e, t, n) {
+    // The panel draws from the same numbers on its own timer, so keep the last
+    // frame's view of the world rather than plumbing it through a second path.
+    this._live = {
+      world: e,
+      state: t,
+      me: n
+    };
     let s = this.minimapCtx,
       r = 208,
-      o = 70;
-    s.clearRect(0, 0, r, r), s.save(), s.beginPath(), s.arc(r / 2, r / 2, r / 2 - 2, 0, Math.PI * 2), s.clip(), s.fillStyle = "rgba(11,14,30,.85)", s.fillRect(0, 0, r, r);
+      o = 70,
+      c = r / 2;
+    s.clearRect(0, 0, r, r), s.save(), s.beginPath(), s.arc(c, c, c - 2, 0, Math.PI * 2), s.clip(), s.fillStyle = "rgba(11,14,30,.85)", s.fillRect(0, 0, r, r);
     let a = e.selfPosition(),
-      l = (c, h) => [r / 2 + (c - a.x) / o * (r / 2), r / 2 + (h - a.z) / o * (r / 2)];
-    if (this.zone) for (let c of this.zone.landmarks) {
-      let [h, d] = l(c.x, c.z);
-      s.fillStyle = c.kind === "portal" ? "#2fe6d0" : c.kind === "dungeon" ? "#c084fc" : c.kind === "shop" ? "#ffc861" : c.kind === "npc" ? "#7dd3fc" : "#d9cdb4", s.beginPath(), s.arc(h, d, c.r ? 9 : 5, 0, Math.PI * 2), s.fill();
+      l = (h, d) => [c + (h - a.x) / o * c, c + (d - a.z) / o * c];
+    // The edge of the world, when it is close enough to matter. Without it the
+    // radar has no frame and every zone reads the same.
+    if (this.zone?.size) {
+      let [h, d] = l(0, 0),
+        u = (this.zone.size / 2 - 3) / o * c;
+      s.strokeStyle = "rgba(158,172,226,.34)", s.lineWidth = 1.5, s.setLineDash([5, 4]), s.beginPath(), s.arc(h, d, u, 0, Math.PI * 2), s.stroke(), s.setLineDash([]);
     }
-    if (t?.wilds?.forEach(c => {
-      let [h, d] = l(c.x, c.z);
-      s.fillStyle = "rgba(255,122,89,.92)", s.fillRect(h - 2, d - 2, 4, 4);
-    }), t?.players?.forEach((c, h) => {
-      if (h === n) return;
-      let [d, u] = l(c.x, c.z);
-      s.fillStyle = c.partyId && c.partyId === this.party?.id ? "#3fd98b" : "#8ab4ff", s.beginPath(), s.arc(d, u, 3.4, 0, Math.PI * 2), s.fill();
+    if (this.zone) for (let h of this.zone.landmarks) {
+      let [d, u] = l(h.x, h.z);
+      s.fillStyle = MAP_PIN[h.kind] || MAP_PIN._, s.beginPath(), s.arc(d, u, h.r ? 9 : 5, 0, Math.PI * 2), s.fill();
+    }
+    if (t?.wilds?.forEach(h => {
+      let [d, u] = l(h.x, h.z);
+      s.fillStyle = "rgba(255,122,89,.92)", s.fillRect(d - 2, u - 2, 4, 4);
+    }), t?.players?.forEach((h, d) => {
+      if (d === n) return;
+      let [u, f] = l(h.x, h.z);
+      s.fillStyle = h.partyId && h.partyId === this.party?.id ? "#3fd98b" : "#8ab4ff", s.beginPath(), s.arc(u, f, 3.4, 0, Math.PI * 2), s.fill();
     }), t?.boss?.active) {
-      let [c, h] = l(t.boss.x, t.boss.z);
-      s.fillStyle = "#ff5f56", s.beginPath(), s.arc(c, h, 6, 0, Math.PI * 2), s.fill();
+      let [h, d] = l(t.boss.x, t.boss.z);
+      s.fillStyle = "#ff5f56", s.beginPath(), s.arc(h, d, 6, 0, Math.PI * 2), s.fill();
     }
-    s.fillStyle = "#fff", s.beginPath(), s.arc(r / 2, r / 2, 4.5, 0, Math.PI * 2), s.fill(), s.restore();
+    // A dot says where you are; a wedge also says which way you are looking,
+    // which is the half of "where am I" a north-up map otherwise leaves out.
+    drawYou(s, c, c, e.camYaw || 0, 12);
+    s.restore();
+    // North, so the map is orientable at a glance.
+    s.fillStyle = "rgba(238,241,250,.7)", s.font = "700 13px system-ui", s.textAlign = "center", s.fillText("N", c, 16);
   }
+
+  /** The whole zone, drawn from the same live numbers, on its own clock. */
+  panelMap(e) {
+    let t = el("canvas");
+    t.id = "map-canvas", e.appendChild(t);
+    let n = el("div", "map-legend");
+    n.innerHTML = [["#2fe6d0", "מעבר"], ["#c084fc", "מבוך"], ["#ffc861", "חנות"], ["#7dd3fc", "דמות"], ["#ff7a59", "יצור בר"], ["#8ab4ff", "שחקן"]].map(([s, r]) => `<span><i style="background:${s}"></i>${r}</span>`).join(""), e.appendChild(n);
+    let s = el("div", "map-hint");
+    s.textContent = "צפון למעלה · הנקודה הלבנה היא אתה", e.appendChild(s);
+    this.travelList(e);
+    let r = () => this.paintMap(t);
+    r(), clearInterval(this._mapTimer), this._mapTimer = setInterval(() => {
+      this.openPanelId === "map" ? r() : (clearInterval(this._mapTimer), this._mapTimer = null);
+    }, 400);
+  }
+
+  paintMap(e) {
+    let t = this.zone,
+      n = this._live;
+    if (!t || !n?.world) return;
+    let s = Math.max(1, Math.round(e.clientWidth || 300)),
+      r = Math.min(3, devicePixelRatio || 1);
+    (e.width !== s * r || e.height !== s * r) && (e.width = e.height = s * r);
+    let o = e.getContext("2d");
+    o.setTransform(r, 0, 0, r, 0, 0), o.clearRect(0, 0, s, s);
+    let a = t.size / 2,
+      l = s / 2,
+      c = (l - 10) / a,
+      h = (x, g) => [l + x * c, l + g * c];
+    // The ground, in the zone's own colour, so two zones do not look alike.
+    o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.fillStyle = rgba(t.ground ?? 3553336, 0.5), o.fill(), o.strokeStyle = "rgba(158,172,226,.4)", o.lineWidth = 1.5, o.stroke();
+    o.save(), o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.clip();
+    // Pins first, then labels, so a label can never be painted under a disc
+    // drawn after it.
+    let pins = [];
+    for (let x of t.landmarks || []) {
+      let [g, m] = h(x.x, x.z),
+        v = MAP_PIN[x.kind] || MAP_PIN._,
+        E = x.r ? Math.max(5, x.r * c) : 0;
+      E && (o.beginPath(), o.arc(g, m, E, 0, Math.PI * 2), o.fillStyle = rgba(v, 0.16), o.fill(), o.strokeStyle = rgba(v, 0.5), o.lineWidth = 1, o.stroke()),
+      o.beginPath(), o.arc(g, m, x.r ? 4.5 : 3.5, 0, Math.PI * 2), o.fillStyle = v, o.fill(),
+      pins.push({
+        x: g,
+        y: m,
+        rad: E,
+        text: mapLabel(x),
+        big: !!x.r
+      });
+    }
+    // Greedy label placement. Eight landmarks in a 300px circle will collide on
+    // any phone, and two names printed over each other are worse than one name
+    // and a pin — so a label that cannot find room is dropped, not squeezed.
+    o.font = "600 10px system-ui", o.textAlign = "center";
+    let taken = [],
+      fits = (b) => !taken.some(k => Math.abs(b.x - k.x) < (b.w + k.w) / 2 + 5 && Math.abs(b.y - k.y) < (b.h + k.h) / 2 + 3);
+    for (let b of pins.sort((k, P) => P.big - k.big)) {
+      if (!b.text) continue;
+      let w = o.measureText(b.text).width + 4,
+        cands = [b.y - (b.rad || 7) - 6, b.y + (b.rad || 7) + 11];
+      for (let y of cands) {
+        let box = {
+          x: b.x,
+          y: y - 4,
+          w,
+          h: 12
+        };
+        if (!fits(box)) continue;
+        // A pill, not a shadow. A shadow keeps a name readable over dark
+        // ground and loses it over a lit disc, and half the pins are discs.
+        taken.push(box), o.fillStyle = "rgba(11,14,30,.72)";
+        o.beginPath(), o.roundRect ? o.roundRect(b.x - w / 2, y - 9, w, 13, 4) : o.rect(b.x - w / 2, y - 9, w, 13), o.fill();
+        o.fillStyle = "rgba(238,241,250,.96)", o.fillText(b.text, b.x, y);
+        break;
+      }
+    }
+    let d = n.state;
+    d?.wilds?.forEach(x => {
+      let [g, m] = h(x.x, x.z);
+      o.fillStyle = "rgba(255,122,89,.85)", o.fillRect(g - 1.6, m - 1.6, 3.2, 3.2);
+    }), d?.players?.forEach((x, g) => {
+      if (g === n.me) return;
+      let [m, v] = h(x.x, x.z);
+      o.fillStyle = x.partyId && x.partyId === this.party?.id ? "#3fd98b" : "#8ab4ff", o.beginPath(), o.arc(m, v, 3, 0, Math.PI * 2), o.fill();
+    }), d?.boss?.active && (() => {
+      let [x, g] = h(d.boss.x, d.boss.z);
+      o.fillStyle = "#ff5f56", o.beginPath(), o.arc(x, g, 5.5, 0, Math.PI * 2), o.fill();
+    })();
+    let u = n.world.selfPosition(),
+      [f, p] = h(u.x, u.z);
+    drawYou(o, f, p, n.world.camYaw || 0, 11), o.restore();
+    o.fillStyle = "rgba(238,241,250,.65)", o.font = "700 12px system-ui", o.textAlign = "center", o.fillText("N", l, 14);
+  }
+
+  /** Where you can go from here. Shared by the menu and the map. */
+  travelList(e) {
+    let t = (this.zone?.landmarks || []).filter(o => o.kind === "portal"),
+      n = (this.zone?.landmarks || []).filter(o => o.kind === "dungeon");
+    if (!t.length && !n.length) return;
+    e.appendChild(section("לאן אפשר ללכת"));
+    for (let o of t) {
+      let a = ZONES[o.to];
+      if (!a) continue;
+      let l = el("div", "list-item");
+      l.innerHTML = `<div class="grow"><b>🚪 מעבר ל${Ze(loc(a))}</b>
+        <span>רמות ${rangeLabel(a.levels[0], a.levels[1])}</span></div>`;
+      let c = el("button", "btn small primary", "עבור");
+      c.onclick = () => {
+        this.hooks.travel?.(o.to), this.closePanel();
+      }, l.appendChild(c), e.appendChild(l);
+    }
+    for (let o of n) {
+      let a = DUNGEONS[o.to];
+      if (!a) continue;
+      let l = el("div", "list-item");
+      l.innerHTML = `<div class="grow"><b>🕳 ${Ze(loc(a))}</b>
+        <span>רמה ${ltr(`${a.minLevel}+`)} · ${ltr(a.floors)} קומות · עד ${ltr(a.partyMax)} שחקנים</span></div>`;
+      let c = el("button", "btn small primary", "היכנס");
+      c.onclick = () => {
+        this.hooks.dungeon?.(a.id), this.closePanel();
+      }, l.appendChild(c), e.appendChild(l);
+    }
+  }
+
   pushChat(e) {
     this.chatLog.push(e), this.chatLog.length > 200 && this.chatLog.shift();
     let t = $("#chat-mini"),
@@ -324,7 +478,7 @@ var UI = class {
     this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), this.renderPanel(e);
   }
   closePanel() {
-    this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
+    this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearInterval(this._mapTimer), this._mapTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
       this.openPanelId || (this.panel.innerHTML = "");
     }, 260);
   }
@@ -344,7 +498,8 @@ var UI = class {
         card: "כרטיס יצור",
         dex: "אוסף היצורים",
         clinic: "מרפאת הגאות",
-        account: "החשבון שלי"
+        account: "החשבון שלי",
+        map: "מפת האזור"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -356,6 +511,7 @@ var UI = class {
     this.panel.appendChild(o), ({
       menu: () => this.panelMenu(o),
       account: () => this.panelAccount(o),
+      map: () => this.panelMap(o),
       bag: () => this.panelBag(o),
       team: () => this.panelTeam(o),
       quests: () => this.panelQuests(o),
@@ -405,7 +561,7 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
     for (let [c, h] of n) {
       let d = el("button", "btn", c);
       if (h === "__view") {
@@ -431,29 +587,7 @@ var UI = class {
     let r = el("div", "list-item");
     r.innerHTML = `<div class="grow"><b>${Ze(loc(this.zone || {}))}</b>
       <span>${this.zone ? `רמות ${rangeLabel(this.zone.levels[0], this.zone.levels[1])}` : ""}</span></div>`, e.appendChild(r);
-    let o = (this.zone?.landmarks || []).filter(c => c.kind === "portal"),
-      a = (this.zone?.landmarks || []).filter(c => c.kind === "dungeon");
-    (o.length || a.length) && e.appendChild(section("לאן אפשר ללכת"));
-    for (let c of o) {
-      let h = ZONES[c.to],
-        d = el("div", "list-item");
-      d.innerHTML = `<div class="grow"><b>🚪 מעבר ל${Ze(loc(h))}</b>
-        <span>רמות ${rangeLabel(h.levels[0], h.levels[1])}</span></div>`;
-      let u = el("button", "btn small primary", "עבור");
-      u.onclick = () => {
-        this.hooks.travel?.(c.to), this.closePanel();
-      }, d.appendChild(u), e.appendChild(d);
-    }
-    for (let c of a) {
-      let h = DUNGEONS[c.to],
-        d = el("div", "list-item");
-      d.innerHTML = `<div class="grow"><b>🕳 ${Ze(loc(h))}</b>
-        <span>רמה ${ltr(`${h.minLevel}+`)} · ${ltr(h.floors)} קומות · עד ${ltr(h.partyMax)} שחקנים</span></div>`;
-      let u = el("button", "btn small primary", "היכנס");
-      u.onclick = () => {
-        this.hooks.dungeon?.(h.id), this.closePanel();
-      }, d.appendChild(u), e.appendChild(d);
-    }
+    this.travelList(e);
     let l = el("button", "btn", this.account?.guest ? "🔒 שמור את ההתקדמות" : "👤 החשבון שלי");
     l.style.marginTop = "var(--s3)", l.onclick = () => this.openPanel("account"), e.appendChild(l);
   }
@@ -1247,6 +1381,62 @@ function Ib() {
     httpBase: t.origin,
     wsBase: (t.protocol === "https:" ? "wss://" : "ws://") + t.host
   };
+}
+
+// Pin colours, shared by the radar and the panel so a landmark is the same
+// colour in both. Anything unlisted falls back to bone.
+var MAP_PIN = {
+  portal: "#2fe6d0",
+  gate: "#2fe6d0",
+  dungeon: "#c084fc",
+  shop: "#ffc861",
+  npc: "#7dd3fc",
+  clinic: "#7ff0d8",
+  archive: "#b9a3ff",
+  workshop: "#ffa273",
+  base: "#9ae6a0",
+  plaza: "#e6dcc4",
+  town: "#e6dcc4",
+  camp: "#e6dcc4",
+  pier: "#8ab4ff",
+  _: "#d9cdb4"
+};
+
+/** Accepts a palette number (0x3a5f58) or a css hex, and gives back rgba. */
+function rgba(i, e) {
+  let t, n, s;
+  if (typeof i == "number") t = i >> 16 & 255, n = i >> 8 & 255, s = i & 255;else {
+    let r = String(i).replace("#", "");
+    t = parseInt(r.slice(0, 2), 16), n = parseInt(r.slice(2, 4), 16), s = parseInt(r.slice(4, 6), 16);
+  }
+  return `rgba(${t},${n},${s},${e})`;
+}
+
+/** You, and which way you are looking. North-up maps need the second half. */
+function drawYou(i, e, t, n, s) {
+  let r = Math.sin(n),
+    o = Math.cos(n);
+  i.fillStyle = "rgba(11,14,30,.85)", i.beginPath(), i.arc(e, t, s * 0.55, 0, Math.PI * 2), i.fill(), i.fillStyle = "#fff", i.beginPath(), i.moveTo(e + r * s, t + o * s), i.lineTo(e - o * s * 0.46 - r * s * 0.28, t + r * s * 0.46 - o * s * 0.28), i.lineTo(e + o * s * 0.46 - r * s * 0.28, t - r * s * 0.46 - o * s * 0.28), i.closePath(), i.fill();
+}
+
+/** A landmark is worth a label when it has a name and room to print one. */
+function mapLabel(i) {
+  if (i.kind === "portal" || i.kind === "npc") return "";
+  let e = i.he || i.name;
+  if (e) return String(e).slice(0, 14);
+  return {
+    dungeon: "מבוך",
+    shop: "חנות",
+    clinic: "מרפאה",
+    archive: "ארכיון",
+    workshop: "בית מלאכה",
+    base: "הבסיס",
+    plaza: "הכיכר",
+    pier: "המזח",
+    gate: "השער",
+    town: "עיירה",
+    camp: "מחנה"
+  }[i.kind] || "";
 }
 
 var SKY_ICON = {
