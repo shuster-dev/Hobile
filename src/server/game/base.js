@@ -549,7 +549,15 @@ var StoreBase = class {
       }, 100);
     }
     stop() {
-      clearInterval(this.timer);
+      // A fight that is torn down without resolving still has to let go of the
+      // creature it locked. `engage` sets `engagedBy` and only `onEnd` clears
+      // it, so a player who walked away mid-battle left a wild frozen in place
+      // and un-engageable for the life of the zone.
+      clearInterval(this.timer), this.finish(!1);
+    }
+    /** Called exactly once, whatever ends the battle. */
+    finish(e) {
+      this._ended || (this._ended = !0, this.onEnd(e));
     }
     sync() {
       syncBattleState(this.state, this.sim);
@@ -605,7 +613,7 @@ var StoreBase = class {
         let a = Math.floor(t.gold * 0.02);
         t.gold = Math.max(0, t.gold - a), o.gold = -a, o.blackout = !0, healTeam(t, 1);
       }
-      this.net.save(), o.profile = publicProfile(t), this.onEnd(s || r), this.net.emit("battleEnd", o);
+      this.net.save(), o.profile = publicProfile(t), this.finish(s || r), this.net.emit("battleEnd", o);
     }
     handle(e, t = {}) {
       if (e === "ready") {

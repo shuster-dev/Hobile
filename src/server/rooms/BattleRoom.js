@@ -54,7 +54,8 @@ export class BattleRoom extends Room {
     this.sim = new BattleSim(net, {
       zoneId: this.opts.zoneId,
       wild: this.opts.wild,
-      onEnd: () => {},
+      // Straight through to the world room that started this fight.
+      onEnd: (captured) => { try { this.opts.onEnd?.(captured); } catch (e) { console.error('[battle] onEnd', e); } },
     });
     // BattleSim mirrors into a plain-object state; mirror that same simulation
     // into schema so the client's room.state reads identically online.
@@ -70,6 +71,9 @@ export class BattleRoom extends Room {
     this.sim.start();
   }
 
+  // `stop()` is the guarded exit: it calls the simulation's `finish(false)` if
+  // nothing else has, so walking out of a fight releases the creature instead
+  // of leaving it locked.
   async onLeave() {
     this.sim?.stop();
     if (this.doc) await this.store.saveDoc(this.doc).catch(() => {});

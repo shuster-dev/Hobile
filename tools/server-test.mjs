@@ -157,6 +157,9 @@ ok('walking across the zone reaches the wild',
 roomA.send('engage', { wildId: wild.id });
 const gotBattle = await until(() => gotos.some((g) => g.kind === 'battle'), 6000);
 ok('engaging a wild returns a battle room', gotBattle, JSON.stringify(errs));
+ok('the wild is marked as taken while the fight is on',
+  await until(() => !!roomA.state.wilds.get(wild.id)?.engagedBy, 4000),
+  roomA.state.wilds.get(wild.id)?.engagedBy || '(empty)');
 
 if (gotBattle) {
   const battleRoom = await clientA.joinById(gotos.find((g) => g.kind === 'battle').roomId, { token: a.json.token });
@@ -187,6 +190,16 @@ if (gotBattle) {
     && JSON.stringify(again.weather ?? null) === JSON.stringify(first.weather ?? null),
     JSON.stringify({ team: again.team?.length, trainer: again.trainer, weather: again.weather }));
   await battleRoom.leave();
+  // Walking out of a fight has to give the creature back. `engage` sets
+  // `engagedBy` and only `onEnd` clears it, and online that callback was filed
+  // in a map nothing read — so every fight permanently bricked one wild: still
+  // standing, no longer wandering, impossible to engage again.
+  ok('leaving the fight releases the creature',
+    await until(() => {
+      const w = roomA.state.wilds.get(wild.id);
+      return !w || !w.engagedBy;
+    }, 8000),
+    roomA.state.wilds.get(wild.id)?.engagedBy || '(gone or released)');
 }
 
 // persistence across a reconnect

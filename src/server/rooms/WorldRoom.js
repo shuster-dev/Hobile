@@ -270,12 +270,17 @@ export class WorldRoom extends Room {
 
   async startBattle(client, doc, opts) {
     const { matchMaker } = await import('@colyseus/core');
+    // `onEnd` releases the wild — or removes it, if it was caught. It used to
+    // be filed in a `pendingBattleEnd` map that nothing ever read, so online
+    // every fight permanently bricked one creature: still standing, no longer
+    // wandering, and impossible to engage for the life of the zone. Room
+    // options are passed by reference (the store already relies on that), so
+    // the callback can simply go with it.
     const reservation = await matchMaker.createRoom('battle', {
       store: this.store, zoneId: this.zoneId, wild: opts.wild, ownerId: doc.id,
+      onEnd: opts.onEnd,
     });
     client.send('goto', { roomId: reservation.roomId, kind: 'battle', wildId: opts.wildId });
-    this.pendingBattleEnd = this.pendingBattleEnd || new Map();
-    this.pendingBattleEnd.set(reservation.roomId, opts.onEnd);
   }
 
   async startDungeon(client, doc, opts) {
