@@ -68,6 +68,7 @@ const openPage = async (context) => {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
+  await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
   return page;
 };
 const inWorld = (page) => page.waitForFunction(
@@ -111,6 +112,7 @@ await page.evaluate(() => window.__hobile.net.send('travel', { zone: 'verdant_me
 await page.waitForFunction(() => window.__hobile?.world?.zone?.id === 'verdant_meadow', null, { timeout: 30000 });
 await wait(1500);
 await page.reload({ waitUntil: 'load' });
+await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await inWorld(page);
 const again = await page.evaluate(() => ({
   id: window.__hobile.profile.id,
@@ -149,6 +151,7 @@ const loggedIn = await page2.evaluate(async ([u, p]) => {
 ok('the claimed account can be logged into', loggedIn.ok, loggedIn.err);
 if (!loggedIn.ok) { console.log(`\n${pass} passed, ${fail + 2} failed`); await browser.close(); server?.kill(); process.exit(1); }
 await page2.reload({ waitUntil: 'load' });
+await page2.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await inWorld(page2);
 const elsewhere = await page2.evaluate(() => ({
   id: window.__hobile.profile.id,

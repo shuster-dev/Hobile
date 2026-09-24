@@ -1139,7 +1139,7 @@ var UI = class {
     document.querySelectorAll(".skill-btn").forEach((n, s) => {
       let r = t[s],
         o = MOVES[r];
-      n.dataset.skill = r || "", n.disabled = !o, n.querySelector(".ico").textContent = o && ELEMENTS[o.type]?.icon || "✦", n.title = o ? loc(o) : "", n.setAttribute("aria-label", o ? loc(o) : `כישור ${s + 1}`);
+      n.dataset.skill = r || "", n.disabled = !o, n.classList.toggle("hidden", !o), n.querySelector(".ico").textContent = o && ELEMENTS[o.type]?.icon || "✦", n.title = o ? loc(o) : "", n.setAttribute("aria-label", o ? loc(o) : `כישור ${s + 1}`);
     });
   }
   setPrompt(e) {
@@ -1172,8 +1172,9 @@ var UI = class {
     e.top?.forEach(a => o.push(`${Ze(a.name)} ${ltr(a.damage.toLocaleString("en-US"))}`)), $("#boss-lb").innerHTML = o.length ? `מובילים: ${o.join(" · ")}` : "תקפו יחד — הנזק נצבר לטבלה";
   }
   renderBattle(e, t, n) {
-    let s = $("#combat-bars");
-    s.innerHTML = "";
+    let s = $("#combat-bars"),
+      ss = $("#combat-bars-self") || s;
+    s.innerHTML = "", ss.innerHTML = "";
     let r = e.find(d => d.id === t),
       o = e.filter(d => d.side !== r?.side),
       a = e.filter(d => d.side === r?.side),
@@ -1188,7 +1189,7 @@ var UI = class {
         <div class="name"><b>${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}</b><span class="mono">${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}</span></div>
         <div class="bar hp ${p < 30 ? "low" : ""}"><i style="width:${p}%"></i></div>
         ${d.id === t ? `<div class="bar stam" style="margin-top:3px"><i style="width:${d.stamina / PROGRESSION.staminaMax * 100}%"></i></div>` : ""}
-        <div class="fx">${(d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join("")}</div>`, s.appendChild(f);
+        <div class="fx">${(d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join("")}</div>`, (d.side !== r?.side ? s : ss).appendChild(f);
     }
     if (c) {
       let d = c.hp / Math.max(1, c.maxHp) * 100,
@@ -1196,7 +1197,7 @@ var UI = class {
       u.innerHTML = `
         <div class="name"><b>${Ze(c.name)}</b><span class="mono">${rangeLabel(c.hp, c.maxHp, "/")}</span></div>
         <div class="bar hp ${d < 30 ? "low" : ""}"><i style="width:${d}%"></i></div>
-        <div class="fx"><span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span></div>`, s.appendChild(u);
+        <div class="fx"><span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span></div>`, ss.appendChild(u);
     }
     (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = o.filter(l)[0] || null, this.renderTeamBar(r);
   }

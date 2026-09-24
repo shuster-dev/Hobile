@@ -71,6 +71,88 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
   font-size:var(--t-xs);font-weight:700;box-shadow:var(--e2);backdrop-filter:blur(10px)}
 .fs-btn:active{background:var(--raise-2)}
 
+/* --- a quieter world screen ----------------------------------------------- */
+/* Quests, friends and the guild live in the menu. Seven glyphs on the right
+   was a column of furniture a third of the screen tall; three stay out — the
+   menu, the bag and the team — because those are what a player reaches for
+   between fights. The menu wears the friends badge, so nothing hidden can
+   go unnoticed. */
+:root{--stack-h:164px}
+.top-right .icon-btn[data-panel="quests"],.top-right .icon-btn[data-panel="friends"],.top-right .icon-btn[data-panel="guild"]{display:none}
+.top-right .icon-btn[data-panel="menu"]{order:1}
+.top-right .icon-btn[data-panel="bag"]{order:2}
+.top-right .icon-btn[data-panel="team"]{order:3}
+.top-right .hud-toggle{order:4;grid-column:auto;width:44px;height:44px;min-height:44px;border-radius:var(--r2);font-size:15px}
+.top-right .icon-btn.wide{order:5}
+
+/* Collapsed, the tracker is one line: the quest and its count. The marker in
+   the world already points the way, so a card saying the same thing again was
+   a fifth of the screen spent twice. */
+#tracker.collapsed{display:flex;align-items:center;gap:6px;width:auto;max-width:180px;padding:6px 10px 6px 8px}
+#tracker.collapsed h4{font-size:0;margin:0;flex:0 0 auto;letter-spacing:0;opacity:1}
+#tracker.collapsed h4 .caret{font-size:11px}
+#tracker.collapsed #tracker-list{min-width:0;flex:1 1 auto}
+#tracker.collapsed .q-lead{padding:0;margin:0;background:none;border:0;display:flex;align-items:center;gap:8px;min-width:0}
+#tracker.collapsed .q-kicker,#tracker.collapsed .q-bar{display:none}
+#tracker.collapsed .q-title{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;margin:0}
+#tracker.collapsed .q-meter{flex:0 0 auto;margin:0;font-size:11px;color:var(--muted)}
+/* ...and sideways it goes away entirely, as it did before it learned to be one
+   line: an id-and-class rule outranks the landscape block's id-only one. */
+@media (orientation:landscape) and (max-height:520px){#tracker.collapsed{display:none}}
+
+/* The fullscreen offer used to sit exactly on top of the chat line for its
+   nine seconds; it goes under it instead. */
+#chat-mini:not(:empty) ~ .fs-btn{top:calc(var(--s3) + var(--safe-t) + 76px)}
+
+/* --- battle: theirs up top, yours with your hands ------------------------ */
+/* Three full-width cards stacked at the top took a quarter of the screen and
+   put your own health as far from your thumbs as it could get. The foe keeps
+   a slim card at the top; your creature and you sit on top of your controls,
+   the way every handheld battle screen has done it. */
+.combat-bars{left:auto;width:min(66%,300px)}
+.combat-bars.self{position:static;inset:auto;width:auto;max-width:none;max-height:none;gap:6px}
+.combat-bars.self:empty{display:none}
+.combat-row{padding:6px 10px}
+.combat-row .name{font-size:12.5px;margin-bottom:3px}
+.combat-row .fx:empty{display:none}
+.combat-row .fx .e{font-size:11px}
+/* While the team stands in front of you, your own health is a footnote: one
+   slim line. It grows back into a full card the moment you are exposed. */
+.combat-row.self.shielded{padding:4px 10px;opacity:.9}
+.combat-row.self.shielded .name{font-size:11.5px;margin-bottom:2px}
+.combat-row.self.shielded .bar{height:4px}
+.combat-row.self.shielded .fx{display:none}
+
+/* --- the creator's stage -------------------------------------------------- */
+#creator-stage{display:block;width:100%;height:240px;margin:0 0 var(--s3);border-radius:var(--r3);
+  background:radial-gradient(120% 90% at 50% 18%,#fdfbf2 0%,#cdeeff 46%,#8fd0f0 100%);
+  box-shadow:inset 0 0 0 1px #ffffff40,var(--e1);touch-action:pan-y;cursor:grab}
+#creator-stage:active{cursor:grabbing}
+.starter .portrait{width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 4px;
+  filter:drop-shadow(0 3px 5px #0006)}
+.starter .portrait+.dot{display:none}
+
+/* --- the front door --------------------------------------------------------- */
+/* The harbour renders live behind this screen, so it is glass: a wash at the
+   top for the logo, a deeper one at the bottom for the button, and the town in
+   between. */
+#screen-title{justify-content:space-between;gap:0;overflow:hidden;
+  background:linear-gradient(180deg,#0b0e1ecc 0%,#0b0e1e33 26%,transparent 44%,transparent 58%,#0b0e1e99 78%,#0b0e1ef2 100%)}
+#screen-title .title-top{display:flex;flex-direction:column;align-items:center;gap:var(--s2);margin-top:4vh;text-align:center}
+#screen-title .logo{width:min(84vw,380px);height:auto;filter:drop-shadow(0 6px 18px #0009);animation:titleFloat 5.5s ease-in-out infinite}
+#screen-title .tagline{margin:0;font-size:13px;font-weight:700;letter-spacing:.04em;color:#fff;text-shadow:0 2px 8px #000c}
+#screen-title .title-bottom{display:flex;flex-direction:column;align-items:center;gap:var(--s3);width:100%;max-width:360px;margin-bottom:3vh}
+#screen-title .title-sub{margin:0;min-height:1.3em;font-size:15px;font-weight:700;color:#fff;text-shadow:0 2px 8px #000c}
+.btn.play{width:100%;min-height:62px;border-radius:999px;font-size:21px;font-weight:900;letter-spacing:.02em;color:#2a0d04;
+  background:linear-gradient(180deg,#ffd27a 0%,#ff9a5a 55%,#ff7a59 100%);border:2px solid #fff8;
+  box-shadow:0 10px 26px #ff7a5973,inset 0 2px 0 #fff8,inset 0 -3px 0 #0002;animation:playPulse 2.4s ease-in-out infinite}
+.btn.play:active{transform:translateY(2px) scale(.98)}
+.btn.play:disabled{animation:none;opacity:.75;filter:saturate(.6)}
+.btn.small{min-height:38px;font-size:13px;opacity:.9}
+@keyframes titleFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes playPulse{0%,100%{box-shadow:0 10px 26px #ff7a5973,inset 0 2px 0 #fff8,inset 0 -3px 0 #0002}50%{box-shadow:0 12px 36px #ffb05aa6,inset 0 2px 0 #fff8,inset 0 -3px 0 #0002}}
+@media (prefers-reduced-motion:reduce){#screen-title .logo,.btn.play{animation:none}}
+
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
@@ -105,7 +187,7 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
            feed and a minimap is a lot of furniture on a phone; this folds the
            secondary ones away and remembers the choice. -->
       <button class="hud-toggle" id="btn-hud" title="תצוגה נקייה" aria-label="תצוגה נקייה">⌄</button>
-      <button class="icon-btn" data-panel="menu" title="תפריט" aria-label="תפריט">☰</button>
+      <button class="icon-btn" data-panel="menu" title="תפריט" aria-label="תפריט">☰<span class="badge hidden" id="badge-menu">0</span></button>
       <button class="icon-btn" data-panel="bag" title="תיק חפצים" aria-label="תיק חפצים">🎒</button>
       <button class="icon-btn" data-panel="team" title="היצורים שלי" aria-label="היצורים שלי">🐾</button>
       <button class="icon-btn" data-panel="quests" title="משימות" aria-label="משימות">📜</button>
@@ -152,6 +234,7 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
     <div class="combat-bars" id="combat-bars"></div>
     <div id="battle-banner"></div>
     <div id="battle-actions">
+      <div class="combat-bars self" id="combat-bars-self"></div>
       <div class="team-bar" id="battle-team"></div>
       <div class="skill-bar" id="battle-skills"></div>
       <div class="trainer-bar" id="battle-trainer"></div>
@@ -163,6 +246,17 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
   <div id="toasts" role="status" aria-live="polite"></div>
 
   <!-- ================= screens ================= -->
+  <div id="screen-title" class="screen hidden">
+    <div class="title-top">
+      <p class="tagline">עולם פתוח · יצורים · גילדות · בוסים עולמיים</p>
+    </div>
+    <div class="title-bottom">
+      <p class="title-sub" id="title-sub"></p>
+      <button class="btn play" id="btn-play" type="button" disabled>טוען…</button>
+      <button class="btn ghost small" id="btn-title-login" type="button">יש לי חשבון — התחברות</button>
+    </div>
+  </div>
+
   <div id="screen-login" class="screen hidden">
     <div class="brand">
       <img class="logo" src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20420%20232%22%20width%3D%22420%22%20height%3D%22232%22%20role%3D%22img%22%20aria-label%3D%22Hobile%20Online%20%E2%80%94%20%D7%94%D7%95%D7%91%D7%99%D7%99%D7%9C%20%D7%90%D7%95%D7%A0%D7%9C%D7%99%D7%99%D7%9F%22%3E%0A%20%20%3C!--%0A%20%20%20%20The%20stacked%20lockup%3A%20mark%20above%2C%20then%20the%20Latin%20wordmark%2C%20then%20the%20Hebrew.%0A%20%20%20%20Stacked%20and%20centred%20on%20purpose%20%E2%80%94%20the%20game%20is%20Hebrew-first%20but%20the%20title%20is%0A%20%20%20%20Latin%2C%20and%20pinning%20the%20mark%20to%20one%20side%20would%20make%20whichever%20script%20sat%20on%0A%20%20%20%20the%20far%20side%20read%20as%20an%20afterthought.%20Centred%2C%20both%20are%20the%20title.%0A%0A%20%20%20%20The%20letterforms%20are%20drawn%20as%20paths%20so%20the%20lockup%20needs%20no%20font%20to%20render%0A%20%20%20%20identically%20everywhere%2C%20including%20inside%20the%20game's%20own%20canvas.%0A%20%20--%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22lk-body%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%232C3762%22%2F%3E%3Cstop%20offset%3D%220.55%22%20stop-color%3D%22%231B1F3B%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2312162B%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22lk-rift%22%20x1%3D%220.5%22%20y1%3D%220%22%20x2%3D%220.5%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23BFFFF4%22%2F%3E%3Cstop%20offset%3D%220.35%22%20stop-color%3D%22%232FE6D0%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%2312A896%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22lk-hot%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%221%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23FFB88F%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23FF7A59%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%22lk-word%22%20x1%3D%220%22%20y1%3D%220%22%20x2%3D%220%22%20y2%3D%221%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23F2F7FF%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239FB4DC%22%2F%3E%0A%20%20%20%20%3C%2FlinearGradient%3E%0A%20%20%20%20%3Cfilter%20id%3D%22lk-glow%22%20x%3D%22-60%25%22%20y%3D%22-60%25%22%20width%3D%22220%25%22%20height%3D%22220%25%22%3E%0A%20%20%20%20%20%20%3CfeGaussianBlur%20stdDeviation%3D%222.6%22%20result%3D%22b%22%2F%3E%0A%20%20%20%20%20%20%3CfeMerge%3E%3CfeMergeNode%20in%3D%22b%22%2F%3E%3CfeMergeNode%20in%3D%22SourceGraphic%22%2F%3E%3C%2FfeMerge%3E%0A%20%20%20%20%3C%2Ffilter%3E%0A%20%20%3C%2Fdefs%3E%0A%0A%20%20%3Cg%20transform%3D%22translate(160%206)%20scale(0.78)%22%3E%0A%20%20%20%20%3Cdefs%3E%3CclipPath%20id%3D%22lk-solid%22%3E%3Cpath%20d%3D%22M64%206%20L86%2019%20L109%2013%20L101%2046%20L91%2085%20L64%20122%20L19%2080%20L26%2031%20Z%22%2F%3E%3C%2FclipPath%3E%3C%2Fdefs%3E%0A%20%20%20%20%3Cg%20clip-path%3D%22url(%23lk-solid)%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M64%206%20L86%2019%20L109%2013%20L101%2046%20L91%2085%20L64%20122%20L19%2080%20L26%2031%20Z%22%20fill%3D%22url(%23lk-body)%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M26%2031%20L49%2048%20M91%2085%20L73%2063%22%20fill%3D%22none%22%20stroke%3D%22%236478BC%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.6%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M86%2019%20L109%2013%20L101%2046%22%20fill%3D%22none%22%20stroke%3D%22url(%23lk-hot)%22%20stroke-width%3D%229%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M64%206%20L49%2048%20L73%2063%20L55%2089%20L64%20122%22%20fill%3D%22none%22%20stroke%3D%22url(%23lk-rift)%22%20stroke-width%3D%227.5%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%20filter%3D%22url(%23lk-glow)%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M64%206%20L49%2048%20L73%2063%20L55%2089%20L64%20122%22%20fill%3D%22none%22%20stroke%3D%22%23F2FFFC%22%20stroke-width%3D%222.2%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%2F%3E%0A%20%20%20%20%3C%2Fg%3E%0A%20%20%20%20%3Cpath%20d%3D%22M64%206%20L86%2019%20L109%2013%20L101%2046%20L91%2085%20L64%20122%20L19%2080%20L26%2031%20Z%22%20fill%3D%22none%22%20stroke%3D%22%230A0D1B%22%20stroke-width%3D%223.4%22%20stroke-linejoin%3D%22round%22%2F%3E%0A%20%20%3C%2Fg%3E%0A%0A%20%20%3C!--%20HOBILE%20%E2%80%94%20a%20geometric%20sans%20with%20the%20top-right%20corner%20of%20each%20stem%20sheared%2C%0A%20%20%20%20%20%20%20echoing%20the%20shard's%20cut.%20Drawn%2C%20not%20typed%2C%20so%20it%20never%20re-flows.%20--%3E%0A%20%20%3Cg%20transform%3D%22translate(0%2022)%22%20fill%3D%22url(%23lk-word)%22%20stroke%3D%22%230C0F1E%22%20stroke-width%3D%222.5%22%20stroke-linejoin%3D%22round%22%3E%0A%20%20%20%20%3C!--%20H%20--%3E%0A%20%20%20%20%3Cpath%20d%3D%22M40%2084%20h15%20v20%20h20%20v-20%20h15%20v58%20h-15%20v-23%20h-20%20v23%20h-15%20z%22%2F%3E%0A%20%20%20%20%3C!--%20O%20(a%20cut%20lozenge%2C%20not%20a%20circle)%20--%3E%0A%20%20%20%20%3Cpath%20d%3D%22M104%2084%20h34%20l8%208%20v42%20l-8%208%20h-34%20l-8%20-8%20v-42%20z%20M112%2099%20v28%20h18%20v-28%20z%22%2F%3E%0A%20%20%20%20%3C!--%20B%20--%3E%0A%20%20%20%20%3Cpath%20d%3D%22M160%2084%20h30%20l8%208%20v14%20l-6%206%20l6%206%20v16%20l-8%208%20h-30%20z%20M175%2097%20v10%20h9%20v-10%20z%20M175%20119%20v10%20h9%20v-10%20z%22%2F%3E%0A%20%20%20%20%3C!--%20I%20--%3E%0A%20%20%20%20%3Cpath%20d%3D%22M208%2084%20h15%20v58%20h-15%20z%22%2F%3E%0A%20%20%20%20%3C!--%20L%20--%3E%0A%20%20%20%20%3Cpath%20d%3D%22M233%2084%20h15%20v44%20h22%20v14%20h-37%20z%22%2F%3E%0A%20%20%20%20%3C!--%20E%20--%3E%0A%20%20%20%20%3Cpath%20d%3D%22M278%2084%20h38%20v13%20h-23%20v9%20h20%20v12%20h-20%20v11%20h24%20v13%20h-39%20z%22%2F%3E%0A%20%20%3C%2Fg%3E%0A%0A%20%20%3C!--%20ONLINE%20%E2%80%94%20small%2C%20wide-tracked%2C%20in%20the%20accent%20teal%20--%3E%0A%20%20%3Ctext%20x%3D%22210%22%20y%3D%22185%22%20text-anchor%3D%22middle%22%20fill%3D%22%232FE6D0%22%0A%20%20%20%20%20%20%20%20font-family%3D%22'Segoe%20UI'%2CRoboto%2CHelvetica%2CArial%2Csans-serif%22%0A%20%20%20%20%20%20%20%20font-size%3D%2217%22%20font-weight%3D%22700%22%20letter-spacing%3D%229.5%22%3EONLINE%3C%2Ftext%3E%0A%0A%20%20%3C!--%20the%20Hebrew%20title%2C%20same%20weight%2C%20under%20a%20hairline%20rule%20--%3E%0A%20%20%3Cpath%20d%3D%22M126%20198%20h168%22%20stroke%3D%22%232FE6D0%22%20stroke-width%3D%221.4%22%20opacity%3D%220.5%22%2F%3E%0A%20%20%3Ctext%20x%3D%22210%22%20y%3D%22221%22%20text-anchor%3D%22middle%22%20fill%3D%22%23D9E4F7%22%20direction%3D%22rtl%22%0A%20%20%20%20%20%20%20%20font-family%3D%22'Segoe%20UI'%2CArial%2Csans-serif%22%20font-size%3D%2221%22%20font-weight%3D%22600%22%0A%20%20%20%20%20%20%20%20letter-spacing%3D%221.5%22%3E%D7%94%D7%95%D7%91%D7%99%D7%99%D7%9C%20%D7%90%D7%95%D7%A0%D7%9C%D7%99%D7%99%D7%9F%3C%2Ftext%3E%0A%3C%2Fsvg%3E%0A" alt="Hobile Online — הובייל אונליין"
@@ -187,6 +281,7 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
   <div id="screen-create" class="screen hidden">
     <div class="brand"><h1>יצירת דמות</h1><p>בחר מראה ויצור פתיחה</p></div>
     <div class="card">
+      <canvas id="creator-stage" aria-label="תצוגה מקדימה של הדמות והיצור"></canvas>
       <div class="field"><label for="in-charname">שם הדמות</label><input id="in-charname" maxlength="16" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" /></div>
       <div class="field"><label>מבנה גוף</label><div class="picker" id="pick-body"></div></div>
       <div class="field"><label>גוון עור</label><div class="picker" id="pick-skin"></div></div>

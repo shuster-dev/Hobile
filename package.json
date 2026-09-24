@@ -9,6 +9,7 @@
     "build:solo": "node tools/build.mjs --solo",
     "build:web": "node tools/build.mjs",
     "dev": "node src/server/index.js",
+    "look": "node tools/build.mjs --solo && node tools/look.mjs",
     "qa": "node tools/qa.mjs",
     "shot": "node tools/shot.mjs",
     "start": "node src/server/index.js",

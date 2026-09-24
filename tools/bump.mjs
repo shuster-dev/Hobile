@@ -48,6 +48,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
+await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'מאיר');

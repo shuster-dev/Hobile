@@ -6,6 +6,11 @@
  * comes from the cheap half: a contrast curve, a saturation push, warm lights
  * against cool shadows, and a vignette to hold the eye. That is one extra
  * render target and one fullscreen triangle, which a phone will not notice.
+ *
+ * Tuned for a bright, soft, toy-like look rather than a filmic one: gentler
+ * contrast, more saturation, shadows lifted toward a clean blue instead of
+ * crushed, and a lighter vignette — the difference between a picture book and
+ * a moody screenshot.
  */
 import {
   Mesh, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial,
@@ -72,11 +77,11 @@ export class Grade {
       depthWrite: false,
       uniforms: {
         tScene: { value: this.target.texture },
-        uContrast: { value: opts.contrast ?? 1.1 },
-        uSaturation: { value: opts.saturation ?? 1.12 },
-        uVignette: { value: opts.vignette ?? 0.55 },
-        uLift: { value: opts.lift ?? { x: -0.012, y: -0.004, z: 0.028 } },
-        uGain: { value: opts.gain ?? { x: 0.030, y: 0.014, z: -0.014 } },
+        uContrast: { value: opts.contrast ?? 1.05 },
+        uSaturation: { value: opts.saturation ?? 1.22 },
+        uVignette: { value: opts.vignette ?? 0.4 },
+        uLift: { value: opts.lift ?? { x: 0.004, y: 0.012, z: 0.04 } },
+        uGain: { value: opts.gain ?? { x: 0.036, y: 0.02, z: -0.01 } },
         uNight: { value: 0 },
         uFlash: { value: 0 },
       },

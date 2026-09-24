@@ -6,6 +6,7 @@ const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium_head
 const p = await b.newPage({ viewport: { width: 430, height: 880 }, deviceScaleFactor: 2 });
 p.on('pageerror',e=>console.log('PAGEERROR',e.message));
 await p.goto('http://127.0.0.1:2613/solo.html');
+await p.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 
 for (let i = 0; i < 9; i++) {
   await p.waitForTimeout(2000);

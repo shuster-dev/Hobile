@@ -3337,6 +3337,23 @@ function rngFromFloat(i) {
   };
 }
 
+// The overworld camera. A high three-quarter view: on a phone held upright the
+// player should be a figure in a place, not a back filling the screen. About
+// 40 degrees down from 13.8m away puts a trainer at roughly an eighth of the
+// screen's height, with the ground ahead of them visible to the horizon line.
+// (Brought in a little after the trainer became chibi: at 1.42m instead of
+// 1.78m, the old distance made them a figure in a crowd.)
+var CAM_DIST = 9.6,
+  CAM_HEIGHT = 8.2,
+  CAM_LEAD = 1.8,
+  CAM_RISE_MAX = 9,
+  CAM_RISE_STEPS = 6;
+
+// Daylight fill is warmed toward white. The fill took the horizon's blue, and
+// blue light on sand is khaki: every camp, path and beach in the game came out
+// olive however warm its own colour was.
+var HEMI_WARM = new Color(0xfff4e2);
+
 var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
   SUN_STRENGTH = 0.42,
   V_ = new Vector3(),
@@ -3344,6 +3361,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
   q_ = new Vector3(),
   $_ = new Vector3(),
   X_ = new Vector3(),
+  LOOK_ = new Vector3(),
   eo = new Vector3(),
   WorldView = class {
     constructor(e) {
@@ -3351,13 +3369,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         // Off on the low tier: an extra full-resolution target is exactly the
         // wrong thing to spend on a phone that is already struggling.
         this.grade = QUALITY.tier === "low" ? null : new Grade(this.renderer),
-        this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 600), this.camDist = 12, this.camHeight = 6.4, this.camYaw = 0, this.camPitch = 0.32, this._camPos = new Vector3(), this.actors = new Map(), this.effects = [], this.zone = null, this.props = null, this.colliders = [], this.blockers = [], this.npcs = new Map(), this.city = null, this.self = null, this.time = 0, this.night = 0, this.lights = makeLights(this.scene, {
+        this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 600), this.camDist = CAM_DIST, this.camHeight = CAM_HEIGHT, this._camRise = 0, this.camYaw = 0, this.camPitch = 0.32, this._camPos = new Vector3(), this.actors = new Map(), this.effects = [], this.zone = null, this.props = null, this.colliders = [], this.blockers = [], this.npcs = new Map(), this.city = null, this.self = null, this.time = 0, this.night = 0, this.lights = makeLights(this.scene, {
         sunDir: SUN_DIR,
         sunColor: 16773853,
         skyColor: 12376319,
         groundColor: 4867126,
         shadowRadius: 26
-      }), this.viewMode = "third", this.camPitch = 0, this.interior = null, this._inside = null, this.camMin = 3.2, this.zoneGroup = new Group(), this.scene.add(this.zoneGroup), this.windMaterials = [], this.seasonTint = [], this._season = "summer", this.adapt = sizeRenderer(this.renderer), this.density = {
+      }), this.viewMode = "third", this.camPitch = 0, this.interior = null, this._inside = null, this.camMin = 4.2, this.zoneGroup = new Group(), this.scene.add(this.zoneGroup), this.windMaterials = [], this.seasonTint = [], this._season = "summer", this.adapt = sizeRenderer(this.renderer), this.density = {
         low: 0.45,
         medium: 0.75,
         high: 1
@@ -3436,8 +3454,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         for (let k of this.zone.landmarks) {
           if (!k.r) continue;
           let L = Math.hypot(k.x - v, k.z - E),
-            O = k.r + 4.5 + fbm(v * 0.09, E * 0.09, u + 11, 2) * 5.2;
-          L < O && d.lerp(h, f(O, k.r * 0.55, L) * 0.92);
+            O = k.r * 0.85 + 2 + fbm(v * 0.09, E * 0.09, u + 11, 2) * 3.4;
+          L < O && d.lerp(h, f(O, k.r * 0.45, L) * 0.86);
         }
         a[m * 3] = d.r, a[m * 3 + 1] = d.g, a[m * 3 + 2] = d.b;
       }
@@ -3446,7 +3464,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         vertexColors: !0,
         roughness: 0.95,
         metalness: 0,
-        envMapIntensity: 0.55
+        envMapIntensity: 0.28
       }));
       x.receiveShadow = !0, this.zoneGroup.add(x);
       let g = new Mesh(new TorusGeometry(t / 2 + 5, 7, 6, 72), mat(e.groundHigh, {
@@ -3799,11 +3817,15 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       // The question is whether the canopy is on the line of sight. Distance
       // from the trunk to the camera-to-player segment, with a height gate so a
       // tree the line passes over is left alone.
+      // Two sightlines, to the shoulders and to the feet. From a high camera the
+      // line to the feet is the steeper one, so a canopy just in front of the
+      // player can pass under the shoulder line and still stand on their legs.
       let e = this.camera.position,
         t = this.selfPosition(),
         n = t.x - e.x,
         s = t.z - e.z,
         r = t.y + 1.35 - e.y,
+        rf = t.y + 0.25 - e.y,
         o = n * n + s * s || 1e-6;
       for (let a of this.canopies) {
         let l = !1;
@@ -3812,8 +3834,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             d = MathUtils.clamp(((h.x - e.x) * n + (h.z - e.z) * s) / o, 0, 1),
             u = Math.hypot(h.x - (e.x + n * d), h.z - (e.z + s * d)) < a.radius,
             f = e.y + r * d,
+            ff = e.y + rf * d,
             p = this.heightAt(h.x, h.z),
-            x = u && f > p + a.top * 0.42 && f < p + a.top + 1.2,
+            lo = p + a.top * 0.42,
+            hi = p + a.top + 1.2,
+            x = u && (f > lo && f < hi || ff > lo && ff < hi),
             g = a.hidden.has(c);
           if (x === g) continue;
           let m = c * 16;
@@ -4688,6 +4713,41 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     setSelf(e) {
       this.self = e;
     }
+    /** Point the title camera at the middle of the loaded zone, or put it away. */
+    titleView(on) {
+      if (!on) return this.titleCam = null;
+      let z = this.zone || {},
+        l = (z.landmarks || []).find(n => n.kind === "plaza" || n.kind === "fountain") || (z.landmarks || [])[0] || { x: 0, z: 0 };
+      this.titleCam = { x: l.x || 0, z: l.z || 0, r: 24, h: 11, a: 0.6 };
+    }
+    /** Open a zone looking at open ground. Arriving with your back to a wall
+     *  used to start the zone on a close-up of the back of your own head: no
+     *  camera height clears a two-storey house a metre behind you. The angle
+     *  the server gave wins whenever it is clear; otherwise the nearest one
+     *  that is, trying the normal height first and a raised one second. */
+    faceOpen(prefer = 0) {
+      let t = this.selfActor();
+      if (!t || this._inside) return this.camYaw = prefer;
+      let n = t.holder.position,
+        s = V_.set(n.x, n.y + 1.35, n.z),
+        clear = (yaw, h) => {
+          let o = q_.set(-Math.sin(yaw) * this.camDist, h, -Math.cos(yaw) * this.camDist),
+            a = o.length(),
+            l = $_.copy(o).divideScalar(a || 1);
+          for (let f of this.blockers) {
+            let p = f.hw !== void 0 ? boxHit(s, l, a, f, this.heightAt(f.x, f.z)) : circleHit(s, l, a, f, this.heightAt(f.x, f.z));
+            if (p !== null && p < a - 1e-3) return !1;
+          }
+          return !0;
+        };
+      for (let h of [this.camHeight, this.camHeight + CAM_RISE_MAX * 0.5])
+        for (let k = 0; k <= 12; k++)
+          for (let sg of k ? [1, -1] : [1]) {
+            let yaw = prefer + sg * k * Math.PI / 12;
+            if (clear(yaw, h)) return this._camRise = 0, this._camReach = void 0, this.camYaw = yaw;
+          }
+      return this.camYaw = prefer;
+    }
     selfActor() {
       return this.actors.get(this.self);
     }
@@ -4722,7 +4782,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let s = Math.hypot(n.holder.position.x - e, n.holder.position.z - t);
       if (s < 0.6) return;
       if (s > 9) {
-        this.snapSelf(e, t);
+        // A jump this big is a travel or a respawn, not drift: arrive looking
+        // at open ground, as a fresh spawn does, rather than through whatever
+        // the old camera angle now points at.
+        this.snapSelf(e, t), this.faceOpen(this.camYaw);
         return;
       }
       let r = Math.min(0.25, s * 0.05);
@@ -4841,6 +4904,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this._nextBolt = (this._nextBolt || 0) - e, this._nextBolt <= 0 && (this._bolt = 0.5 + Math.random() * 0.35, this._nextBolt = Math.random() < 0.4 ? 0.12 + Math.random() * 0.2 : 4 + Math.random() * 9), this._bolt = Math.max(0, (this._bolt || 0) - e * 6.5), this.grade.setFlash(this._bolt * r);
     }
     updateCamera(e) {
+      // The title screen: nobody to follow yet, so the camera takes a slow
+      // turn around the harbour plaza behind the logo.
+      if (this.titleCam) {
+        let c = this.titleCam;
+        c.a += e * 0.045, this.camera.position.set(c.x + Math.sin(c.a) * c.r, this.heightAt(c.x, c.z) + c.h, c.z + Math.cos(c.a) * c.r), this.camera.lookAt(c.x, this.heightAt(c.x, c.z) + 2.2, c.z);
+        return;
+      }
       let t = this.selfActor();
       if (!t) return;
       let n = t.holder.position;
@@ -4853,16 +4923,41 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         return;
       }
       t.holder.visible = !0;
-      let s = V_.set(n.x, n.y + 1.35, n.z),
-        r = W_.set(s.x - Math.sin(this.camYaw) * this.camDist, s.y + this.camHeight, s.z - Math.cos(this.camYaw) * this.camDist),
-        o = q_.copy(r).sub(s),
-        a = o.length(),
-        l = $_.copy(o).divideScalar(a || 1),
-        c = a;
-      for (let f of this.blockers) {
-        let p = f.hw !== void 0 ? boxHit(s, l, a, f, this.heightAt(f.x, f.z)) : circleHit(s, l, a, f, this.heightAt(f.x, f.z));
-        p !== null && p < c && (c = p);
+      let fx = Math.sin(this.camYaw),
+        fz = Math.cos(this.camYaw),
+        s = V_.set(n.x, n.y + 1.35, n.z),
+        o = q_,
+        a = 0,
+        l = $_,
+        c = 0;
+      // How far along the sightline from the shoulders the camera can get at a
+      // given height before something is in the way.
+      let probe = h => {
+        o.set(-fx * this.camDist, h, -fz * this.camDist), a = o.length(), l.copy(o).divideScalar(a || 1), c = a;
+        for (let f of this.blockers) {
+          let p = f.hw !== void 0 ? boxHit(s, l, a, f, this.heightAt(f.x, f.z)) : circleHit(s, l, a, f, this.heightAt(f.x, f.z));
+          p !== null && p < c && (c = p);
+        }
+        return c >= a - 1e-3;
+      };
+      // Climb before closing in. A building behind the player used to slide the
+      // camera forward along its own sightline until it was clear, and on a
+      // street that means low and against the player's back: half a phone
+      // screen of cape and no world. Going up over the roof keeps the world in
+      // frame; closing in is only the fallback for when no height clears.
+      // Indoors the ceiling is the limit, so there it is the old behaviour.
+      let want = 0;
+      if (!this._inside && !probe(this.camHeight)) {
+        want = CAM_RISE_MAX;
+        for (let k = 1; k <= CAM_RISE_STEPS; k++) {
+          let h = CAM_RISE_MAX * k / CAM_RISE_STEPS;
+          if (probe(this.camHeight + h)) { want = h; break; }
+        }
       }
+      // Up quickly, so a wall never gets a frame; down slowly, so walking along
+      // a row of houses does not bob.
+      this._camRise += (want - this._camRise) * Math.min(1, e * (want > this._camRise ? 5 : 1.1));
+      probe(this.camHeight + this._camRise);
       c = Math.max(this.camMin, c - 0.45), this._camReach === void 0 && (this._camReach = c);
       let h = c < this._camReach ? Math.min(1, e * 16) : Math.min(1, e * 2.6);
       this._camReach += (c - this._camReach) * h;
@@ -4895,7 +4990,9 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let E = v < 0.001 ? 0 : (m - v) / v;
         u.x += v < 0.001 ? m : x * E, u.z += v < 0.001 ? 0 : g * E;
       }
-      u.y = Math.max(u.y, this.heightAt(u.x, u.z) + 1.1), this._inside && (u.y = Math.min(u.y, this._inside.floorY + this._inside.room.dims.h - 0.35)), this.camera.lookAt(s);
+      u.y = Math.max(u.y, this.heightAt(u.x, u.z) + 1.1), this._inside && (u.y = Math.min(u.y, this._inside.floorY + this._inside.room.dims.h - 0.35));
+      let ahead = this._inside ? 0 : CAM_LEAD;
+      this.camera.lookAt(LOOK_.set(n.x + fx * ahead, n.y + 1.1, n.z + fz * ahead));
     }
     /** Pin the clock. The day cycle is 12 minutes, so without this a QA
      *  screenshot lands wherever the wall clock happens to be. */
@@ -4935,7 +5032,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       f.uNight && (f.uNight.value = this.night),
       f.uClouds && (f.uClouds.value = MathUtils.clamp((t.clouds ?? 0.5) * 0.3 + w.clouds * 0.8, 0, 1)), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = (0.42 + a * 2.05) * w.sun, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
       let p = t.ambient ?? 1;
-      if (this.lights.hemi.intensity = (0.46 + a * 0.5) * p * w.amb, this.lights.hemi.color.copy(c(3358827, t.sky.horizon, a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
+      if (this.lights.hemi.intensity = (0.46 + a * 0.5) * p * w.amb, this.lights.hemi.color.copy(c(3358827, t.sky.horizon, a).lerp(HEMI_WARM, 0.42 * a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
         this.scene.fog.color.copy(c(1186352, t.fog, a).lerp(new Color(u), l * 0.4).lerp(new Color(w.fogHue), w.fogMix * (0.35 + a * 0.65)));
         let x = (t.fogNear ?? 62) * w.fog,
           g = (t.fogFar ?? 168) * w.fog;
@@ -4959,6 +5056,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
 
 function zoneTheme(i) {
   let e = {
+    // The harbour town was built entirely from greys — pavement, walls, and
+    // roofs at #3B3730, near black — so under any light it read as concrete.
+    // Warm stone, tiled roofs, lawns and a sea you would swim in: the town is
+    // the first place a player sees, and it should look like somewhere.
     aetherport: {
       sky: {
         top: 2973598,
@@ -4966,54 +5067,54 @@ function zoneTheme(i) {
         ground: 2835280,
         sun: 16771787
       },
-      fog: 11518930,
+      fog: 13623530,
       fogNear: 44,
       fogFar: 158,
       sunLight: 16772820,
-      groundLight: 4998976,
+      groundLight: 7044954,
       ambient: 1.5,
-      groundLow: 7170659,
-      groundHigh: 9144190,
-      path: 10131081,
-      leaf: 6062672,
-      bark: 5786171,
-      rock: 9080726,
-      grass: 7635279,
-      wall: 9274744,
-      roof: 3880752,
-      asphalt: 3816771,
-      asphalt2: 4408909,
-      kerb: 11183258,
-      pave: 9275777,
-      pave2: 9999243,
-      yard: 7893867,
-      dirt: 7038297,
-      line: 14472900,
-      drain: 2500652,
-      flag: 10788240,
-      flag2: 10130567,
-      flagDark: 9077617,
-      joint: 7301988,
-      seabed: 3096648,
-      stone: 10985620,
-      brick: 8018506,
+      groundLow: 8367966,
+      groundHigh: 10733428,
+      path: 14469024,
+      leaf: 5219914,
+      bark: 8017464,
+      rock: 10463152,
+      grass: 7977303,
+      wall: 15785407,
+      roof: 13130300,
+      asphalt: 7305360,
+      asphalt2: 8029083,
+      kerb: 15260870,
+      pave: 14929834,
+      pave2: 15654852,
+      yard: 9944937,
+      dirt: 12096358,
+      line: 16775142,
+      drain: 10133674,
+      flag: 14468770,
+      flag2: 13810323,
+      flagDark: 12558972,
+      joint: 11112819,
+      seabed: 3042942,
+      stone: 14273974,
+      brick: 12083786,
       metal: 10134187,
-      iron: 3948873,
-      wood: 8019006,
-      soil: 4142120,
-      crate: 10123858,
-      barrel: 7031600,
+      iron: 4937062,
+      wood: 11039818,
+      soil: 7032374,
+      crate: 12883294,
+      barrel: 10118208,
       crane: 12744239,
       rope: 9272156,
-      door: 4863268,
-      deck: 9071430,
-      piling: 5587507,
+      door: 8014382,
+      deck: 12094037,
+      piling: 7230008,
       tank: 9278620,
-      plant: 7765381,
+      plant: 6138453,
       hydrant: 12076335,
-      glass: 2830909,
+      glass: 3889784,
       glassLit: 16764810,
-      shopGlass: 3752526,
+      shopGlass: 4877964,
       lampGlow: 16763770,
       warmGlow: 16760938,
       signGlow: 9431261,
@@ -5022,16 +5123,21 @@ function zoneTheme(i) {
       rune: 11566335,
       aether: 3139280,
       aetherCloth: 2776936,
-      water: 1720919,
+      water: 2786984,
       waterBright: 8378088,
-      awning: [12737098, 3112312, 13867580, 4873610, 8018572, 12084794],
-      far: 4871528,
-      farHigh: 6122112,
+      awning: [15229004, 3126184, 15906113, 6000600, 10513348, 15632970],
+      far: 8164264,
+      farHigh: 10203330,
       riftCore: 3139280,
       riftRim: 16743001,
       riftHaze: 1777467,
       rim: "trees"
     },
+    // Every zone keeps its element, but at the saturation of a picture book
+    // rather than a documentary: the meadow is a meadow you would lie down in,
+    // the tide pools are the colour of a postcard, and even the shadow grove is
+    // violet rather than mud. The paths around camps — the ground a player
+    // spawns on — are light and warm instead of khaki.
     verdant_meadow: {
       sky: {
         top: 3108799,
@@ -5039,18 +5145,18 @@ function zoneTheme(i) {
         ground: 7176042,
         sun: 16774358
       },
-      fog: 12901613,
+      fog: 14216438,
       sunLight: 16773848,
       groundLight: 5464127,
-      groundLow: 5533759,
-      groundHigh: 8164688,
-      path: 12231798,
-      leaf: 5212741,
+      groundLow: 6202439,
+      groundHigh: 10342498,
+      path: 15126166,
+      leaf: 4630604,
       bark: 6966322,
       rock: 9277330,
-      grass: 7315533,
-      wall: 14997179,
-      roof: 10504764,
+      grass: 8439898,
+      wall: 16181455,
+      roof: 11688517,
       rim: "trees"
     },
     emberfall_canyon: {
@@ -5060,18 +5166,18 @@ function zoneTheme(i) {
         ground: 5909020,
         sun: 16766880
       },
-      fog: 14721143,
+      fog: 15907210,
       sunLight: 16766893,
       groundLight: 4858904,
-      groundLow: 9062956,
-      groundHigh: 12089930,
-      path: 13673335,
-      leaf: 9071151,
+      groundLow: 11819570,
+      groundHigh: 14717519,
+      path: 15779212,
+      leaf: 12880175,
       bark: 5913124,
       rock: 10118216,
-      grass: 10516544,
-      wall: 14465941,
-      roof: 8205095,
+      grass: 13213772,
+      wall: 15913896,
+      roof: 12076335,
       rim: "cliff"
     },
     tidal_hollow: {
@@ -5081,18 +5187,18 @@ function zoneTheme(i) {
         ground: 2905440,
         sun: 15267583
       },
-      fog: 11065832,
+      fog: 12117746,
       sunLight: 14676223,
       groundLight: 2049104,
-      groundLow: 3635055,
-      groundHigh: 6988432,
-      path: 13222560,
-      leaf: 4165498,
+      groundLow: 4168844,
+      groundHigh: 8178094,
+      path: 15787192,
+      leaf: 4173452,
       bark: 4997688,
       rock: 8360088,
-      grass: 5283980,
-      wall: 14212304,
-      roof: 3108221,
+      grass: 6276256,
+      wall: 15659750,
+      roof: 3837862,
       water: 3047326,
       rim: "trees"
     },
@@ -5103,18 +5209,18 @@ function zoneTheme(i) {
         ground: 8229540,
         sun: 16777215
       },
-      fog: 13821685,
+      fog: 14741242,
       sunLight: 15923455,
       groundLight: 7176080,
-      groundLow: 11060440,
-      groundHigh: 15003899,
-      path: 12175058,
-      leaf: 6258566,
+      groundLow: 12113128,
+      groundHigh: 15923455,
+      path: 13951726,
+      leaf: 7316398,
       bark: 4868690,
       rock: 10135732,
-      grass: 9416892,
-      wall: 14674160,
-      roof: 4743539,
+      grass: 10864852,
+      wall: 15922938,
+      roof: 6061984,
       rim: "cliff",
       flora: "alpine"
     },
@@ -5125,18 +5231,18 @@ function zoneTheme(i) {
         ground: 1709104,
         sun: 12033535
       },
-      fog: 3813212,
+      fog: 4865144,
       sunLight: 10784736,
       groundLight: 2366528,
-      groundLow: 3352911,
-      groundHigh: 4865388,
-      path: 6050167,
-      leaf: 4864626,
+      groundLow: 4864632,
+      groundHigh: 7035040,
+      path: 9075632,
+      leaf: 6967214,
       bark: 3090240,
       rock: 5787760,
-      grass: 5589128,
-      wall: 4866406,
-      roof: 2892864,
+      grass: 8021184,
+      wall: 6970510,
+      roof: 4075616,
       rim: "trees"
     },
     stonewake_mesa: {
@@ -5146,20 +5252,20 @@ function zoneTheme(i) {
         ground: 7034176,
         sun: 16774354
       },
-      fog: 14929316,
+      fog: 15785398,
       fogNear: 50,
       fogFar: 175,
       sunLight: 16773324,
       groundLight: 8020034,
-      groundLow: 11042895,
-      groundHigh: 14070915,
-      path: 14731936,
-      leaf: 9081936,
+      groundLow: 12882778,
+      groundHigh: 15254414,
+      path: 15916464,
+      leaf: 10136146,
       bark: 8019772,
       rock: 12620386,
-      grass: 11576416,
-      wall: 14206106,
-      roof: 8020548,
+      grass: 13154404,
+      wall: 15390382,
+      roof: 10120776,
       rim: "mesa",
       flora: "arid",
       rockStyle: "strata",
@@ -5176,20 +5282,20 @@ function zoneTheme(i) {
         ground: 3357526,
         sun: 15002879
       },
-      fog: 11056338,
+      fog: 12109026,
       fogNear: 38,
       fogFar: 150,
       sunLight: 14082815,
       groundLight: 3818336,
-      groundLow: 4148295,
-      groundHigh: 7306356,
-      path: 9278368,
-      leaf: 4612175,
+      groundLow: 5139044,
+      groundHigh: 8822938,
+      path: 11054784,
+      leaf: 5143132,
       bark: 3948098,
       rock: 8226724,
-      grass: 6257244,
-      wall: 12568278,
-      roof: 3818070,
+      grass: 7248490,
+      wall: 13818086,
+      roof: 4610682,
       rim: "cloud",
       flora: "alpine",
       rockStyle: "shard",

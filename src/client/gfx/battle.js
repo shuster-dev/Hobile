@@ -1,4 +1,4 @@
-import { AdditiveBlending, Box3, BufferAttribute, BufferGeometry, Color, CylinderGeometry, DoubleSide, DynamicDrawUsage, Float32BufferAttribute, FogExp2, Group, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, OctahedronGeometry, PerspectiveCamera, PointLight, Points, PointsMaterial, Quaternion, RingGeometry, Scene, ShaderMaterial, SphereGeometry, TorusGeometry, Vector3 } from 'three';
+import { AdditiveBlending, Box3, BufferAttribute, BufferGeometry, Color, CylinderGeometry, DoubleSide, Shape, ShapeGeometry, DynamicDrawUsage, Float32BufferAttribute, FogExp2, Group, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, OctahedronGeometry, PerspectiveCamera, PointLight, Points, PointsMaterial, Quaternion, RingGeometry, Scene, ShaderMaterial, SphereGeometry, TorusGeometry, Vector3 } from 'three';
 import { Audio } from '../audio.js';
 import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
@@ -13,24 +13,51 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   // opponent so far up the arena that it read as a speck. A battle is a
   // face-off; the camera has to be able to hold both of them.
   SIDE_Z = {
-    a: 2.6,
-    b: -2.9
+    a: 2.3,
+    b: -2.4
   },
+  // A diagonal face-off. On a phone held upright the two sides used to stand
+  // on one line down the middle of the screen, so your own creature sat in
+  // front of the one you were fighting and every attack went behind it. Offset
+  // like the handheld games — yours near and to one side, theirs far and to the
+  // other — and both are always in view, facing each other.
+  SIDE_X = {
+    a: -0.95,
+    b: 0.95
+  },
+  FACE_TILT = Math.atan2(1.9, 4.7),
   SIDE_DIR = {
     a: 1,
     b: -1
   },
   SLOT_POS = [[-1.95, 1.85], [1.95, 1.85], [-1, 2.8], [1, 2.8], [0, 3.5]],
-  ip = [1.95, 3.05],
+  ip = [1.75, 1.15],
   sp = 0.78,
   TRAINER_ID = "__trainer",
   nt = new Vector3(),
   nr = new Vector3(),
   ir = new Box3(),
   rp = (i, e) => i.slot - e.slot,
+  STAR_SHAPE = (() => {
+    let q = new Shape();
+    for (let k = 0; k < 10; k++) {
+      let r = k % 2 ? 0.045 : 0.11, a = k / 10 * Math.PI * 2 + Math.PI / 2;
+      k ? q.lineTo(Math.cos(a) * r, Math.sin(a) * r) : q.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    return q.closePath(), q;
+  })(),
+  STAR_MAT = new MeshBasicMaterial({ color: 0xffd84a, side: DoubleSide, depthWrite: !1, transparent: !0 }),
+  dizzyStars = () => {
+    let g = new Group();
+    for (let k = 0; k < 3; k++) {
+      let m = new Mesh(new ShapeGeometry(STAR_SHAPE), STAR_MAT), a = k / 3 * Math.PI * 2;
+      m.position.set(Math.cos(a) * 0.32, Math.sin(k * 2.1) * 0.05, Math.sin(a) * 0.32), m.renderOrder = 5, g.add(m);
+    }
+    return g;
+  },
   BattleView = class {
     constructor(e) {
-      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 1200), this.baseCam = new Vector3(0, 7.8, 13.6), this.focus = new Vector3(0, 1.45, -0.5), this.targetCam = this.baseCam.clone(), this.targetFocus = this.focus.clone(), this.camPos = this.baseCam.clone(), this.camAim = this.focus.clone(), this.camOffset = new Vector3(), this.aimOffset = new Vector3(), this.camera.position.copy(this.baseCam), this.camera.lookAt(this.focus), this.actors = new Map(), this.effects = [], this.shake = 0, this.time = 0, this.trainer = null, this.appearance = null, this.myTrainerId = null, this.trainerFront = !1, this.dim = 0, this.frozenUntil = 0, this.sphereFx = null, this.roleBench = new Map(), this.roleSlot = new Map(), this.activeBySide = {
+      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 1200), this.baseCam = new Vector3(-1.15, 5.9, 11.4), this.focus = new Vector3(0.35, 1.3, -0.5), this.targetCam = this.baseCam.clone(), this.targetFocus = this.focus.clone(), this.camPos = this.baseCam.clone(), this.camAim = this.focus.clone(), this.camOffset = new Vector3(), this.aimOffset = new Vector3(), this.camera.position.copy(this.baseCam), this.camera.lookAt(this.focus), this.actors = new Map(), this.effects = [], this.shake = 0, this.time = 0, this.trainer = null, this.appearance = null, this.myTrainerId = null, this.trainerFront = !1, this.dim = 0, this.frozenUntil = 0, this.sphereFx = null, this.roleBench = new Map(), this.roleSlot = new Map(), this.activeBySide = {
         a: null,
         b: null
       }, this._seen = new Set(), this._stale = [], this._side = {
@@ -78,20 +105,23 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         ground: 525840,
         sun: 6967200
       } : {
-        top: 1714756,
-        horizon: 5271695,
-        ground: 1514792,
+        // Out in the world a fight happens in daylight. The open-air arena was
+        // a night void — navy sky, slate floor — which made every wild
+        // encounter in a sunny meadow feel like a dungeon. Dungeons keep dark.
+        top: 5941488,
+        horizon: 13627391,
+        ground: 10277498,
         sun: 16767400
       };
       this.sky = makeSky({
         ...o,
         sunDir: np
-      }), this.scene.add(this.sky), this.scene.environment && this.scene.environment.dispose(), this.scene.environment = makeEnvironment(this.renderer, this.sky), this.scene.fog = new FogExp2(t ? 1446446 : 2832457, 0.011), this.lights.sun.intensity = t ? 1.9 : 2.8, this.lights.hemi.color.set(o.horizon), this.lightBase.sun = this.lights.sun.intensity, this.lightBase.hemi = this.lights.hemi.intensity;
+      }), this.scene.add(this.sky), this.scene.environment && this.scene.environment.dispose(), this.scene.environment = makeEnvironment(this.renderer, this.sky), this.scene.fog = new FogExp2(t ? 1446446 : 13627391, t ? 0.011 : 0.0075), this.lights.sun.intensity = t ? 1.9 : 2.25, this.lights.hemi.color.set(o.horizon), this.lightBase.sun = this.lights.sun.intensity, this.lightBase.hemi = this.lights.hemi.intensity;
       let a = [],
-        l = mat(t ? 3814232 : 6055287, {
+        l = mat(t ? 3814232 : 5213758, {
           roughness: 0.92
         }),
-        c = mat(t ? 4668526 : 7305353, {
+        c = mat(t ? 4668526 : 15128504, {
           roughness: 0.86
         });
       a.push({
@@ -118,7 +148,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       d.rotation.x = Math.PI / 2, d.position.y = 0.37, this.arena.add(d), this.runeRing = d;
       let u = new Mesh(new RingGeometry(ARENA_R - 3.6, ARENA_R - 3.42, 80), glowMat(s, 0.35));
       u.rotation.x = -Math.PI / 2, u.position.y = 0.375, this.arena.add(u), this.innerRing = u;
-      let f = mat(t ? 4866160 : 7042180, {
+      let f = mat(t ? 4866160 : 15590352, {
           roughness: 0.88
         }),
         p = [],
@@ -278,7 +308,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let r = this.roleSlot.get(e.id);
       n.slot = r === void 0 ? n.slot : r;
       let o = e.hp <= 0;
-      return o !== n.downed && (n.downed = o, o || this.puff(nt.copy(n.holder.position).setY(0.8), 10223561, 10)), n.kind === "trainer" && e.side === "a" && this.claimTrainer(n), n;
+      return o !== n.downed && (n.downed = o, o ? this.onFaint?.(n) : this.puff(nt.copy(n.holder.position).setY(0.8), 10223561, 10)), n.kind === "trainer" && e.side === "a" && this.claimTrainer(n), n;
     }
     spawnActor(e) {
       let t = new Group(),
@@ -370,14 +400,16 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           d = 0;
         for (let u = 0; u < r.length; u++) {
           let f = r[u];
-          f.targetScale = this.heroScale(f), f.faceY = s === "a" ? Math.PI : 0, f.downed ? (f.home.set(-0.8 + d * 1.6, 0.35, SIDE_Z[s] - 0.75 * SIDE_DIR[s]), d++) : (f.home.set((h - (l - 1) / 2) * c, 0.35, SIDE_Z[s]), h++);
+          f.targetScale = this.heroScale(f), f.faceY = s === "a" ? Math.PI - FACE_TILT : -FACE_TILT, f.downed ? (f.home.set(SIDE_X[s] + (2.2 + d * 1.2) * SIDE_DIR[s], 0.35, SIDE_Z[s] - 0.6 * SIDE_DIR[s]), d++) : (f.home.set(SIDE_X[s] + (h - (l - 1) / 2) * c, 0.35, SIDE_Z[s]), h++);
         }
         for (let u = 0; u < o.length; u++) {
           let f = o[u];
-          slotPosition(u, nt), f.home.set(nt.x, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = sp * this.heroScale(f), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
+          slotPosition(u, nt), f.home.set(nt.x + SIDE_X[s] * 0.6, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = sp * this.heroScale(f), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
         }
         a && (a.home.set(ip[0] * SIDE_DIR[s], 0.35, SIDE_Z[s] + ip[1] * SIDE_DIR[s]), a.targetScale = 1, a.faceY = (s === "a" ? Math.PI : 0) - 0.3 * SIDE_DIR[s]);
       }
+      // A fainted creature lies on the open side of its own half, where it can
+      // be seen — not in the near corner, which is under the health cards.
       let e = this.myTrainerId ? this.actors.get(this.myTrainerId) : null;
       this.trainerFront = !!e && e.kind === "trainer" && !e.benched;
       let t = 1.8;
@@ -388,8 +420,11 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           a.isMesh && !a.userData.noOutline && (a.castShadow = o);
         }));
       }
+      // Low and close, over your creature's shoulder: 16.6m back made the far
+      // side a speck on a narrow screen. Big things still push the camera out —
+      // a boss that fills the frame is the point of a boss.
       let n = Math.min(6.5, Math.max(0, t - 2.4));
-      this.targetFocus.set(0, 1.5 + n * 0.4, 0.2), this.targetCam.set(0, 9.4 + n * 0.5, 16.6 + n * 1.15);
+      this.targetFocus.set(0.35, 1.3 + n * 0.4, -0.5), this.targetCam.set(-1.15, 5.9 + n * 0.6, 11.4 + n * 1.2);
     }
     playEvent(e) {
       let t = this.actors.get(e.target),
@@ -861,6 +896,11 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           let c = a ? 2 : 3.4;
           o.downK = a ? Math.min(1, o.downK + e * c) : Math.max(0, o.downK - e * c);
         }
+        // A fainted creature lies down and fades, which on its own read as a
+        // model that had fallen over. Dizzy stars say "out of the fight" in the
+        // one language every player of this genre already reads.
+        o.downK > 0.5 && !o.stars ? (o.stars = dizzyStars(), o.stars.position.y = (o.height || 1.2) * 0.7 + 0.2, o.holder.add(o.stars)) : o.downK <= 0.5 && o.stars && (o.holder.remove(o.stars), o.stars.traverse(q => q.geometry?.dispose()), o.stars = null);
+        o.stars && (o.stars.rotation.y += e * 2.6, o.stars.children.forEach(q => q.lookAt(this.camera.position)));
         if (Math.abs(o.downK - o.downApplied) > 0.01 && (o.downApplied = o.downK, this.fade(o, 1 - o.downK * 0.42)), o.react > 0 && (o.react = Math.max(0, o.react - e * 2.6)), o.downK > 0.02) o.group.rotation.z = o.downK * 1.35 * (o.side === "a" ? 1 : -1), o.group.rotation.x = 0, o.group.position.y = -o.downK * 0.16;else if (!n) if (o.group.rotation.z = 0, o.group.userData.baseY = 0, animateCreature(o.group, t, o.walking > 0, o.walking > 0 ? 1.1 : 1), o.react > 0) {
           let c = o.react * o.react;
           o.group.rotation.x = -c * 0.28, o.group.position.y += c * 0.14;

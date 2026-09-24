@@ -488,6 +488,52 @@ export async function attachModel(group, speciesId) {
 }
 
 /**
+ * Chibi proportions, set on the bones.
+ *
+ * Both humanoids are drawn at adult proportions — about seven heads tall, a
+ * long spine, a cloak to the ankles — which is a realistic figure in a world
+ * the brief calls cute and casual. A big head, stubby legs, shorter arms and
+ * chunky hands and feet turn the same rig, the same clips and the same colour
+ * tinting into the MapleStory-sized hero the brief asked for, with nothing
+ * re-modelled. Legs are shortened along the bone rather than shrunk, so they
+ * read stocky instead of spindly.
+ *
+ * The exporter wrote a scale key for every bone on every frame — all 1.0 — so
+ * the mixer would put the adult proportions back on the next frame. Those
+ * tracks are dropped once per file; rotation and translation are untouched.
+ */
+const CHIBI = {
+  Head: [1.55, 1.55, 1.55],
+  LeftArm: [0.86, 0.86, 0.86], RightArm: [0.86, 0.86, 0.86],
+  LeftHand: [1.3, 1.3, 1.3], RightHand: [1.3, 1.3, 1.3],
+  LeftUpLeg: [0.97, 0.74, 0.97], RightUpLeg: [0.97, 0.74, 0.97],
+  LeftLeg: [1, 0.9, 1], RightLeg: [1, 0.9, 1],
+  LeftFoot: [1.3, 1.3, 1.3], RightFoot: [1.3, 1.3, 1.3],
+};
+/** Of the adult height. Small next to a door, which is most of what reads cute. */
+export const CHIBI_HEIGHT = 0.8;
+const clipsNoScale = new WeakMap();
+function playableClips(gltf) {
+  let clips = clipsNoScale.get(gltf);
+  if (!clips) {
+    clips = gltf.animations.map((a) => {
+      const c = a.clone();
+      c.tracks = c.tracks.filter((t) => !t.name.endsWith('.scale'));
+      return c;
+    });
+    clipsNoScale.set(gltf, clips);
+  }
+  return clips;
+}
+function chibify(model) {
+  model.traverse((o) => {
+    const k = o.isBone && CHIBI[o.name];
+    if (k) o.scale.set(k[0], k[1], k[2]);
+  });
+  model.updateMatrixWorld(true);
+}
+
+/**
  * Swap a procedurally built avatar for its model, in place.
  *
  * Same surgery as `attachModel`, but these files carry their own animation, so
@@ -513,10 +559,12 @@ export async function attachAvatar(group, appearance = {}) {
   const outline = STYLE.outline > 0 && QUALITY.tier !== 'low'
     ? outlineMaterial(0.009) : null;
   toonify(model, outline, tint);
+  chibify(model);
 
+  // Measured after the proportions change, so the feet land on the ground.
   const box = new Box3().setFromObject(model);
   const size = box.getSize(new Vector3());
-  const height = def.height * (appearance.body === 'tall' ? 1.045
+  const height = def.height * CHIBI_HEIGHT * (appearance.body === 'tall' ? 1.045
     : appearance.body === 'stocky' ? 0.955 : 1);
   const scale = height / Math.max(0.001, size.y);
   model.scale.set(scale * (appearance.body === 'stocky' ? 1.1 : 1), scale, scale);
@@ -532,8 +580,9 @@ export async function attachAvatar(group, appearance = {}) {
 
   const mixer = new AnimationMixer(model);
   const actions = {};
+  const clips = playableClips(gltf);
   for (const [state, name] of Object.entries(def.clips)) {
-    const clip = gltf.animations.find((c) => c.name === name);
+    const clip = clips.find((c) => c.name === name);
     if (clip) actions[state] = mixer.clipAction(clip);
   }
   actions.idle?.play();

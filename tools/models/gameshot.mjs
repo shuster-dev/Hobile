@@ -50,6 +50,7 @@ const hideUi = (on) => page.evaluate((v) => {
 }, on);
 
 await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
+await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'מאיר');

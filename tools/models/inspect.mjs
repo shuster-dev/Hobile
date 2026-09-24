@@ -29,6 +29,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 430, height: 880 }, deviceScaleFactor: 2 });
 page.on('pageerror', (e) => console.log('pageerror:', e.message));
 await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
+await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'QA');

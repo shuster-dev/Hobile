@@ -55,8 +55,9 @@ miss the other.
 | `npm run test:live` | the same flow against a deployed URL — `HOBILE_TEST_BASE=https://… npm run test:live` |
 | `npm run test:store` | one player in two sessions, then a restart — the data must survive on the store it runs on. `DB_DRIVER=mongo MONGO_URL=… npm run test:store` for the one production uses; CI runs both, against a real MongoDB |
 | `npm run shot` | one screenshot — the only way to check how creatures actually look |
+| `npm run look` | the screens a player sees — title, creator, town, trainer close-up, field, battle — photographed the same way every time, so a visual change is judged against itself |
 
-Render budget: **280 draw calls, 420k triangles**. Currently 64 / 175k.
+Render budget: **280 draw calls, 420k triangles**. Currently 65 / 206k.
 
 ## Deploying
 

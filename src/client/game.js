@@ -2,6 +2,7 @@ import { Vector3 } from 'three';
 import { vibrate } from './audio.js';
 import { device, initDevice, isFullscreen, toggleFullscreen } from './device.js';
 import { BattleView, audio } from './gfx/battle.js';
+import { CreatorStage, portraits } from './gfx/stage.js';
 import { WorldView } from './gfx/world.js';
 import { CameraRig, Joystick, Keyboard } from './input.js';
 import { Net } from './net.js';
@@ -19,7 +20,7 @@ var Game = class {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
         return;
       }
-      this.world.camHeight = Math.max(2.2, Math.min(9.5, this.world.camHeight + s * 0.02)), this.world.camDist = Math.max(6.5, Math.min(14, this.world.camDist + s * 0.012));
+      this.world.camHeight = Math.max(3.5, Math.min(15, this.world.camHeight + s * 0.02)), this.world.camDist = Math.max(6.5, Math.min(15, this.world.camDist + s * 0.012));
     }), this.mode = "boot", this.zone = null, this.profile = null, this.cooldowns = {}, this.battle = {
       youId: null,
       combatants: [],
@@ -76,32 +77,73 @@ var Game = class {
     try {
       e = sessionStorage.getItem(WANT_LOGIN) === "1", e && sessionStorage.removeItem(WANT_LOGIN);
     } catch {}
-    if (this.ui.setLoading(!0, "מתחבר לשרת…"), !this.net.hasSession()) {
-      if (e) {
-        this.ui.setLoading(!1), this.showLogin();
-        return;
-      }
-      // No form on the first click. A guest here is a real account — the server
-      // holds its document from the first step — and it can be claimed later
-      // with a username and a password without losing any of it. A sign-up wall
-      // in front of a game link is where most people stop.
-      try {
-        await this.net.guest();
-      } catch {
-        this.ui.setLoading(!1), this.showLogin();
-        return;
-      }
+    // Switching accounts goes straight to the form it asked for.
+    if (e && !this.net.hasSession()) {
+      this.ui.setLoading(!1), this.showLogin();
+      return;
+    }
+    let t = await this.showTitle(this.prepareSession());
+    if (this.world.titleView(!1), t.next === "login") return this.showLogin();
+    if (t.next === "create") return this.showCreate();
+    await this.enterWorld(t.zone);
+  }
+  /**
+   * Everything boot used to do before the first frame, now done behind the
+   * title while the harbour turns. No form on the first click: a guest here is
+   * a real account — the server holds its document from the first step — and
+   * it can be claimed later with a username and a password without losing any
+   * of it. A sign-up wall in front of a game link is where most people stop.
+   */
+  async prepareSession() {
+    try {
+      this.net.hasSession() || await this.net.guest();
+    } catch {
+      return { next: "login" };
     }
     try {
-      let t = await this.net.me();
-      if (this.setAccount(t), !t.hasCharacter) {
-        this.ui.setLoading(!1), this.showCreate();
-        return;
-      }
-      await this.enterWorld(t.profile.zone || HOME_ZONE);
+      let e = await this.net.me();
+      return this.setAccount(e), e.hasCharacter ? {
+        next: "world",
+        zone: e.profile.zone || HOME_ZONE,
+        name: e.profile.name
+      } : { next: "create" };
     } catch {
-      this.net.logout(), this.ui.setLoading(!1), this.showLogin();
+      return this.net.logout(), { next: "login" };
     }
+  }
+  /**
+   * The front door. The world was always loading behind a spinner; now it
+   * loads behind the logo, live, and the first thing a player touches is a
+   * button that says play. That tap is also what browsers require before a
+   * page may make a sound, so the music starts with the game instead of
+   * whenever the first stray touch happened to land.
+   */
+  showTitle(e) {
+    // No HUD, but the world canvas stays up: it is the background.
+    this.mode = "title", this.ui.setMode("none"), $("#world-canvas").classList.remove("hidden");
+    try {
+      this.world.loadZone(ZONES[HOME_ZONE]), this.world.holdTimeOfDay(0.66), this.world.titleView(!0);
+    } catch {}
+    this.ui.setLoading(!1), this.ui.showScreen("title");
+    let t = $("#btn-play"),
+      n = $("#title-sub"),
+      s = $("#screen-title .title-top");
+    // One copy of the logo in the page; the title borrows it.
+    if (s && !s.querySelector(".logo")) {
+      let a = $("#screen-login .logo")?.cloneNode(!0);
+      a && s.prepend(a);
+    }
+    t.disabled = !0, t.textContent = "טוען…", n.textContent = "";
+    let r = null;
+    return e.then(a => {
+      r = a, t.disabled = !1, t.textContent = a.next === "world" ? "▶ המשך" : "▶ שחק", n.textContent = a.next === "world" && a.name ? `ברוך שובך, ${a.name}` : "הרפתקה חדשה מחכה";
+    }), new Promise(a => {
+      t.onclick = () => {
+        r && (audio.unlock(), t.disabled = !0, this.world.holdTimeOfDay(null), a(r));
+      }, $("#btn-title-login").onclick = () => {
+        this.world.titleView(!1), this.world.holdTimeOfDay(null), this.showLogin();
+      };
+    });
   }
   /** Who is playing, and whether there is still something to claim. */
   setAccount(e) {
@@ -150,13 +192,20 @@ var Game = class {
         outfit: AVATAR.outfits[0].id,
         starter: STARTERS[0]
       },
+      // The stage follows every pick the moment it is made.
+      show = () => this.creatorStage?.set({
+        body: e.body,
+        skin: e.skin,
+        hair: e.hair,
+        outfit: e.outfit
+      }, e.starter),
       t = (o, a, l, c) => {
         let h = $(o);
         h.innerHTML = "";
         for (let d of a) {
           let u = document.createElement("button");
           u.className = `chip ${e[l] === (d.id ?? d) ? "on" : ""}`, u.textContent = c(d), u.onclick = () => {
-            e[l] = d.id ?? d, t(o, a, l, c);
+            e[l] = d.id ?? d, t(o, a, l, c), show();
           }, h.appendChild(u);
         }
       },
@@ -166,7 +215,7 @@ var Game = class {
         for (let h of a) {
           let d = document.createElement("button");
           d.className = `swatch ${e[l] === h ? "on" : ""}`, d.style.background = h, d.onclick = () => {
-            e[l] = h, n(o, a, l);
+            e[l] = h, n(o, a, l), show();
           }, c.appendChild(d);
         }
       };
@@ -176,17 +225,28 @@ var Game = class {
       tall: "גבוה"
     })[o] || o), n("#pick-skin", AVATAR.skins, "skin"), n("#pick-hair", AVATAR.hair, "hair"), t("#pick-outfit", AVATAR.outfits, "outfit", o => loc(o));
     let s = $("#pick-starter"),
+      pics = {},
       r = () => {
         s.innerHTML = "";
         for (let o of STARTERS) {
           let a = SPECIES[o],
             l = document.createElement("button");
-          l.className = `starter ${e.starter === o ? "on" : ""}`, l.innerHTML = `<div class="dot" style="background:#${a.model.a.toString(16).padStart(6, "0")}"></div>
+          l.className = `starter ${e.starter === o ? "on" : ""}`, l.innerHTML = `${pics[o] ? `<img class="portrait" alt="" src="${pics[o]}">` : ""}<div class="dot" style="background:#${a.model.a.toString(16).padStart(6, "0")}"></div>
           <b>${loc(a)}</b><span>${ELEMENTS[a.types[0]].icon} ${loc(ELEMENTS[a.types[0]])}</span>`, l.onclick = () => {
-            e.starter = o, r();
+            e.starter = o, r(), show();
           }, s.appendChild(l);
         }
       };
+    // The stage and the portraits are decoration: if WebGL is short of
+    // contexts or a model will not load, the form still works with circles.
+    try {
+      this.creatorStage?.dispose(), this.creatorStage = new CreatorStage($("#creator-stage")), show();
+    } catch (o) {
+      this.creatorStage = null, $("#creator-stage")?.classList.add("hidden");
+    }
+    portraits(STARTERS).then(o => {
+      pics = o || {}, $("#screen-create:not(.hidden)") && r();
+    }).catch(() => {});
     r(), $("#btn-create").onclick = async () => {
       let o = $("#in-charname").value.trim();
       $("#create-error").textContent = "";
@@ -200,7 +260,7 @@ var Game = class {
             hair: e.hair,
             outfit: e.outfit
           }
-        }), this.ui.showScreen(null), await this.enterWorld();
+        }), this.creatorStage?.dispose(), this.creatorStage = null, this.ui.showScreen(null), await this.enterWorld();
       } catch (a) {
         $("#create-error").textContent = Oc(a.code);
       }
@@ -260,7 +320,10 @@ var Game = class {
       };
       let n = $("#badge-friends"),
         s = this.ui.friends.pending?.length || 0;
-      n.textContent = s, n.classList.toggle("hidden", s === 0), this.ui.openPanelId === "friends" && this.ui.renderPanel("friends");
+      n.textContent = s, n.classList.toggle("hidden", s === 0);
+      // Friends lives in the menu now, so the menu carries the count.
+      let m = $("#badge-menu");
+      m && (m.textContent = s, m.classList.toggle("hidden", s === 0)), this.ui.openPanelId === "friends" && this.ui.renderPanel("friends");
     }), e.on("guild", t => {
       this.ui.guild = t, this.ui.openPanelId === "guild" && this.ui.renderPanel("guild");
     }), e.on("guildList", t => {
@@ -337,6 +400,12 @@ var Game = class {
     }), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
       this.battle.inventory = t;
     }), e.on("battleEvent", t => {
+      // Say it when one of yours goes down. It gets benched in the same beat,
+      // and the bench is behind you — out of a portrait frame — so without a
+      // word the only sign was a creature quietly walking off screen.
+      this.battleView.onFaint || (this.battleView.onFaint = a => {
+        a.side === this.battle.mySide && a.kind === "creature" && SPECIES[a.species] && this.ui.battleBanner(`${loc(SPECIES[a.species])} התעלף! 💫`, 1500);
+      });
       this.battleView.playEvent(t);
       let n = t.actor && t.actor === this.battle.youId;
       if (t.kind === "hit") {
@@ -772,7 +841,7 @@ var Game = class {
       this.applyShake(0);
       return;
     }
-    this.mode === "world" ? this.tickWorld(n, e) : (this.mode === "battle" || this.mode === "dungeon") && this.tickBattle(n, e), this.shake = Math.max(0, this.shake - n * 3.4), this.applyShake(n);
+    this.mode === "world" ? this.tickWorld(n, e) : this.mode === "title" ? this.world.update(n, e) : (this.mode === "battle" || this.mode === "dungeon") && this.tickBattle(n, e), this.shake = Math.max(0, this.shake - n * 3.4), this.applyShake(n);
     let s = this.net.room?.state?.phase,
       r = (this.mode === "battle" || this.mode === "dungeon") && s !== void 0 && s !== "active";
     this.ui.tickCooldowns(this.cooldowns, Date.now(), r);
@@ -802,7 +871,7 @@ var Game = class {
         },
         petSpecies: d.petSpecies
       });
-      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.camYaw = d.rot || 0), f.pet?.species !== d.petSpecies && this.world.attachPet(f, d.petSpecies);
+      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), f.pet?.species !== d.petSpecies && this.world.attachPet(f, d.petSpecies);
     }), s.wilds.forEach((d, u) => {
       r.add(u), this.world.ensureActor(u, {
         kind: "wild",

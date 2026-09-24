@@ -5,6 +5,7 @@ await new Promise(r=>server.listen(2621,r));
 const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell', args:['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox']});
 const p = await b.newPage({ viewport:{width:1000,height:620}, deviceScaleFactor:2 });
 await p.goto('http://127.0.0.1:2621/solo.html', { waitUntil:'load' });
+await p.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await p.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await p.click('#pick-starter .starter'); await p.fill('#in-charname','QA'); await p.click('#btn-create');
 await p.waitForFunction(() => window.__hobile?.mode === 'world', null, { timeout: 30000 });
