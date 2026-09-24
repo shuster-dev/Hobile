@@ -10,6 +10,18 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The store production runs. Every step below that does not ask for it uses
+    # the memory store, which hands every room the same object for a player —
+    # the one property that hid a data-loss bug in the Mongo store for as long as
+    # nothing tested against Mongo. tools/store-test.mjs has the story.
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,6 +38,24 @@ jobs:
       # Boots the real server and connects two real clients to it.
       - name: Multiplayer
         run: npm run test:server
+
+      - name: Multiplayer on MongoDB
+        run: npm run test:server
+        env:
+          DB_DRIVER: mongo
+          MONGO_URL: mongodb://127.0.0.1:27017/
+          MONGO_DB: ci_multiplayer
+
+      # One player in two sessions — a phone that has not dropped its old tab —
+      # and then a restart, so the last word comes from a process with nothing
+      # in memory. The Mongo run is the one that matters: it is what players get.
+      - name: Persistence (memory store)
+        run: npm run test:store
+      - name: Persistence (MongoDB)
+        run: npm run test:store
+        env:
+          DB_DRIVER: mongo
+          MONGO_URL: mongodb://127.0.0.1:27017/
 
       - name: Build
         run: npm run build

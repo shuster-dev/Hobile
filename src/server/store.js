@@ -63,8 +63,33 @@ class MemoryStore {
   async saveGuild(g) { this.guilds.set(g.id, g); this._flush(); return g; }
 }
 
+// Player documents are held as one live object per player, exactly as the
+// memory store holds them, and written through to Mongo.
+//
+// Without this, every getDoc was a fresh copy and whoever saved last won. The
+// memory store hands every room the same object, and every test in the repo ran
+// on it, so nothing noticed: a battle, a dungeon, /api/me and a second session
+// each took a copy, and a copy saved after the real one quietly put the old
+// state back. The case that bites is ordinary — iOS keeps a backgrounded tab's
+// socket open for a while, the player reopens the game, the new session loads
+// what the 20-second autosave last wrote, and when the old one finally drops,
+// the two overwrite each other. tools/store-test.mjs measures it: a purchase
+// made in one session was gone after both left.
+//
+// One object per player makes the Mongo store behave like the store the whole
+// codebase was written against. Writes for a player are chained so they reach
+// the database in the order they were made, and the cache is bounded — a player
+// in a room is saved every 20 seconds, which keeps them at the young end of it,
+// so what falls off the old end is nobody anything is holding.
+const DOC_CACHE = 5000;
+
 class MongoStore {
-  constructor({ url, dbName = 'hobile' }) { this.url = url; this.dbName = dbName; }
+  constructor({ url, dbName = 'hobile', cacheSize = DOC_CACHE }) {
+    this.url = url; this.dbName = dbName; this.cacheSize = cacheSize;
+    this.docs = new Map();     // id -> the live doc, least recently used first
+    this.loading = new Map();  // id -> the read in flight, so two callers share one object
+    this.writes = new Map();   // id -> the last write queued for that player
+  }
   async connect() {
     const { MongoClient } = await import('mongodb');
     this.client = new MongoClient(this.url);
@@ -80,7 +105,11 @@ class MongoStore {
     await this.docsC.createIndex({ gold: -1 });
     return this;
   }
-  async close() { await this.client?.close(); }
+  async close() {
+    // Rooms save on dispose, but the autosave does not wait for its writes.
+    await Promise.allSettled([...this.writes.values()]);
+    await this.client?.close();
+  }
   async findUser(username) { return this.usersC.findOne({ username }, { projection: { _id: 0 } }); }
   async findUserById(id) { return this.usersC.findOne({ id }, { projection: { _id: 0 } }); }
   async createUser(user) { await this.usersC.insertOne({ ...user }); return user; }
@@ -88,8 +117,41 @@ class MongoStore {
     await this.usersC.replaceOne({ id: user.id }, { ...user });
     return user;
   }
-  async getDoc(userId) { return this.docsC.findOne({ id: userId }, { projection: { _id: 0 } }); }
-  async saveDoc(doc) { await this.docsC.replaceOne({ id: doc.id }, doc, { upsert: true }); return doc; }
+  _remember(doc) {
+    this.docs.delete(doc.id);
+    this.docs.set(doc.id, doc);
+    while (this.docs.size > this.cacheSize) this.docs.delete(this.docs.keys().next().value);
+  }
+  async getDoc(userId) {
+    const live = this.docs.get(userId);
+    if (live) { this._remember(live); return live; }
+    let read = this.loading.get(userId);
+    if (!read) {
+      read = this.docsC.findOne({ id: userId }, { projection: { _id: 0 } })
+        .then((found) => {
+          // A save that landed while this read was out is newer than the read.
+          const current = this.docs.get(userId);
+          if (current) return current;
+          if (found) this._remember(found);
+          return found || null;
+        })
+        .finally(() => this.loading.delete(userId));
+      this.loading.set(userId, read);
+    }
+    return read;
+  }
+  async saveDoc(doc) {
+    this._remember(doc);
+    // The driver serialises when the write runs, not when it is queued, so each
+    // write in the chain carries the newest state and the last one wins.
+    const write = (this.writes.get(doc.id) || Promise.resolve())
+      .catch(() => {})
+      .then(() => this.docsC.replaceOne({ id: doc.id }, doc, { upsert: true }));
+    this.writes.set(doc.id, write);
+    write.finally(() => { if (this.writes.get(doc.id) === write) this.writes.delete(doc.id); }).catch(() => {});
+    await write;
+    return doc;
+  }
   async leaderboard(kind = 'level', limit = 50) {
     const sort = kind === 'gold' ? { gold: -1 } : kind === 'captures' ? { 'stats.captures': -1 } : { level: -1 };
     const rows = await this.docsC.find({}, { projection: { _id: 0, id: 1, name: 1, level: 1, gold: 1, stats: 1 } })

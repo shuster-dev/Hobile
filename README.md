@@ -53,6 +53,7 @@ miss the other.
 | `npm run test:browser` | drives a real browser: character creation, entering the world, zero console errors, the render budget |
 | `npm run test:session` | the whole promise: first click with no form, reload lands in the same zone, claim a username, log in from a browser that has never seen the first one |
 | `npm run test:live` | the same flow against a deployed URL — `HOBILE_TEST_BASE=https://… npm run test:live` |
+| `npm run test:store` | one player in two sessions, then a restart — the data must survive on the store it runs on. `DB_DRIVER=mongo MONGO_URL=… npm run test:store` for the one production uses; CI runs both, against a real MongoDB |
 | `npm run shot` | one screenshot — the only way to check how creatures actually look |
 
 Render budget: **280 draw calls, 420k triangles**. Currently 64 / 175k.
