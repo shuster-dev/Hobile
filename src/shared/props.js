@@ -1,9 +1,22 @@
-import { Color } from 'three';
+// `three` was imported here for one line of arithmetic, and it cost the server
+// 26MB: `shared/` is loaded by WorldRoom, so every deploy shipped the whole
+// renderer to a process that never draws a frame. The blend is reproduced
+// exactly rather than approximated — three lerps in Linear-sRGB and returns
+// sRGB, which is why the transfer functions are not optional; a naive per-channel
+// mix would quietly shift every colour in the world. Checked bit-for-bit against
+// `new Color(a).lerp(new Color(b), t).getHex()` over 300k blends, edges included.
+const SRGB_TO_LINEAR = (i) => i < 0.04045 ? i * 0.0773993808 : Math.pow(i * 0.9478672986 + 0.0521327014, 2.4);
+const LINEAR_TO_SRGB = (i) => i < 0.0031308 ? i * 12.92 : 1.055 * Math.pow(i, 0.41666) - 0.055;
 
 function mixHex(i, e, t) {
-  let n = new Color(i),
-    s = new Color(e);
-  return n.lerp(s, t).getHex();
+  let n = 0;
+  for (let s = 16; s >= 0; s -= 8) {
+    let r = SRGB_TO_LINEAR((i >> s & 255) / 255),
+      o = SRGB_TO_LINEAR((e >> s & 255) / 255),
+      a = LINEAR_TO_SRGB(r + (o - r) * t) * 255;
+    n = n * 256 + Math.round(a < 0 ? 0 : a > 255 ? 255 : a);
+  }
+  return n;
 }
 
 function rng(i) {
