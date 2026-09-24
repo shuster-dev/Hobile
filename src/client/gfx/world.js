@@ -3408,7 +3408,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.seasonTint = [], this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3428,8 +3428,6 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       r.rotateX(-Math.PI / 2);
       let o = r.attributes.position,
         a = new Float32Array(o.count * 3),
-        l = new Color(e.groundLow),
-        c = new Color(e.groundHigh),
         h = new Color(e.path),
         d = new Color(),
         u = hash(this.zone.id),
@@ -3437,20 +3435,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           let _ = MathUtils.clamp((E - m) / (v - m), 0, 1);
           return _ * _ * (3 - 2 * _);
         },
-        p = t / s;
+        p = t / s,
+        tone = this._tone = groundTone(this.zone, e, p);
       for (let m = 0; m < o.count; m++) {
         let v = o.getX(m),
           E = o.getZ(m),
           _ = heightAt(this.zone.id, v, E);
-        o.setY(m, _);
-        let S = heightAt(this.zone.id, v + p, E),
-          b = heightAt(this.zone.id, v, E + p),
-          T = Math.min(1, Math.hypot(S - _, b - _) / p * 2.6),
-          y = f(-2.2, 2.2, _),
-          M = fbm(v * 0.045, E * 0.045, u + 31, 2),
-          P = fbm(v * 0.42, E * 0.42, u + 57, 2),
-          A = MathUtils.clamp(y * 0.72 + T * 0.34 + M * 0.5 + P * 0.14, 0, 1);
-        d.copy(l).lerp(c, A);
+        o.setY(m, _), tone(v, E, d, _);
         for (let k of this.zone.landmarks) {
           if (!k.r) continue;
           let L = Math.hypot(k.x - v, k.z - E),
@@ -3776,8 +3767,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           roughness: 0.92,
           side: DoubleSide,
           envMapIntensity: 0.5
-        }), 0.12),
-        a = new InstancedMesh(r, o, s.length);
+        }), 0.12, !0),
+        a = new InstancedMesh(upNormals(r), o, s.length);
       s.forEach((l, c) => {
         n.position.set(l.x, this.heightAt(l.x, l.z), l.z), n.rotation.set(0, l.rot, 0), n.scale.setScalar(l.s), n.updateMatrix(), a.setMatrixAt(c, n.matrix);
       }), this.zoneGroup.add(a), this.seasonTint.push({
@@ -3928,8 +3919,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           roughness: 0.9,
           side: DoubleSide,
           envMapIntensity: 0.6
-        }), 0.16),
-        M = new InstancedMesh(T, y, Math.max(1, a.length));
+        }), 0.16, !0),
+        M = new InstancedMesh(upNormals(T), y, Math.max(1, a.length));
       M.receiveShadow = !1, a.forEach((A, k) => {
         let L = heightAt(this.zone.id, A.x, A.z);
         l.position.set(A.x, L, A.z), l.rotation.set(0, A.rot, 0), l.scale.setScalar(A.s), l.updateMatrix(), M.setMatrixAt(k, l.matrix);
@@ -3949,7 +3940,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         mat: y,
         base: e.grass,
         kind: "grass"
-      }), this.applySeason();
+      }), this.buildMeadow(e), this.applySeason();
       function P(A) {
         let k = A === "arid" ? [xf2(blobGeo(1.9, 0.42, 1.9, 3.4, 14), {
           y: 2.9
@@ -3984,6 +3975,172 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           z: 0.4
         })];
         return mergePlain(k) || k[0];
+      }
+    }
+    /** The open ground between the trees: short grass everywhere the earth is
+     *  not sand, stone, rock or water — thick where the meadow is lush, thin
+     *  where it is not — and flowers in beds, a ring of them just past each
+     *  camp's sand and more wherever the grass is thickest. Seeded by the zone,
+     *  so every player sees the same pink bed by the same rock. */
+    buildMeadow(e) {
+      let z = this.zone,
+        M = MEADOW[z.element] || MEADOW.verdant,
+        seed = hash(z.id),
+        // Out to the trees at the rim: the camera sees past where you can walk.
+        lim = z.size / 2 - 3.5,
+        tone = this._tone,
+        col = new Color(),
+        ss = (a, b, x) => {
+          let k = MathUtils.clamp((x - a) / (b - a), 0, 1);
+          return k * k * (3 - 2 * k);
+        },
+        lushAt = (x, y) => ss(-0.14, 0.16, fbm(x * 0.05, y * 0.05, seed + 5, 2)),
+        // How much of a camp's sand, or a portal's stone, the ground here is
+        // painted with: the terrain's own falloff, so grass stops where it does.
+        sandy = (x, y) => {
+          let w = 0;
+          for (let k of z.landmarks) {
+            let L = Math.hypot(k.x - x, k.z - y);
+            if (!k.r) {
+              if (L < 3.4) return 1;
+              continue;
+            }
+            let O = k.r * 0.85 + 2 + fbm(x * 0.09, y * 0.09, seed + 11, 2) * 3.4;
+            L < O && (w = Math.max(w, ss(O, k.r * 0.45, L) * 0.86));
+          }
+          return w;
+        },
+        // Colliders in 8m cells, so each test looks at a handful and not at
+        // every tree in the zone. A tree lets grass grow up to its trunk.
+        CELL = 8,
+        grid = new Map(),
+        cellOf = (x, y) => Math.floor(x / CELL) * 4096 + Math.floor(y / CELL);
+      for (let c of this.colliders) {
+        if (c.kind === "edge") continue;
+        let r = (c.r ?? Math.hypot(c.hw, c.hd)) + 0.6;
+        for (let i = Math.floor((c.x - r) / CELL); i <= Math.floor((c.x + r) / CELL); i++)
+          for (let j = Math.floor((c.z - r) / CELL); j <= Math.floor((c.z + r) / CELL); j++) {
+            let k = i * 4096 + j;
+            (grid.get(k) || grid.set(k, []).get(k)).push(c);
+          }
+      }
+      let blocked = (x, y, pad) => {
+          for (let c of grid.get(cellOf(x, y)) || []) {
+            if (c.hw !== void 0) {
+              let co = Math.cos(-(c.rot || 0)),
+                si = Math.sin(-(c.rot || 0)),
+                dx = x - c.x,
+                dz = y - c.z;
+              if (Math.abs(dx * co - dz * si) < c.hw + pad && Math.abs(dx * si + dz * co) < c.hd + pad) return !0;
+              continue;
+            }
+            let r = c.kind === "tree" ? c.r * 0.45 : c.r + pad;
+            if ((x - c.x) ** 2 + (y - c.z) ** 2 < r * r) return !0;
+          }
+          return !1;
+        },
+        open = (x, y, pad, sand) => x * x + y * y < lim * lim && sandy(x, y) <= sand && !blocked(x, y, pad),
+        wet = y => !!e.water && y < -0.85,
+        o = new Object3D();
+
+      // Grass: one tuft per cell of a jittered grid, kept or not by how lush
+      // the meadow is there. The grid (not pure chance) spreads it evenly, and
+      // a coarser grid is how a slower phone or a drier zone gets less of it.
+      let R = rng(seed + 7331),
+        step = 0.85 / Math.sqrt(Math.max(0.05, M.grass * this.density)),
+        tufts = [];
+      for (let gx = -lim; gx < lim; gx += step)
+        for (let gz = -lim; gz < lim; gz += step) {
+          let x = gx + R() * step,
+            y = gz + R() * step,
+            lush = lushAt(x, y);
+          if (R() > 0.14 + 0.86 * lush || !open(x, y, 0.25, 0.22)) continue;
+          let h = heightAt(z.id, x, y);
+          wet(h) || tufts.push({ x, z: y, y: h, lush, rot: R() * Math.PI * 2, s: 0.6 + lush * 0.35 + R() * 0.25, tall: 0.8 + R() * 0.3, k: 0.93 + R() * 0.12 });
+        }
+      if (tufts.length) {
+        let m = this.windMaterial(new MeshStandardMaterial({
+            vertexColors: !0,
+            roughness: 0.95,
+            metalness: 0,
+            side: DoubleSide,
+            envMapIntensity: 0.28
+          }), 0.14, !0),
+          g = new InstancedMesh(meadowTuft(), m, tufts.length);
+        tufts.forEach((t, i) => {
+          o.position.set(t.x, t.y, t.z), o.rotation.set(0, t.rot, 0), o.scale.set(t.s, t.s * t.tall, t.s), o.updateMatrix(), g.setMatrixAt(i, o.matrix), g.setColorAt(i, tone(t.x, t.z, col, t.y).multiplyScalar(t.k));
+        }), g.receiveShadow = !0, g.userData.noOutline = !0, this.zoneGroup.add(g),
+        // White, so the season's tint is all the material adds on top of the
+        // ground colour each tuft already carries.
+        this.seasonTint.push({ mat: m, base: 16777215, kind: "grass" }), this.meadowGrass = g;
+      }
+
+      // Flowers, in beds. A second stream of numbers, independent of the
+      // grass and of the phone's quality setting, so the beds are the same
+      // for everyone.
+      let F = rng(seed + 9127),
+        pick = () => M.petals[Math.floor(F() * M.petals.length)],
+        beds = [];
+      for (let k of z.landmarks) {
+        if (!k.r || k.kind !== "camp" && k.kind !== "town") continue;
+        let n = 5 + Math.floor(F() * 3);
+        for (let i = 0; i < n; i++) {
+          let a = (i + F() * 0.6) / n * Math.PI * 2,
+            d = k.r * 0.85 + 5 + F() * 3;
+          beds.push({ x: k.x + Math.cos(a) * d, z: k.z + Math.sin(a) * d, r: 1.4 + F() * 1.2 });
+        }
+      }
+      let want = beds.length + Math.round(z.size * z.size / 260 * M.flowers);
+      for (let tries = 0; beds.length < want && tries < want * 10; tries++) {
+        let x = (F() * 2 - 1) * lim,
+          y = (F() * 2 - 1) * lim;
+        F() < 0.25 + 0.75 * lushAt(x, y) && x * x + y * y < lim * lim && beds.push({ x, z: y, r: 1 + F() * 1.4 });
+      }
+      let flowers = [],
+        bloom = (x, y, c) => {
+          if (!open(x, y, 0.35, 0.08)) return;
+          let h = heightAt(z.id, x, y);
+          wet(h - 0.05) || flowers.push({ x, z: y, y: h, c, s: 0.15 + F() * 0.06, rot: F() * Math.PI * 2, tx: (F() - 0.5) * 0.6, tz: (F() - 0.5) * 0.6 });
+        };
+      for (let b of beds) {
+        // As thick as a bed of flowers, whatever its size: a big bed is not
+        // a sparse one.
+        let main = pick(),
+          other = pick(),
+          n = Math.min(44, Math.max(8, Math.round(Math.PI * b.r * b.r * 2.4)));
+        for (let i = 0; i < n; i++) {
+          let a = F() * Math.PI * 2,
+            d = b.r * Math.sqrt(F());
+          bloom(b.x + Math.cos(a) * d, b.z + Math.sin(a) * d, F() < 0.78 ? main : other);
+        }
+      }
+      // And a few on their own, as seeds that blew away from the beds.
+      for (let i = 0, n = Math.round(z.size * z.size / 28 * M.flowers); i < n; i++) bloom((F() * 2 - 1) * lim, (F() * 2 - 1) * lim, pick());
+      // A slower phone draws fewer of them — thinned evenly through every bed,
+      // so the beds are still where everyone else sees them.
+      this.density < 1 && (flowers = flowers.filter((f, i) => i * 0.618034 % 1 < this.density + 0.2));
+      this.flowerBeds = null;
+      if (flowers.length) {
+        let wind = m => this.windMaterial(m, 0.3, !0),
+          heads = new InstancedMesh(flowerHead(), wind(new MeshStandardMaterial({
+            vertexColors: !0,
+            roughness: 0.7,
+            metalness: 0,
+            side: DoubleSide,
+            envMapIntensity: 0.35
+          })), flowers.length),
+          bases = new InstancedMesh(flowerBase(M.heart, mixHex(e.leaf, 4165434, 0.55)), wind(new MeshStandardMaterial({
+            vertexColors: !0,
+            roughness: 0.8,
+            metalness: 0,
+            side: DoubleSide,
+            envMapIntensity: 0.3
+          })), flowers.length);
+        flowers.forEach((f, i) => {
+          o.position.set(f.x, f.y, f.z), o.rotation.set(f.tx, f.rot, f.tz), o.scale.setScalar(f.s), o.updateMatrix(), heads.setMatrixAt(i, o.matrix), bases.setMatrixAt(i, o.matrix), heads.setColorAt(i, col.set(f.c));
+        });
+        for (let m of [heads, bases]) m.receiveShadow = !0, m.userData.noOutline = !0;
+        this.flowerBeds = new Group(), this.flowerBeds.add(heads, bases), this.zoneGroup.add(this.flowerBeds);
       }
     }
     buildDecals(e) {
@@ -4030,7 +4187,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       }));
       d.receiveShadow = !0, this.zoneGroup.add(d);
     }
-    windMaterial(e, t) {
+    /** A material that sways in the wind, weighted by height so a blade's root
+     *  stays put. `thin` is for grass and petals — sheets with no inside,
+     *  drawn from both faces: three.js turns a double-sided material's normal
+     *  round on the back face, which lights the far side of every blade from
+     *  underneath, i.e. almost black, and a field of them reads as scattered
+     *  soot. A thin sheet is lit the same from either side. */
+    windMaterial(e, t, thin = !1) {
       let n = e.clone();
       return n.userData = {
         wind: !0,
@@ -4050,8 +4213,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           float sway = sin(uTime * 1.6 + wpos.x * 0.35 + wpos.z * 0.28);
           transformed.x += sway * uStrength * max(0.0, transformed.y);
           transformed.z += cos(uTime * 1.1 + wpos.x * 0.2) * uStrength * 0.6 * max(0.0, transformed.y);
-        `), n.userData.shader = s;
-      }, n.needsUpdate = !0, this.windMaterials.push(n), n;
+        `), thin && (s.fragmentShader = s.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
+          #ifdef DOUBLE_SIDED
+            normal *= faceDirection;
+            nonPerturbedNormal = normal;
+          #endif
+        `)), n.userData.shader = s;
+      },
+      // Programs are shared by this key, and every wind material has the same
+      // onBeforeCompile source: without the suffix a thin one could be handed
+      // a program compiled without the fix, or the other way round.
+      thin && (n.customProgramCacheKey = () => "wind|thin"), n.needsUpdate = !0, this.windMaterials.push(n), n;
     }
     buildBuildings(e) {
       let t = [],
@@ -4084,7 +4256,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       for (let u of this.props.buildings) {
         let f = heightAt(this.zone.id, u.x, u.z),
           p = u.kind === "hall" ? 1.35 : 1,
-          x = u.h * p,
+          x = u.h * p * HOUSE_WALL,
           g = {
             x: u.x,
             y: f,
@@ -4115,40 +4287,74 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             y: x + 0.02
           }),
           mat: s
-        }), t.push({
-          geo: m(new BoxGeometry(u.w + 0.62, 0.12, u.d + 0.74), {
-            y: x + 0.14
-          }),
-          mat: a
         });
-        let v = u.w * 0.74,
-          E = new CylinderGeometry(v, v, u.d + 0.7, 3, 1);
+        // The roof: two thick slabs meeting at a ridge, at a cottage's pitch,
+        // over a gable of wall. It used to be a three-sided cylinder laid on
+        // its side: an A-frame as tall again as the walls, which made every
+        // house tower over a chibi trainer — and it was laid down by an Euler
+        // whose yaw came between its two tilts, so on any house not facing
+        // the one way the roof came out rolled off its walls. Everything here
+        // turns about the vertical only.
+        let P = HOUSE_PITCH,
+          cs = 1 / Math.hypot(1, P),
+          sn = P * cs,
+          run = u.w / 2 + HOUSE_EAVE,
+          ridge = x + 0.2 + u.w / 2 * P,
+          th = 0.24,
+          len = u.d + 0.7,
+          past = 0.14,
+          along = run / cs + past;
         t.push({
-          geo: m(E, {
-            y: x + 0.5,
-            rx: Math.PI / 2,
-            rz: Math.PI / 6
+          geo: m(gablePrism(u.w / 2, x - 0.05, ridge - 0.1, u.d)),
+          mat: n
+        });
+        for (let S of [-1, 1]) {
+          // Measured down the slope from the ridge, starting a little past it
+          // so the two slabs overlap there instead of leaving a notch.
+          let mid = along / 2 - past,
+            px = S * mid * cs - S * sn * th / 2,
+            py = ridge - mid * sn - cs * th / 2;
+          t.push({
+            geo: m(new BoxGeometry(along, th, len), {
+              x: px,
+              y: py,
+              rz: -S * Math.atan(P)
+            }),
+            mat: r
+          });
+          for (let b = 1; b <= 4; b++) {
+            let k = b / 4.6 * (along - past);
+            t.push({
+              geo: m(new BoxGeometry(0.12, 0.07, len + 0.04), {
+                x: S * k * cs + S * sn * 0.03,
+                y: ridge - k * sn + cs * 0.03,
+                rz: -S * Math.atan(P)
+              }),
+              mat: o
+            });
+          }
+        }
+        t.push({
+          geo: m(new BoxGeometry(0.36, 0.2, len + 0.06), {
+            y: ridge + 0.02
           }),
-          mat: r
-        }), t.push({
-          geo: m(new BoxGeometry(0.2, 0.16, u.d + 0.82), {
-            y: x + 0.5 + v - 0.04
+          mat: o
+        });
+        let _ = u.d / 2;
+        // A round attic window in the front gable.
+        t.push({
+          geo: m(new RingGeometry(0.22, 0.31, 16), {
+            y: x + (ridge - x) * 0.4,
+            z: _ + 0.02
           }),
           mat: a
+        }, {
+          geo: m(new CircleGeometry(0.22, 16), {
+            y: x + (ridge - x) * 0.4,
+            z: _ + 0.015
+          }),
+          mat: l
         });
-        for (let S of [-1, 1]) for (let b = 1; b <= 6; b++) {
-          let T = b / 7;
-          t.push({
-            geo: m(new BoxGeometry(0.16, 0.11, u.d + 0.76), {
-              x: S * 0.866 * v * T,
-              y: x + 0.5 + v - 1.5 * v * T,
-              z: 0,
-              rz: S * Math.PI / 3
-            }),
-            mat: o
-          });
-        }
-        let _ = u.d / 2;
         t.push({
           geo: m(new BoxGeometry(0.86, 1.46, 0.09), {
             y: 0.73,
@@ -4217,19 +4423,22 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           mat: a
         });
         if (u.kind === "hall" || (Math.round(u.x * 7 + u.z * 13) & 3) !== 0) {
+          // Standing up through the roof where it is, not at a height the old
+          // steep roof would have buried it to.
           let S = u.w * 0.3,
-            b = -u.d * 0.2;
+            b = -u.d * 0.2,
+            top = ridge - S * P;
           t.push({
-            geo: m(new BoxGeometry(0.46, 1.35, 0.46), {
+            geo: m(new BoxGeometry(0.46, 1.2, 0.46), {
               x: S,
-              y: x + 1.05,
+              y: top + 0.15,
               z: b
             }),
             mat: c
           }), t.push({
             geo: m(new BoxGeometry(0.6, 0.14, 0.6), {
               x: S,
-              y: x + 1.78,
+              y: top + 0.82,
               z: b
             }),
             mat: s
@@ -4241,7 +4450,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         castShadow: !0,
         receiveShadow: !0
       });
-      d.receiveShadow = !0, this.zoneGroup.add(d);
+      d.receiveShadow = !0, d.userData.houses = !0, this.zoneGroup.add(d);
     }
     buildLandmarks(e) {
       let t = new Group();
@@ -4307,16 +4516,42 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             a.position.set(n.x + 0.9, s, n.z), a.rotation.y = Math.PI, a.userData.baseY = s, t.add(a), this.npcAvatar = a;
           }
         } else if (n.kind === "town" || n.kind === "camp") {
-          let r = new Mesh(new CylinderGeometry(0.85, 0.95, 0.7, 18), mat(e.rock, {
-            roughness: 0.9
-          }));
-          r.position.set(n.x, s + 0.35, n.z), r.castShadow = !0, r.receiveShadow = !0;
-          let o = new Mesh(new CircleGeometry(0.78, 20), mat(3108751, {
-            roughness: 0.1,
-            metalness: 0.4,
-            env: 1.8
-          }));
-          if (o.rotation.x = -Math.PI / 2, o.position.set(n.x, s + 0.68, n.z), t.add(r, o), QUALITY.tier !== "low") {
+          // The camp's healing spring: a shallow pool ringed with round stones,
+          // bright enough to find from across the camp. It used to be a grey
+          // drum knee-high to the trainer — nothing to say "rest here", and a
+          // thing you walked straight through.
+          let r = new Group(),
+            ring = [];
+          for (let k = 0; k < 10; k++) {
+            let a = k / 10 * Math.PI * 2 + 0.2,
+              sc = 0.26 + (k * 7 % 5) * 0.035;
+            ring.push(xf2(new DodecahedronGeometry(1, 0), {
+              x: Math.cos(a) * 1.08,
+              z: Math.sin(a) * 1.08,
+              y: sc * 0.35,
+              ry: a * 1.7,
+              sx: sc * 1.25,
+              sy: sc * 0.8,
+              sz: sc
+            }));
+          }
+          let stones = new Mesh(mergePlain(ring) || ring[0], mat(mixHex(e.rock, 16777215, 0.25), {
+              roughness: 0.9,
+              flat: !0
+            })),
+            basin = new Mesh(new CylinderGeometry(1.02, 1.1, 0.16, 24), mat(mixHex(e.rock, 3355443, 0.2), {
+              roughness: 0.95
+            })),
+            o = new Mesh(new CircleGeometry(0.98, 24), new MeshStandardMaterial({
+              color: 8381936,
+              emissive: 3918048,
+              emissiveIntensity: 0.45,
+              roughness: 0.12,
+              metalness: 0.15,
+              envMapIntensity: 1.4
+            }));
+          basin.position.y = 0.06, o.rotation.x = -Math.PI / 2, o.position.y = 0.15, stones.castShadow = !0, stones.receiveShadow = !0, basin.receiveShadow = !0, o.userData.noOutline = !0, r.add(basin, o, stones), r.position.set(n.x, s, n.z);
+          if (t.add(r), QUALITY.tier !== "low") {
             let a = new PointLight(16763274, 6, 22, 2);
             a.position.set(n.x, s + 4.2, n.z), t.add(a);
           }
@@ -4884,6 +5119,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     applySeason() {
       let e = SEASON_LOOK[this._season] || SEASON_LOOK.summer;
       for (let t of this.seasonTint || []) t.mat.color.set(mixHex(t.base, t.kind === "grass" ? e.grass : e.leaf, t.kind === "grass" ? e.grassAmt : e.leafAmt));
+      // Nothing blooms in the snow.
+      this.flowerBeds && (this.flowerBeds.visible = this._season !== "winter");
     }
     tickWeather(e) {
       if (this._inside || !this.look) {
@@ -5449,6 +5686,157 @@ function buildReed() {
   return offsetGeometry(e, 0.06), e;
 }
 
+// What grows between the trees, element by element: how much short grass
+// (against the verdant meadow's), how many flowers, the petal colours a bed
+// chooses from, and the one colour every flower's heart is. A desert or a
+// glacier still flowers — sparsely, and in its own colours.
+var MEADOW = {
+  verdant: { grass: 1, flowers: 1, petals: [0xFFFFFF, 0xFFE45C, 0xFF8FB1, 0xC9A0FF, 0xFFB36B], heart: 0xF5A524 },
+  aqua: { grass: 0.9, flowers: 0.85, petals: [0xFFFFFF, 0x8FD9FF, 0x7BE3D0, 0xFFD3E8], heart: 0xFFD66B },
+  umbra: { grass: 0.75, flowers: 0.7, petals: [0xB98CFF, 0xFF7AD9, 0x7FE8FF, 0xE6D2FF], heart: 0xFFF3A0 },
+  volt: { grass: 0.6, flowers: 0.5, petals: [0xFFF36B, 0xFFFFFF, 0x8FE3FF, 0xD8F5FF], heart: 0xFFB020 },
+  frost: { grass: 0.35, flowers: 0.35, petals: [0xFFFFFF, 0xCFE8FF, 0xA9C8FF], heart: 0xFFE89A },
+  terra: { grass: 0.35, flowers: 0.35, petals: [0xFFD34D, 0xFF9F43, 0xFFF1C9, 0xF77F6E], heart: 0x8A4B22 },
+  ember: { grass: 0.3, flowers: 0.3, petals: [0xFFD34D, 0xFF8A3D, 0xFF5A4A, 0xFFF1C9], heart: 0x6A3418 }
+};
+// A village house against a chibi trainer: walls a little under the height the
+// layout gives them, a roof pitched at 40° (its tangent here) rather than an
+// A-frame's 60°, and eaves that reach this far past the walls. `buildingIndex`
+// works the camera's idea of a house's height out from the same three numbers.
+var HOUSE_WALL = 0.88,
+  HOUSE_PITCH = 0.84,
+  HOUSE_EAVE = 0.42;
+
+/** A triangular block of wall under a roof: `hw` either side of the middle at
+ *  `y0`, up to a point at `y1`, `len` deep. Wound to face outward, with flat
+ *  normals, for a merged mesh's front-side-only material. */
+function gablePrism(hw, y0, y1, len) {
+  let f = len / 2,
+    b = -len / 2,
+    g = new BufferGeometry();
+  return g.setAttribute("position", new Float32BufferAttribute([
+    -hw, y0, f, hw, y0, f, 0, y1, f,
+    hw, y0, b, -hw, y0, b, 0, y1, b,
+    hw, y0, f, hw, y0, b, 0, y1, b, hw, y0, f, 0, y1, b, 0, y1, f,
+    -hw, y0, b, -hw, y0, f, 0, y1, f, -hw, y0, b, 0, y1, f, 0, y1, b
+  ], 3)), g.computeVertexNormals(), g;
+}
+
+// A flower's head sits this high on its stem, in the flower's own units: one
+// unit is the head's radius, so a flower scaled 0.18 is 36cm across and 40cm
+// up — above the short grass around it, which is what lets you see it.
+var FLOWER_H = 2.2;
+
+/** Triangles with every normal pointing straight up. Grass blades and petals
+ *  are lit like the ground under them whichever way they happen to face, so a
+ *  meadow reads as one sunlit surface with texture on it, not as a scatter of
+ *  cards turning light and dark as the camera goes round. */
+function upGeometry(pos, col) {
+  let g = new BufferGeometry(),
+    n = new Float32Array(pos.length);
+  for (let i = 1; i < n.length; i += 3) n[i] = 1;
+  return g.setAttribute("position", new Float32BufferAttribute(pos, 3)), g.setAttribute("normal", new BufferAttribute(n, 3)), g.setAttribute("color", new Float32BufferAttribute(col, 3)), g.computeBoundingSphere(), g;
+}
+
+/** Point every normal straight up — see `upGeometry`. */
+function upNormals(g) {
+  let n = g.attributes.normal;
+  if (n) for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
+  return g;
+}
+
+/** A tuft of short grass: seven single-triangle blades leaning out from one
+ *  root. The vertex colour is a multiplier on the ground's own colour, which
+ *  each tuft is given as its instance colour: a root a shade darker than the
+ *  earth it stands in, and a tip the sun has caught. */
+function meadowTuft() {
+  let pos = [], col = [];
+  for (let b = 0; b < 7; b++) {
+    let a = b / 7 * Math.PI * 2 + b % 2 * 0.4,
+      h = 0.22 + b * 3 % 5 * 0.05,
+      lean = 0.3 + b % 3 * 0.16,
+      r0 = 0.02 + b % 2 * 0.04,
+      w = 0.052,
+      ca = Math.cos(a),
+      sa = Math.sin(a),
+      bx = ca * r0,
+      bz = sa * r0,
+      reach = h * Math.sin(lean);
+    pos.push(bx + sa * w, 0, bz - ca * w, bx - sa * w, 0, bz + ca * w, bx + ca * reach, h * Math.cos(lean), bz + sa * reach);
+    col.push(0.84, 0.86, 0.82, 0.84, 0.86, 0.82, 1.5, 1.56, 1.18);
+  }
+  return upGeometry(pos, col);
+}
+
+/** A flower's head: five cupped petals round an open middle, one unit in
+ *  radius, at FLOWER_H. White, so the instance colour is the petal colour; a
+ *  little darker toward the heart so the petals read as petals and not as a
+ *  coloured coin. Three triangles a petal: from across a meadow a flower is
+ *  a dozen pixels, and a rounder petal would be triangles nobody sees. */
+function flowerHead() {
+  let pos = [], col = [],
+    outline = [[0.5, -0.3], [0.94, -0.15], [0.94, 0.15], [0.5, 0.3]];
+  for (let p = 0; p < 5; p++) {
+    let a = p / 5 * Math.PI * 2,
+      ca = Math.cos(a),
+      sa = Math.sin(a),
+      at = ([u, v]) => {
+        let x = ca * u - sa * v,
+          z = sa * u + ca * v,
+          r = Math.hypot(x, z);
+        return [x, FLOWER_H + 0.2 * r * r, z];
+      },
+      root = at([0.12, 0]),
+      rim = outline.map(at);
+    for (let k = 0; k < 3; k++) pos.push(...root, ...rim[k], ...rim[k + 1]), col.push(0.84, 0.84, 0.84, 1, 1, 1, 1, 1, 1);
+  }
+  return upGeometry(pos, col);
+}
+
+/** Everything about a flower that is not its petals: the heart, the stem and a
+ *  few leaves at its foot. One colour of heart per zone, so these share one
+ *  mesh and one draw with no per-instance colour to tint them. */
+function flowerBase(heart, leaf) {
+  let pos = [], col = [],
+    h = new Color(heart),
+    l = new Color(leaf),
+    top = FLOWER_H + 0.16,
+    rim = FLOWER_H + 0.07;
+  for (let k = 0; k < 5; k++) {
+    let a0 = k / 5 * Math.PI * 2,
+      a1 = (k + 1) / 5 * Math.PI * 2;
+    pos.push(0, top, 0, Math.cos(a0) * 0.27, rim, Math.sin(a0) * 0.27, Math.cos(a1) * 0.27, rim, Math.sin(a1) * 0.27);
+    col.push(h.r * 1.15, h.g * 1.15, h.b * 1.15, h.r * 0.85, h.g * 0.85, h.b * 0.85, h.r * 0.85, h.g * 0.85, h.b * 0.85);
+  }
+  pos.push(-0.07, 0, 0, 0.07, 0, 0, 0.07, FLOWER_H, 0, -0.07, 0, 0, 0.07, FLOWER_H, 0, -0.07, FLOWER_H, 0);
+  for (let k = 0; k < 6; k++) col.push(l.r * 0.8, l.g * 0.8, l.b * 0.8);
+  for (let k = 0; k < 3; k++) {
+    let a = k / 3 * Math.PI * 2 + 0.5,
+      ca = Math.cos(a),
+      sa = Math.sin(a);
+    pos.push(sa * 0.12, 0.02, -ca * 0.12, -sa * 0.12, 0.02, ca * 0.12, ca * 0.85, 0.5, sa * 0.85);
+    col.push(l.r * 0.8, l.g * 0.8, l.b * 0.8, l.r * 0.8, l.g * 0.8, l.b * 0.8, l.r * 1.25, l.g * 1.25, l.b * 1.25);
+  }
+  return upGeometry(pos, col);
+}
+
+/** The colour the field terrain paints at (x, z) before any path is laid over
+ *  it: low ground to high by height, slope and two scales of noise. The
+ *  terrain and the meadow both ask here, so a tuft of grass starts out the
+ *  colour of the earth it grows from — pass the height when it is known. */
+function groundTone(zone, pal, step) {
+  let lo = new Color(pal.groundLow),
+    hi = new Color(pal.groundHigh),
+    seed = hash(zone.id);
+  return (x, z, out, y = heightAt(zone.id, x, z)) => {
+    let sx = heightAt(zone.id, x + step, z),
+      sz = heightAt(zone.id, x, z + step),
+      slope = Math.min(1, Math.hypot(sx - y, sz - y) / step * 2.6),
+      k = MathUtils.clamp((y + 2.2) / 4.4, 0, 1);
+    return out.copy(lo).lerp(hi, MathUtils.clamp(k * k * (3 - 2 * k) * 0.72 + slope * 0.34 + fbm(x * 0.045, z * 0.045, seed + 31, 2) * 0.5 + fbm(x * 0.42, z * 0.42, seed + 57, 2) * 0.14, 0, 1));
+  };
+}
+
 function mergePlain(i) {
   let e = mergeByMaterial(i.map(t => ({
     geo: t,
@@ -5464,17 +5852,39 @@ var eb = new MeshBasicMaterial();
 // instead of claiming the flat 1.7 every small prop used to claim — which made
 // the camera duck behind knee-high stones it flies well above.
 function propRadius(i) {
-  return i.kind === "building" ? 4.4 : i.kind === "tree" ? 2.8 : i.kind === "gate" ? 4 : i.kind === "rock" ? i.r * 1.1 : 1.7;
+  return i.kind === "building" ? 4.4 : i.kind === "tree" ? 2.8 : i.kind === "gate" ? 4 : i.kind === "rock" ? i.r * 1.1 : i.top ?? 1.7;
 }
 
 function buildingIndex(i) {
-  let e = new Map();
+  let e = new Map(),
+    shape = new Map();
   for (let t of i.buildings || []) {
-    let n = t.floors !== void 0 ? t.h + 1.2 : t.h * (t.kind === "hall" ? 1.35 : 1) + t.w * 0.74 + 0.8;
-    e.set(`${t.x.toFixed(2)}|${t.z.toFixed(2)}`, n);
+    let n = t.floors !== void 0 ? t.h + 1.2 : t.h * (t.kind === "hall" ? 1.35 : 1) * HOUSE_WALL + t.w / 2 * HOUSE_PITCH + 0.5,
+      k = `${t.x.toFixed(2)}|${t.z.toFixed(2)}`;
+    e.set(k, n);
+    // A village house is the camera's business out to its eaves, square to
+    // its walls. Its walking collider is a circle a little inside the walls,
+    // and the roof's corners reach a metre past that — enough, from behind a
+    // house, for the camera to call a sightline clear that went straight
+    // through the roof and leave the player hidden under it.
+    t.floors === void 0 && t.w && shape.set(k, {
+      x: t.x,
+      z: t.z,
+      hw: t.w / 2 + HOUSE_EAVE,
+      hd: t.d / 2 + 0.35,
+      rot: -(t.rot || 0),
+      kind: "building",
+      top: n,
+      core: {
+        hw: t.w / 2,
+        hd: t.d / 2
+      }
+    });
   }
   return (i.colliders || []).map(t => {
-    let n = e.get(`${t.x.toFixed(2)}|${t.z.toFixed(2)}`);
+    let k = `${t.x.toFixed(2)}|${t.z.toFixed(2)}`,
+      n = e.get(k);
+    if (t.hw === void 0 && shape.has(k)) return shape.get(k);
     return t.hw === void 0 ? n === void 0 ? t : {
       ...t,
       top: n
@@ -5493,15 +5903,15 @@ function buildingIndex(i) {
   });
 }
 
-function boxHit(i, e, t, n, s) {
+function boxHit(i, e, t, n, s, inner = !1) {
   let r = n.rot ? Math.cos(-n.rot) : 1,
     o = n.rot ? Math.sin(-n.rot) : 0,
     a = (i.x - n.x) * r - (i.z - n.z) * o,
     l = (i.x - n.x) * o + (i.z - n.z) * r,
     c = e.x * r - e.z * o,
     h = e.x * o + e.z * r,
-    d = n.hw + 0.4,
-    u = n.hd + 0.4,
+    d = n.hw + (inner ? 0.15 : 0.4),
+    u = n.hd + (inner ? 0.15 : 0.4),
     f = 0,
     p = t;
   for (let [x, g, m] of [[a, c, d], [l, h, u]]) {
@@ -5517,7 +5927,16 @@ function boxHit(i, e, t, n, s) {
     }
     if (f = Math.max(f, v), p = Math.min(p, E), f > p) return null;
   }
-  return f < 0.2 || f > t || i.y + e.y * f > s + (n.top ?? 9) ? null : f;
+  // Starting inside the box is standing under a house's eaves, and a sightline
+  // from there is only blocked if it runs into the walls — so ask again of the
+  // walls alone. Without this, the house you stand beside was invisible to the
+  // camera, which then happily looked at you from the far side of its roof.
+  if (f < 0.2 && !inner && n.core) return boxHit(i, e, t, {
+    ...n,
+    hw: n.core.hw,
+    hd: n.core.hd
+  }, s, !0);
+  return (inner ? f <= 0 : f < 0.2) || f > t || i.y + e.y * f > s + (n.top ?? 9) ? null : f;
 }
 
 function circleHit(i, e, t, n, s) {

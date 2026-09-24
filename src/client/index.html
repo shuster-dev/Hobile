@@ -153,6 +153,63 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
 @keyframes playPulse{0%,100%{box-shadow:0 10px 26px #ff7a5973,inset 0 2px 0 #fff8,inset 0 -3px 0 #0002}50%{box-shadow:0 12px 36px #ffb05aa6,inset 0 2px 0 #fff8,inset 0 -3px 0 #0002}}
 @media (prefers-reduced-motion:reduce){#screen-title .logo,.btn.play{animation:none}}
 
+/* --- a light HUD over a bright world ------------------------------------- */
+/* The world is a picture book now, and the HUD over it was night-time navy:
+   heavy slabs on a sunny meadow. Everything that sits on the world while you
+   walk is warm white glass with dark ink, and colour is kept for what means
+   something — level gold, health green, the coral action. Panels that open
+   over the world stay dark; they are a different room. The palette is swapped
+   by redefining the tokens inside the HUD, so every rule that reads them
+   follows without being rewritten. */
+#hud,#overlay,#toasts,.fs-btn{
+  --panel:rgba(255,252,246,.95);--panel-soft:rgba(255,252,246,.84);
+  --raise:rgba(42,47,77,.05);--raise-2:rgba(42,47,77,.1);--sunken:rgba(42,47,77,.1);
+  --stroke:rgba(255,255,255,.95);--stroke-strong:#fff;
+  --text:#2a2f4d;--muted:#666d90;--faint:#8b91ae;--gold:#d7870a;
+  --e1:0 1px 2px rgba(34,44,84,.12),0 3px 8px rgba(34,44,84,.14);
+  --e2:0 2px 4px rgba(34,44,84,.12),0 8px 20px rgba(34,44,84,.2);
+  --inset-hair:inset 0 1px 0 rgba(255,255,255,.8);
+  color:var(--text)}
+#hud .vitals{backdrop-filter:blur(12px) saturate(1.4)}
+#hud .bar{background:rgba(42,47,77,.12);box-shadow:inset 0 1px 2px rgba(42,47,77,.18)}
+#minimap{background:#fff;border:3px solid #fff;box-shadow:var(--e2)}
+#hud .icon-btn{color:var(--text)}
+#hud .icon-btn.wide{background:linear-gradient(135deg,#e2fbf6,#fffdf8 70%);border-color:#a8ece1;color:#136a5f}
+#chat-mini{background:rgba(255,252,246,.8);border-color:#fff;color:var(--text);box-shadow:var(--e1)}
+#tracker .q-bar{background:rgba(42,47,77,.12)}
+#tracker .q-lead.daily{background:linear-gradient(135deg,rgba(42,47,77,.05),transparent 70%)}
+.skill-btn{border-color:#fff;color:var(--text);box-shadow:var(--e2)}
+.skill-btn .cd{background:rgba(42,47,77,.42)}
+#stick-base{border-color:rgba(255,255,255,.85);background:radial-gradient(circle,rgba(255,255,255,.4),rgba(255,255,255,.14))}
+#objective{text-shadow:0 1px 3px rgba(255,255,255,.9)}
+#objective .what{background:rgba(255,252,246,.94);color:var(--text);border-color:#f3c46a;box-shadow:var(--e1)}
+.nameplate{background:rgba(255,252,246,.9);color:var(--text);border-color:#fff;font-weight:700}
+.nameplate .hpbar{background:rgba(42,47,77,.14)}
+.nameplate .tag{color:#12877a}
+.nameplate.wild{background:#fff3ea;border-color:#ffc3a8;color:#8a3413}
+.nameplate.boss{background:#fff0f0;border-color:#ff9a95;color:#9c1c1c}
+.dmg{text-shadow:0 2px 0 rgba(42,47,77,.55),0 0 8px rgba(42,47,77,.4);color:#fff}
+/* The battle screen, in the same light: the arena is daylight too. */
+#battle-hud{
+  --panel:rgba(255,252,246,.96);--panel-soft:rgba(255,252,246,.86);
+  --raise:rgba(255,255,255,.72);--raise-2:rgba(255,255,255,.9);--sunken:rgba(42,47,77,.1);
+  --stroke:rgba(42,47,77,.1);--stroke-strong:rgba(42,47,77,.16);
+  --text:#2a2f4d;--muted:#666d90;--faint:#8b91ae;--gold:#d7870a;
+  --e1:0 1px 2px rgba(34,44,84,.12),0 3px 8px rgba(34,44,84,.12);
+  --e2:0 2px 4px rgba(34,44,84,.12),0 8px 20px rgba(34,44,84,.18);
+  --inset-hair:inset 0 1px 0 rgba(255,255,255,.8);
+  color:var(--text)}
+#battle-actions{background:linear-gradient(to top,rgba(255,250,240,.97) 58%,rgba(255,250,240,0))}
+#battle-hud .bar{background:rgba(42,47,77,.12);box-shadow:inset 0 1px 2px rgba(42,47,77,.18)}
+#battle-hud .sk .cd{background:rgba(42,47,77,.4)}
+#battle-hud .combat-row.foe{border-color:#ffc0ab}
+#battle-banner{color:#fff;text-shadow:0 3px 0 rgba(42,47,77,.55),0 6px 22px rgba(42,47,77,.45)}
+.tm .face{width:36px;height:36px;margin:-8px -2px -8px -4px;object-fit:contain;filter:drop-shadow(0 2px 2px rgba(42,47,77,.3))}
+#boss-banner{background:linear-gradient(180deg,rgba(255,244,242,.95),rgba(255,230,227,.95));border-color:#ff9a95}
+#boss-banner .t{color:#a3231b}
+.toast.good{border-color:#8fe7da}
+.toast.bad{border-color:#ffb1ab}
+
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">

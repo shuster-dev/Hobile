@@ -110,18 +110,25 @@ const approach = () => page.evaluate(async () => {
   return { dist: +Math.hypot(live.x - sp.x, live.z - sp.z).toFixed(1), id: t.id, species: t.species };
 });
 
-let hunt = null, entered = false;
+let hunt = null, reached = null, entered = false;
 for (let attempt = 0; attempt < 3 && !entered; attempt++) {
-  hunt = await approach();
+  const h = await approach();
   // Already fighting means an earlier attempt landed and the handoff simply
   // took longer than the wait — that is a slow room, not a failed encounter.
-  if (hunt.mode === 'battle') { entered = true; break; }
-  if (hunt.err) { await wait(1500); continue; }
+  // The walk that landed it is the one that answers "reachable", so it is
+  // kept: judging by this attempt's "not in the world" failed a run that had
+  // walked up to a wild and started the fight.
+  if (h.mode === 'battle') { entered = true; break; }
+  hunt = h;
+  if (h.err) { await wait(1500); continue; }
+  reached = h;
   await page.evaluate(() => { window.__hobile.engagePending = 0; window.__hobile.doAction('action'); });
-  entered = await page.waitForFunction(() => window.__hobile?.mode === 'battle', null, { timeout: 15000 })
+  // The first battle compiles its shaders, which in a software-GL browser is
+  // seconds of blocked main thread; a phone's GPU does it in a blink.
+  entered = await page.waitForFunction(() => window.__hobile?.mode === 'battle', null, { timeout: 30000 })
     .then(() => true).catch(() => false);
 }
-ok('a wild creature is reachable on foot', !hunt?.err && hunt?.dist < 3, JSON.stringify(hunt));
+ok('a wild creature is reachable on foot', !!reached && reached.dist < 3, JSON.stringify(reached || hunt));
 ok('walking into it starts a fight', entered, JSON.stringify((await state()).refused));
 
 if (entered) {

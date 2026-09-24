@@ -15,6 +15,7 @@
     "start": "node src/server/index.js",
     "test": "npm run qa && npm run test:server",
     "test:browser": "node tools/build.mjs --solo && node tools/smoke.mjs",
+    "test:camera": "node tools/build.mjs --solo && node tools/camera-test.mjs",
     "test:live": "node tools/session-test.mjs",
     "test:play": "node tools/build.mjs --solo && node tools/play.mjs",
     "test:server": "node tools/server-test.mjs",

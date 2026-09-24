@@ -66,6 +66,11 @@ jobs:
       - name: Browser smoke test
         run: npx playwright install --with-deps chromium && node tools/smoke.mjs
 
+      # Arriving at a camp must never frame a roof instead of the player: the
+      # camera's idea of a house is traced against the real one's triangles.
+      - name: Camera never hides the player
+        run: node tools/camera-test.mjs
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

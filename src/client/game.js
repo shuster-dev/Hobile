@@ -283,7 +283,20 @@ var Game = class {
       let s = globalThis.localStorage?.getItem("hobile.view");
       s && this.world.setViewMode(s);
     } catch {}
-    this.ui.showScreen(null), this.ui.setMode("world"), this.ui.setLoading(!1), audio.playMusic(e), t && audio.sfx("portal");
+    this.ui.showScreen(null), this.ui.setMode("world"), this.ui.setLoading(!1), audio.playMusic(e), t && audio.sfx("portal"), this.wantFaces(this.profile?.team);
+  }
+  /** Portraits of the team, for the battle screen's team pills: a creature you
+   *  can swap to should look like itself, not like a coloured dot. Drawn once
+   *  per species, a moment after the world has loaded rather than as a battle
+   *  opens, and kept for the session. */
+  wantFaces(team) {
+    this.faces = this.faces || {};
+    let ids = [...new Set((team || []).map(c => c?.species).filter(Boolean))].filter(id => !(id in this.faces));
+    if (!ids.length) return;
+    for (let id of ids) this.faces[id] = null;
+    setTimeout(() => portraits(ids, 96).then(o => {
+      Object.assign(this.faces, o || {}), this.ui.faces = this.faces, this.ui.renderTeamBar(null, !0);
+    }).catch(() => {}), 1500);
   }
   async enterRoom(e, t) {
     this.mode = "loading", audio.sfx("encounter"), audio.playMusic(t === "dungeon" ? "dungeon" : "battle"), this.ui.setLoading(!0, t === "battle" ? "נכנס לקרב…" : "נכנס למבוך…"), await this.net.leaveRoom(!0);
@@ -383,7 +396,7 @@ var Game = class {
         }
       }
     }), e.on("battleInit", t => {
-      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer));
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
       this.battleView.setTheme(n || this.zoneElement(), !1);
     }), e.on("dungeonInit", t => {
@@ -1017,7 +1030,10 @@ var Game = class {
         a = this.world.project(o);
       if (!(!a.visible || this.underHud(a))) if (r.kind === "player") {
         let l = e.players.get(s);
-        if (!l) continue;
+        // Not over your own head: the card in the corner already says who and
+        // what level you are, and the label sat on the one figure the camera
+        // is built around.
+        if (!l || s === t) continue;
         let c = l.guildTag ? `<span class="tag">[${l.guildTag}]</span> ` : "";
         n.push({
           key: s,

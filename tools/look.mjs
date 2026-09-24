@@ -62,6 +62,18 @@ await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'מאיר');
 await page.click('#btn-create');
 await page.waitForFunction(() => window.__hobile?.mode === 'world' && window.__hobile.profile, null, { timeout: 30000 });
+// A team of three, so the battle screen shows the team bar a real player has
+// after their first captures. The offline save is plain data in the page.
+await page.evaluate(() => {
+  const d = window.__hobile.net.doc;
+  if (!d?.team?.length) return;
+  const lead = d.creatures[d.team[0]];
+  for (const species of ['pebblin', 'puddlet']) {
+    const c = { ...lead, uid: `look-${species}`, species, nickname: null };
+    d.creatures[c.uid] = c;
+    d.team.includes(c.uid) || d.team.push(c.uid);
+  }
+});
 const pin = (phase) => page.evaluate((p) => {
   const w = window.__hobile.world;
   w.holdWeather('clear', 'summer');
@@ -96,6 +108,28 @@ await page.waitForFunction(() => window.__hobile?.world?.zone?.id === 'verdant_m
 await pin(0.42);
 await wait(3200);
 await snap('4-field');
+
+// Out into the open meadow, away from the camp: grass and flowers are judged
+// here, where there is nothing else to look at. Toward the middle of the zone,
+// which is where the open ground is; the portals sit out by the edge.
+await page.evaluate(async () => {
+  const g = window.__hobile, w = g.world;
+  const camp = w.zone.landmarks.find((l) => l.kind === 'camp') || { x: 0, z: 0 };
+  const yaw = Math.hypot(camp.x, camp.z) > 8 ? Math.atan2(-camp.x, -camp.z) : 0;
+  const half = (w.zone?.size || 200) * 0.42;
+  w.camYaw = yaw;
+  for (let i = 0; i < 10; i++) {
+    const p = w.selfPosition();
+    const nx = Math.max(-half, Math.min(half, p.x + Math.sin(yaw) * 2.4));
+    const nz = Math.max(-half, Math.min(half, p.z + Math.cos(yaw) * 2.4));
+    g.net.send('move', { x: nx, z: nz, rot: yaw, moving: true });
+    w.snapSelf(nx, nz);
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  g.net.send('move', { ...w.selfPosition(), rot: yaw, moving: false });
+});
+await wait(1800);
+await snap('4b-meadow');
 
 // Walk up to the nearest wild and start a fight. Wilds wander on their own
 // clock, so the one you set off toward may have moved: re-target and retry.

@@ -290,7 +290,11 @@ var UI = class {
       r = 208,
       o = 70,
       c = r / 2;
-    s.clearRect(0, 0, r, r), s.save(), s.beginPath(), s.arc(c, c, c - 2, 0, Math.PI * 2), s.clip(), s.fillStyle = "rgba(11,14,30,.85)", s.fillRect(0, 0, r, r);
+    // The zone's own ground, washed light, so the radar is a little window on
+    // the meadow and not a hole in it — and two zones do not look alike.
+    s.clearRect(0, 0, r, r), s.save(), s.beginPath(), s.arc(c, c, c - 2, 0, Math.PI * 2), s.clip();
+    let wash = s.createRadialGradient(c, c, c * 0.1, c, c, c);
+    wash.addColorStop(0, pastel(this.zone?.ground ?? 6531422, 0.62)), wash.addColorStop(1, pastel(this.zone?.ground ?? 6531422, 0.38)), s.fillStyle = wash, s.fillRect(0, 0, r, r);
     let a = e.selfPosition(),
       l = (h, d) => [c + (h - a.x) / o * c, c + (d - a.z) / o * c];
     // The edge of the world, when it is close enough to matter. Without it the
@@ -298,19 +302,19 @@ var UI = class {
     if (this.zone?.size) {
       let [h, d] = l(0, 0),
         u = (this.zone.size / 2 - 3) / o * c;
-      s.strokeStyle = "rgba(158,172,226,.34)", s.lineWidth = 1.5, s.setLineDash([5, 4]), s.beginPath(), s.arc(h, d, u, 0, Math.PI * 2), s.stroke(), s.setLineDash([]);
+      s.strokeStyle = "rgba(42,47,77,.4)", s.lineWidth = 2, s.setLineDash([6, 5]), s.beginPath(), s.arc(h, d, u, 0, Math.PI * 2), s.stroke(), s.setLineDash([]);
     }
     if (this.zone) for (let h of this.zone.landmarks) {
       let [d, u] = l(h.x, h.z);
-      s.fillStyle = MAP_PIN[h.kind] || MAP_PIN._, s.beginPath(), s.arc(d, u, h.r ? 9 : 5, 0, Math.PI * 2), s.fill();
+      s.fillStyle = MAP_PIN[h.kind] || MAP_PIN._, s.strokeStyle = "rgba(42,47,77,.55)", s.lineWidth = 2, s.beginPath(), s.arc(d, u, h.r ? 9 : 5, 0, Math.PI * 2), s.fill(), s.stroke();
     }
     if (t?.wilds?.forEach(h => {
       let [d, u] = l(h.x, h.z);
-      s.fillStyle = "rgba(255,122,89,.92)", s.fillRect(d - 2, u - 2, 4, 4);
+      s.fillStyle = "#ff6a45", s.strokeStyle = "#fff", s.lineWidth = 1.5, s.beginPath(), s.arc(d, u, 3.6, 0, Math.PI * 2), s.fill(), s.stroke();
     }), t?.players?.forEach((h, d) => {
       if (d === n) return;
       let [u, f] = l(h.x, h.z);
-      s.fillStyle = h.partyId && h.partyId === this.party?.id ? "#3fd98b" : "#8ab4ff", s.beginPath(), s.arc(u, f, 3.4, 0, Math.PI * 2), s.fill();
+      s.fillStyle = h.partyId && h.partyId === this.party?.id ? "#22b86c" : "#4d86f0", s.strokeStyle = "#fff", s.lineWidth = 1.5, s.beginPath(), s.arc(u, f, 4, 0, Math.PI * 2), s.fill(), s.stroke();
     }), t?.boss?.active) {
       let [h, d] = l(t.boss.x, t.boss.z);
       s.fillStyle = "#ff5f56", s.beginPath(), s.arc(h, d, 6, 0, Math.PI * 2), s.fill();
@@ -320,7 +324,7 @@ var UI = class {
     drawYou(s, c, c, e.camYaw || 0, 12);
     s.restore();
     // North, so the map is orientable at a glance.
-    s.fillStyle = "rgba(238,241,250,.7)", s.font = "700 13px system-ui", s.textAlign = "center", s.fillText("N", c, 16);
+    s.font = "800 14px system-ui", s.textAlign = "center", s.lineWidth = 3, s.strokeStyle = "rgba(255,255,255,.9)", s.strokeText("N", c, 17), s.fillStyle = "#2a2f4d", s.fillText("N", c, 17);
   }
 
   /** The whole zone, drawn from the same live numbers, on its own clock. */
@@ -1221,17 +1225,19 @@ var UI = class {
       o === "sphere" && c.classList.add("sphere"), c.dataset.trainer = o, c.setAttribute("aria-label", loc(l) || o), c.innerHTML = `<span class="ico">${a}</span>${Ze(loc(l))}` + (o === "sphere" ? "<span class=\"odds mono\" dir=\"ltr\"></span>" : ""), c.onclick = () => this.hooks.trainerAction?.(o), s.appendChild(c);
     }
   }
-  renderTeamBar(e) {
+  renderTeamBar(e, again = !1) {
     let t = $("#battle-team"),
       n = this.battleTeam || [];
     if (!t) return;
+    again && (t.dataset.sig = "");
     let s = n.map(r => `${r.uid}:${r.hp}:${r.benched ? "b" : "f"}`).join("|");
     if (t.dataset.sig !== s && (t.dataset.sig = s, t.innerHTML = "", !(n.length < 2))) for (let r of n) {
       let o = SPECIES[r.species],
         a = r.benched === !1,
         l = r.hp <= 0,
         c = el("button", `tm ${a ? "active" : ""} ${l ? "down" : ""}`);
-      c.innerHTML = `<span class="orb" style="background:${oo(o.model.a)}"></span>
+      let face = this.faces?.[r.species];
+      c.innerHTML = `${face ? `<img class="face" src="${face}" alt="">` : `<span class="orb" style="background:${oo(o.model.a)}"></span>`}
         <span>${Ze(loc(o))} <b class="mono" dir="ltr">${r.level}</b></span>
         <span class="hpwrap"><span class="bar hp" style="height:5px"><i style="width:${r.hp / Math.max(1, r.maxHp) * 100}%"></i></span></span>`, c.disabled = l || a, c.setAttribute("aria-label", `${loc(o)} ${l ? "מעולף" : a ? "בזירה" : "החלף"}`), c.onclick = () => this.hooks.swapCreature?.(r.uid), t.appendChild(c);
     }
@@ -1404,6 +1410,15 @@ var MAP_PIN = {
 };
 
 /** Accepts a palette number (0x3a5f58) or a css hex, and gives back rgba. */
+/** A zone colour washed toward white, as a CSS colour: `k` of the way there. */
+function pastel(i, k) {
+  let t = i >> 16 & 255,
+    n = i >> 8 & 255,
+    s = i & 255,
+    w = v => Math.round(v + (255 - v) * k);
+  return `rgb(${w(t)},${w(n)},${w(s)})`;
+}
+
 function rgba(i, e) {
   let t, n, s;
   if (typeof i == "number") t = i >> 16 & 255, n = i >> 8 & 255, s = i & 255;else {

@@ -657,6 +657,15 @@ function generateProps(i) {
     r: 2,
     kind: "gate"
   });
+  // The healing spring at the middle of a camp: you walk round a pond, not
+  // through it. Spawns land 1.5m out or more, clear of it.
+  for (let m of i.landmarks) (m.kind === "camp" || m.kind === "town") && l.push({
+    x: m.x,
+    z: m.z,
+    r: 1.2,
+    kind: "spring",
+    top: 0.45
+  });
   return l.push(...boundaryRing(i)), {
     trees: n,
     rocks: s,
