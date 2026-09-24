@@ -6,7 +6,11 @@
  *
  * A real server, a real browser, and no fixtures — the page is loaded from the
  * server that serves it in production, so what is proved here is what a player
- * gets. Three things, in order: the first click needs no form; a reload lands
+ * gets. Point it at a deployed URL to prove the same things about the real
+ * thing, which is the only way to know a deploy actually worked:
+ *
+ *   HOBILE_TEST_BASE=https://hobile.onrender.com node tools/session-test.mjs
+ * Three things, in order: the first click needs no form; a reload lands
  * back in the world with the same character; and claiming a username turns the
  * guest into an account that can be logged into from a browser that has never
  * seen this one's localStorage.
@@ -16,7 +20,10 @@ import { chromium } from 'playwright';
 import fs from 'node:fs';
 
 const PORT = 2591;
-const BASE = `http://127.0.0.1:${PORT}`;
+// A deployed URL runs the same flow against the real thing; without one the
+// test brings up its own server, which is what CI and `npm run test:session` do.
+const REMOTE = process.env.HOBILE_TEST_BASE?.replace(/\/$/, '') || '';
+const BASE = REMOTE || `http://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
 const ok = (label, cond, detail = '') => {
   if (cond) { pass++; console.log(`  ok   ${label}`); }
@@ -29,23 +36,24 @@ const until = async (fn, ms = 20000) => {
   return false;
 };
 
-if (!fs.existsSync('dist/web/index.html')) {
+if (!REMOTE && !fs.existsSync('dist/web/index.html')) {
   console.error('needs a web build: npm run build:web');
   process.exit(1);
 }
+if (REMOTE) console.log(`against ${REMOTE}\n`);
 
-const server = spawn(process.execPath, ['src/server/index.js'], {
+const log = [];
+const server = REMOTE ? null : spawn(process.execPath, ['src/server/index.js'], {
   env: { ...process.env, PORT: String(PORT), AUTH_SECRET: 'session-test', NODE_ENV: 'test' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
-const log = [];
-server.stdout.on('data', (d) => log.push(String(d)));
-server.stderr.on('data', (d) => log.push('ERR ' + String(d)));
+server?.stdout.on('data', (d) => log.push(String(d)));
+server?.stderr.on('data', (d) => log.push('ERR ' + String(d)));
 const up = await until(async () => {
   try { return (await fetch(`${BASE}/api/health`)).ok; } catch { return false; }
 }, 15000);
 ok('the server serves the built client', up, log.join('').slice(-300));
-if (!up) { server.kill(); process.exit(1); }
+if (!up) { server?.kill(); process.exit(1); }
 
 const CHROME = ['/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell',
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => fs.existsSync(p));
@@ -115,23 +123,31 @@ ok('as the same character', again.id === born.id && again.name === 'רמי', `${
 ok('in the zone it was left in', again.zone === 'verdant_meadow', again.zone);
 
 // --- claim it ------------------------------------------------------------
-const claimed = await page.evaluate(async () => {
-  const r = await window.__hobile.hooks().claim('rami_test', 'hunter2');
+// A claim is permanent. A fixed username passes the first time and then
+// collides with `already_claimed` on every run after, which against a real
+// deployment would look like a broken claim endpoint.
+const USER = `t${Date.now().toString(36).slice(-6)}${Math.random().toString(36).slice(2, 6)}`; // <= 16, auth.js caps it
+const PASS = 'hunter2';
+const claimed = await page.evaluate(async ([u, p]) => {
+  const r = await window.__hobile.hooks().claim(u, p);
   return { r, account: window.__hobile.account };
-});
+}, [USER, PASS]);
 ok('the guest can claim a username from inside the game', claimed.r?.ok === true, JSON.stringify(claimed.r));
-ok('and stops being a guest', claimed.account?.guest === false && claimed.account?.username === 'rami_test');
+ok('and stops being a guest', claimed.account?.guest === false && claimed.account?.username === USER);
 ok('the chip goes away once there is nothing to claim', !(await page.isVisible('#btn-claim')));
 
 // --- a browser that has never seen this one ------------------------------
 const stranger = await browser.newContext(PHONE);
 const page2 = await openPage(stranger);
 await page2.waitForSelector('#pick-starter .starter, #screen-login:not(.hidden)', { timeout: 30000 });
-await page2.evaluate(async () => {
+const loggedIn = await page2.evaluate(async ([u, p]) => {
   const g = window.__hobile;
   g.net.logout();
-  await g.net.login('rami_test', 'hunter2');
-});
+  try { await g.net.login(u, p); return { ok: true }; }
+  catch (e) { return { ok: false, err: String(e?.message || e) }; }
+}, [USER, PASS]);
+ok('the claimed account can be logged into', loggedIn.ok, loggedIn.err);
+if (!loggedIn.ok) { console.log(`\n${pass} passed, ${fail + 2} failed`); await browser.close(); server?.kill(); process.exit(1); }
 await page2.reload({ waitUntil: 'load' });
 await inWorld(page2);
 const elsewhere = await page2.evaluate(() => ({
@@ -147,6 +163,6 @@ console.log(`\nconsole errors: ${errors.length}`, errors.slice(0, 4));
 ok('no console errors anywhere in the flow', errors.length === 0);
 
 await browser.close();
-server.kill();
+server?.kill();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
