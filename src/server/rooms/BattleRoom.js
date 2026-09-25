@@ -81,6 +81,10 @@ export class BattleRoom extends Room {
 
   async onDispose() {
     this.sim?.stop();
+    // Nobody ever came: a phone that locked between the wild catching them and
+    // the battle opening, say. The reservation lapses and the room goes, and
+    // without this the wild it was made for stayed taken for good.
+    if (!this.sim) { try { this.opts?.onEnd?.(false); } catch (e) { console.error('[battle] onEnd', e); } }
     if (this.doc) await this.store.saveDoc(this.doc).catch(() => {});
   }
 }

@@ -12,6 +12,7 @@ class MemoryStore {
     this.users = new Map();     // username -> user
     this.docs = new Map();      // userId -> doc
     this.guilds = new Map();    // guildId -> guild
+    this.gmLog = [];            // GM actions, newest last (server/game/gm.js)
     if (this.file && fs.existsSync(this.file)) this._load();
   }
   _load() {
@@ -20,6 +21,7 @@ class MemoryStore {
       for (const u of raw.users || []) this.users.set(u.username, u);
       for (const d of raw.docs || []) this.docs.set(d.id, d);
       for (const g of raw.guilds || []) this.guilds.set(g.id, g);
+      this.gmLog = Array.isArray(raw.gmLog) ? raw.gmLog : [];
     } catch (e) { console.warn('[store] could not read', this.file, e.message); }
   }
   _flush() {
@@ -30,6 +32,7 @@ class MemoryStore {
         users: [...this.users.values()],
         docs: [...this.docs.values()],
         guilds: [...this.guilds.values()],
+        gmLog: this.gmLog,
       }));
     } catch (e) { console.warn('[store] could not write', this.file, e.message); }
   }
@@ -50,9 +53,10 @@ class MemoryStore {
   }
   async getDoc(userId) { return this.docs.get(userId) || null; }
   async saveDoc(doc) { this.docs.set(doc.id, doc); this._flush(); return doc; }
-  async leaderboard(kind = 'level', limit = 50) {
+  async leaderboard(kind = 'level', limit = 50, exclude = []) {
     const key = kind === 'gold' ? 'gold' : kind === 'captures' ? null : 'level';
-    const rows = [...this.docs.values()];
+    const skip = new Set(exclude);
+    const rows = [...this.docs.values()].filter((d) => !skip.has(d.id));
     rows.sort((a, b) => key ? (b[key] || 0) - (a[key] || 0)
       : (b.stats?.captures || 0) - (a.stats?.captures || 0));
     return rows.slice(0, limit).map((d, i) => ({
@@ -61,7 +65,17 @@ class MemoryStore {
   }
   async listGuilds() { return [...this.guilds.values()]; }
   async saveGuild(g) { this.guilds.set(g.id, g); this._flush(); return g; }
+  async logAdmin(row) {
+    this.gmLog.push(row);
+    if (this.gmLog.length > GM_LOG_KEEP) this.gmLog.splice(0, this.gmLog.length - GM_LOG_KEEP);
+    this._flush();
+    return row;
+  }
+  async adminLog(limit = 40) { return this.gmLog.slice(-limit).reverse(); }
 }
+
+// The memory store keeps the newest GM actions; Mongo keeps them all.
+const GM_LOG_KEEP = 1000;
 
 // Player documents are held as one live object per player, exactly as the
 // memory store holds them, and written through to Mongo.
@@ -98,11 +112,13 @@ class MongoStore {
     this.usersC = db.collection('users');
     this.docsC = db.collection('docs');
     this.guildsC = db.collection('guilds');
+    this.gmLogC = db.collection('gmlog');
     await this.usersC.createIndex({ username: 1 }, { unique: true });
     await this.usersC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ level: -1 });
     await this.docsC.createIndex({ gold: -1 });
+    await this.gmLogC.createIndex({ at: -1 });
     return this;
   }
   async close() {
@@ -152,14 +168,19 @@ class MongoStore {
     await write;
     return doc;
   }
-  async leaderboard(kind = 'level', limit = 50) {
+  async leaderboard(kind = 'level', limit = 50, exclude = []) {
     const sort = kind === 'gold' ? { gold: -1 } : kind === 'captures' ? { 'stats.captures': -1 } : { level: -1 };
-    const rows = await this.docsC.find({}, { projection: { _id: 0, id: 1, name: 1, level: 1, gold: 1, stats: 1 } })
+    const filter = exclude.length ? { id: { $nin: exclude } } : {};
+    const rows = await this.docsC.find(filter, { projection: { _id: 0, id: 1, name: 1, level: 1, gold: 1, stats: 1 } })
       .sort(sort).limit(limit).toArray();
     return rows.map((d, i) => ({ rank: i + 1, ...d }));
   }
   async listGuilds() { return this.guildsC.find({}, { projection: { _id: 0 } }).toArray(); }
   async saveGuild(g) { await this.guildsC.replaceOne({ id: g.id }, g, { upsert: true }); return g; }
+  async logAdmin(row) { await this.gmLogC.insertOne({ ...row }); return row; }
+  async adminLog(limit = 40) {
+    return this.gmLogC.find({}, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit).toArray();
+  }
 }
 
 export async function openStore(env = process.env) {

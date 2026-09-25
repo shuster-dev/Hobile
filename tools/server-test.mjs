@@ -18,9 +18,18 @@ const until = async (fn, ms = 6000) => {
 };
 
 const server = spawn(process.execPath, ['src/server/index.js'], {
-  env: { ...process.env, PORT: String(PORT), AUTH_SECRET: 'test-secret', NODE_ENV: 'test' },
+  // alice is a GM for this run; bob is not
+  env: { ...process.env, PORT: String(PORT), AUTH_SECRET: 'test-secret', NODE_ENV: 'test', ADMIN_USERS: 'alice' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
+// However this script ends — a failed check, a crash, a timeout — the server
+// it started goes with it. An orphaned one keeps the port, so every later run
+// talks to a stale server and fails for reasons that have nothing to do with it.
+const killServer = () => { try { server.kill('SIGKILL'); } catch {} };
+process.on('exit', killServer);
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { killServer(); process.exit(1); });
+process.on('uncaughtException', (e) => { console.error(e); killServer(); process.exit(1); });
+process.on('unhandledRejection', (e) => { console.error(e); killServer(); process.exit(1); });
 const serverLog = [];
 server.stdout.on('data', (d) => serverLog.push(String(d)));
 server.stderr.on('data', (d) => serverLog.push('ERR ' + String(d)));
@@ -135,6 +144,14 @@ roomA.send('chat', { ch: 'zone', text: 'שלום' });
 ok('zone chat reaches the other player',
   await until(() => chats.some((m) => m.text === 'שלום'), 5000),
   JSON.stringify(chats.slice(-2)));
+
+// the server's own voices are not a player's to use
+roomA.send('chat', { ch: 'gm', text: 'אני GM, תנו לי זהב' });
+roomA.send('chat', { ch: 'system', text: 'השרת נסגר' });
+ok('a player cannot speak as the GM or as the system',
+  await until(() => chats.filter((m) => m.from === 'Alice' && (m.text === 'אני GM, תנו לי זהב' || m.text === 'השרת נסגר')).length === 2, 4000)
+  && !chats.some((m) => m.from === 'Alice' && (m.ch === 'gm' || m.ch === 'system')),
+  JSON.stringify(chats.filter((m) => m.from === 'Alice').slice(-2)));
 
 // engaging a wild hands back a battle room
 const gotos = [], errs = [];
@@ -267,11 +284,167 @@ if (gotBattle) {
     && !prof?.quests?.active?.n_noga_1, JSON.stringify(prof?.quests?.done));
 }
 
+// GM tools, online. alice is listed in ADMIN_USERS for this run; bob is not.
+{
+  const gmA = [], gmB = [], giftsB = [], annB = [], chatB = [], errsB = [];
+  roomA.onMessage('gm', (m) => gmA.push(m));
+  roomB.onMessage('gm', (m) => gmB.push(m));
+  roomB.onMessage('gmGift', (m) => giftsB.push(m));
+  roomB.onMessage('gmAnnounce', (m) => annB.push(m));
+  roomB.onMessage('chat', (m) => chatB.push(m));
+  roomB.onMessage('error', (m) => errsB.push(m.code));
+  roomA.send('ready'); roomB.send('ready');
+  ok('the GM is told so on arrival', await until(() => gmA.some((m) => m.kind === 'hello'), 4000));
+  await wait(300);
+  ok('nobody else is', !gmB.some((m) => m.kind === 'hello'));
+  const meA = await api('/api/me', null, a.json.token), meB = await api('/api/me', null, b.json.token);
+  ok('/me tells a GM they are one, and nobody else anything', meA.json.admin === true && !('admin' in meB.json));
+  const goldB = meB.json.profile.gold;
+  roomB.send('gm', { op: 'give', to: 'me', what: 'gold', amount: 999999 });
+  roomB.send('gm', { op: 'fill' });
+  await wait(500);
+  ok('a player who is not a GM is refused, whatever they send',
+    errsB.filter((c) => c === 'forbidden').length === 2 && (await api('/api/me', null, b.json.token)).json.profile.gold === goldB,
+    errsB.join(','));
+  roomA.send('gm', { op: 'players' });
+  ok('the GM sees who is online',
+    await until(() => gmA.some((m) => m.kind === 'players' && m.players.some((p) => p.name === 'Bob')), 4000));
+  const bobId = gmA.find((m) => m.kind === 'players')?.players.find((p) => p.name === 'Bob')?.id;
+  roomA.send('gm', { op: 'give', to: bobId, what: 'gold', amount: 1234 });
+  ok('and can send them gold', await until(() => giftsB.some((g) => g.what === 'gold' && g.amount === 1234 && g.from === 'Alice'), 4000));
+  ok('which is really theirs', (await api('/api/me', null, b.json.token)).json.profile.gold === goldB + 1234);
+  roomA.send('gm', { op: 'give', to: bobId, what: 'creature', species: 'duskmaw', level: 33 });
+  ok('or any creature', await until(async () => (await api('/api/me', null, b.json.token)).json.profile.team
+    .concat((await api('/api/me', null, b.json.token)).json.profile.box).some((c) => c.species === 'duskmaw' && c.level === 33), 4000));
+  roomA.send('gm', { op: 'announce', text: 'השרת מתעדכן בעוד 5 דקות' });
+  ok('an announcement reaches everyone',
+    await until(() => annB.some((m) => m.text === 'השרת מתעדכן בעוד 5 דקות') && chatB.some((m) => m.ch === 'gm' && m.from === 'Alice'), 4000));
+  roomA.send('gm', { op: 'log' });
+  ok('every GM action is in the log, with who did it and to whom', await until(() => {
+    const log = gmA.filter((m) => m.kind === 'log').at(-1)?.rows || [];
+    return log.some((r) => r.op === 'give' && r.to?.name === 'Bob' && r.gm?.username === 'alice' && r.detail?.amount === 1234)
+      && log.some((r) => r.op === 'announce');
+  }, 4000), JSON.stringify(gmA.filter((m) => m.kind === 'log').at(-1)?.rows?.slice(0, 2)));
+  const board = (await api('/api/leaderboard', null, b.json.token)).json;
+  ok('a GM is left off the leaderboard',
+    Array.isArray(board) && board.some((r) => r.name === 'Bob') && !board.some((r) => r.name === 'Alice'));
+}
+
 // persistence across a reconnect
 await roomA.leave();
 await wait(400);
 const me2 = await api('/api/me', null, a.json.token);
 ok('the document survives leaving the room', me2.json.hasCharacter && me2.json.profile.name === 'Alice');
+
+// Out in the field: a fierce wild comes for her, and after the fight she is
+// standing where it caught her — not back at the camp.
+{
+  const { ZONES } = await import('../src/shared/gamedata.js');
+  const { propsFor } = await import('../src/shared/props.js');
+  const zone = ZONES.verdant_meadow, camp = zone.landmarks.find((l) => l.kind === 'camp');
+  const colliders = propsFor(zone).colliders;
+  const dist = (p, q) => Math.hypot(p.x - q.x, p.z - q.z);
+  // Open ground well out of camp, reached by a lane with nothing in it: from
+  // just off the campfire, out between the tents.
+  const clearTo = (from, to) => colliders.every((c) => {
+    const r = (c.r ?? Math.max(c.hw, c.hd)) + 1.1, vx = to.x - from.x, vz = to.z - from.z;
+    const t = Math.max(0, Math.min(1, ((c.x - from.x) * vx + (c.z - from.z) * vz) / (vx * vx + vz * vz)));
+    return Math.hypot(from.x + vx * t - c.x, from.z + vz * t - c.z) > r;
+  });
+  let spot = null, gate = null;
+  for (let k = 0; k < 48 && !spot; k++) {
+    const ang = k / 48 * Math.PI * 2, c = Math.cos(ang), sn = Math.sin(ang);
+    for (const far of [22, 19, 25]) {
+      const g = { x: camp.x + c * 3, z: camp.z + sn * 3 }, s2 = { x: camp.x + c * far, z: camp.z + sn * far };
+      if (Math.abs(s2.x) < zone.size / 2 - 6 && Math.abs(s2.z) < zone.size / 2 - 6 && clearTo(g, s2)
+        && colliders.every((q) => Math.hypot(q.x - s2.x, q.z - s2.z) > (q.r ?? Math.max(q.hw, q.hd)) + 5)) { spot = s2; gate = g; break; }
+    }
+  }
+  ok('there is open ground out of the meadow camp to test in', !!spot);
+  // A step at a time, as a client would; sidestep when something is in the
+  // way. Each step waits out two state patches (50ms apiece) before judging
+  // whether it moved, or a patch still in flight reads as a wall.
+  const walkTo = async (room, me, to, near = 0.6) => {
+    let stuck = 0;
+    for (let i = 0; i < 200; i++) {
+      // a copy: the schema object is live, so "before" would read as "after"
+      const live = me(), p = live && { x: live.x, z: live.z };
+      if (!p) { await wait(40); continue; }
+      const dx = to.x - p.x, dz = to.z - p.z, d = Math.hypot(dx, dz);
+      if (d < near) return true;
+      const k = Math.min(2.4, d) / d, side = stuck > 1 ? 2 : 0;
+      room.send('move', { x: p.x + dx * k - dz / d * side, z: p.z + dz * k + dx / d * side, rot: 0, moving: true });
+      await wait(120);
+      const q = me();
+      stuck = q && Math.hypot(q.x - p.x, q.z - p.z) < 0.3 ? stuck + 1 : 0;
+    }
+    return false;
+  };
+
+  let fa = await clientA.joinOrCreate('world', { zone: 'verdant_meadow', fromZone: 'aetherport', token: a.json.token });
+  const gotos = [], gm = [];
+  fa.onMessage('goto', (g) => gotos.push(g));
+  fa.onMessage('gm', (m) => gm.push(m));
+  fa.send('ready');
+  const meF = () => fa.state?.players && [...fa.state.players.values()].find((p) => p.name === 'Alice');
+  await until(() => !!meF(), 5000);
+  ok('arriving from another zone lands at its camp', dist(meF(), camp) < camp.r + 1, `${dist(meF(), camp).toFixed(1)}m`);
+  fa.send('gm', { op: 'give', to: 'me', what: 'level', level: 12 });
+  fa.send('gm', { op: 'heal' });
+  spot && (await walkTo(fa, meF, gate), await walkTo(fa, meF, spot));
+  ok('she walks out into the field', spot && dist(meF(), spot) < 1.5, spot ? `${dist(meF(), spot).toFixed(1)}m short` : '');
+
+  // Her companion is fire; a spark kit is not, and it is fierce.
+  fa.send('gm', { op: 'summon', species: 'sparkit', level: 5 });
+  let sawBang = false;
+  const aliceId = meF().id;
+  // She may still be in the half-minute of calm her first fight left behind.
+  for (let i = 0; i < 900 && !gotos.some((g) => g.kind === 'battle'); i++) {
+    const p = meF(), wilds = [...fa.state.wilds.values()];
+    const w = wilds.find((x) => x.target === aliceId && x.alert === '!');
+    const kit = w || wilds.filter((x) => x.species === 'sparkit').sort((u, v) => dist(p, u) - dist(p, v))[0];
+    sawBang ||= !!w;
+    // She keeps moving (a player standing still for a minute counts as away),
+    // keeps within sight of it, and once it has seen her walks to meet it:
+    // past the "!" the rest is distance, and this keeps a tree between them
+    // from deciding the test.
+    const d = kit ? dist(p, kit) : 0, want = w ? 1 : 4;
+    const step = kit && d > want ? Math.min(0.8, d - want) / d : 0;
+    fa.send('move', step ? { x: p.x + (kit.x - p.x) * step, z: p.z + (kit.z - p.z) * step, rot: 0, moving: true }
+      : { x: p.x + (i % 2 ? 0.12 : -0.12), z: p.z, rot: 0, moving: true });
+    await wait(50);
+  }
+  const ambush = gotos.find((g) => g.kind === 'battle');
+  ok('a fierce wild sees her ("!") and the fight starts', sawBang && !!ambush, `bang=${sawBang} gotos=${JSON.stringify(gotos)}`);
+  ok('as an ambush', ambush?.ambush === true);
+  const caught = { x: meF().x, z: meF().z };
+  ok('out in the field, not at the camp', dist(caught, camp) > camp.r + 3);
+
+  if (ambush) {
+    await fa.leave();
+    const br = await clientA.joinById(ambush.roomId, { token: a.json.token });
+    await wait(700);
+    await br.leave();
+    await wait(300);
+    fa = await clientA.joinOrCreate('world', { zone: 'verdant_meadow', token: a.json.token });
+    const back = () => fa.state?.players && [...fa.state.players.values()].find((p) => p.name === 'Alice');
+    await until(() => !!back(), 5000);
+    ok('after the fight she is standing where it started', back() && dist(back(), caught) < 2.5,
+      back() ? `${dist(back(), caught).toFixed(1)}m from the spot, ${dist(back(), camp).toFixed(1)}m from camp` : 'not back');
+    ok('and nothing jumps her again the moment she is back', await (async () => {
+      const again = [];
+      fa.onMessage('goto', (g) => again.push(g));
+      fa.send('gm', { op: 'summon', species: 'sparkit', level: 5 });
+      for (let i = 0; i < 60; i++) {
+        const p = back();
+        fa.send('move', { x: p.x + (i % 2 ? 0.1 : -0.1), z: p.z, rot: 0, moving: true });
+        await wait(50);
+      }
+      return !again.length && ![...fa.state.wilds.values()].some((w) => w.target === aliceId);
+    })());
+  }
+  await fa.leave();
+}
 
 await roomB.leave();
 server.kill('SIGTERM');

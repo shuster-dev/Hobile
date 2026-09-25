@@ -164,6 +164,6 @@ var Net = class {
       } catch {}
     }
   },
-  NET_EVENTS = ["profile", "zone", "chat", "goto", "error", "healed", "dialogue", "inventory", "party", "partyInvite", "friends", "friendRequest", "friendResult", "guild", "guildList", "questClaimed", "battleInit", "battleStart", "battleEvent", "battleEnd", "actionRejected", "emote", "dungeonInit", "dungeonEnd", "floor", "floorCleared", "bossSpawn", "bossHit", "bossCounter", "bossEnd", "bossReward", "duelRequest", "pong"];
+  NET_EVENTS = ["profile", "zone", "chat", "goto", "error", "healed", "dialogue", "inventory", "party", "partyInvite", "friends", "friendRequest", "friendResult", "guild", "guildList", "questClaimed", "battleInit", "battleStart", "battleEvent", "battleEnd", "actionRejected", "emote", "dungeonInit", "dungeonEnd", "floor", "floorCleared", "bossSpawn", "bossHit", "bossCounter", "bossEnd", "bossReward", "duelRequest", "pong", "gm", "gmGift", "gmAnnounce"];
 
 export { NET_EVENTS, Net, TOKEN_KEY, readToken, remembering, setRemember, writeToken };

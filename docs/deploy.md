@@ -93,6 +93,7 @@ Environment variables:
 | `MONGO_DB` | `hobile` |
 | `CORS_ORIGIN` | the site's own URL, or leave `*` while everything is on one origin |
 | `PORT` | set by the platform; the server reads it |
+| `ADMIN_USERS` | optional — usernames that get the GM tools, comma-separated. Set it in the dashboard, never in the repo, and only to names already registered: an unregistered name goes to whoever takes it first. The server logs each name at startup and says whether it is registered |
 
 `AUTH_SECRET` is not optional: `src/server/auth.js` refuses to start in
 production without it, because the fallback is a random key per process, which

@@ -15,10 +15,14 @@ defineTypes(PlayerState, {
   body: 'string', skin: 'string', hair: 'string', outfit: 'string',
 });
 
+// `alert` is what shows over its head — '!' it has seen someone and is coming,
+// '?' it lost them, '~' it is running away — and `target` is the player id it
+// is coming for, so that player's screen can say so. (server/game/field.js)
 export class WildState extends Schema {}
 defineTypes(WildState, {
   id: 'string', species: 'string', level: 'number',
   x: 'number', z: 'number', rot: 'number', engagedBy: 'string',
+  alert: 'string', target: 'string',
 });
 
 export class BossContributor extends Schema {}

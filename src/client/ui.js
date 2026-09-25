@@ -348,8 +348,10 @@ var UI = class {
       s.fillStyle = MAP_PIN[h.kind] || MAP_PIN._, s.strokeStyle = "rgba(42,47,77,.55)", s.lineWidth = 2, s.beginPath(), s.arc(d, u, h.r ? 9 : 5, 0, Math.PI * 2), s.fill(), s.stroke();
     }
     if (t?.wilds?.forEach(h => {
-      let [d, u] = l(h.x, h.z);
-      s.fillStyle = "#ff6a45", s.strokeStyle = "#fff", s.lineWidth = 1.5, s.beginPath(), s.arc(d, u, 3.6, 0, Math.PI * 2), s.fill(), s.stroke();
+      let [d, u] = l(h.x, h.z),
+        // one coming for someone is the dot worth seeing first
+        hot = h.alert === "!";
+      s.fillStyle = hot ? "#e0202a" : "#ff6a45", s.strokeStyle = "#fff", s.lineWidth = hot ? 2 : 1.5, s.beginPath(), s.arc(d, u, hot ? 5.2 : 3.6, 0, Math.PI * 2), s.fill(), s.stroke();
     }), t?.players?.forEach((h, d) => {
       if (d === n) return;
       let [u, f] = l(h.x, h.z);
@@ -509,6 +511,7 @@ var UI = class {
         party: "[קבוצה]",
         guild: "[גילדה]",
         whisper: "[לחישה]",
+        gm: "[GM]",
         system: ""
       }[e.ch] ?? "",
       n = e.from ? `<b>${Ze(e.from)}</b>: ` : "";
@@ -518,7 +521,7 @@ var UI = class {
     this.openPanelId === e ? this.closePanel() : this.openPanel(e);
   }
   openPanel(e) {
-    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), this.renderPanel(e);
+    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), this.renderPanel(e);
   }
   closePanel() {
     this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearInterval(this._mapTimer), this._mapTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
@@ -542,7 +545,8 @@ var UI = class {
         dex: "אוסף היצורים",
         clinic: "מרפאת הגאות",
         account: "החשבון שלי",
-        map: "מפת האזור"
+        map: "מפת האזור",
+        gm: "🛡 כלי GM"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -567,7 +571,8 @@ var UI = class {
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
       dex: () => this.panelDex(o),
-      clinic: () => this.panelClinic(o)
+      clinic: () => this.panelClinic(o),
+      gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
   /**
@@ -602,9 +607,191 @@ var UI = class {
     }
   }
 
+  /**
+   * GM tools. Drawn only for a session the server said belongs to a GM; the
+   * server refuses every one of these buttons for anyone else regardless, and
+   * writes every one it carries out to the log at the bottom.
+   */
+  panelGm(e) {
+    let f = this.gmForm ||= {
+        to: "me",
+        species: "cindcub",
+        level: 30,
+        shiny: !1,
+        gold: 10000,
+        item: "sphere_ultra",
+        qty: 50,
+        zone: this.zone?.id || "aetherport",
+        text: ""
+      },
+      // Through the one `gm` hook: these are ops, not messages of their own.
+      ask = (op, data = {}) => this.hooks.gm?.(op, data),
+      maxLv = PROGRESSION.maxLevel,
+      num = (value, lo, hi) => {
+        let n = el("input", "field-input");
+        return n.type = "number", n.inputMode = "numeric", n.min = lo, n.max = hi, n.value = value, n;
+      },
+      clampNum = (input, lo, hi, dflt) => {
+        let v = Math.round(Number(input.value));
+        return v = Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : dflt, input.value = v, v;
+      },
+      btn = (label, cls, onclick) => {
+        let b = el("button", `btn ${cls}`, label);
+        return b.onclick = onclick, b;
+      },
+      row = (...kids) => {
+        let r = el("div", "row gm-row");
+        return r.append(...kids), r;
+      };
+    let hint = el("div", "hint");
+    hint.textContent = "כל פעולה כאן נרשמת ביומן שבתחתית, עם השם שלך.";
+    e.appendChild(hint);
+
+    // who
+    e.appendChild(section("למי"));
+    let who = el("select", "field-input");
+    who.setAttribute("aria-label", "למי");
+    who.onchange = () => { f.to = who.value; };
+    this._gmWho = who, this.fillGmWho();
+    e.appendChild(row(who, btn("🔄", "small icon-only", () => ask("players"))));
+
+    // a creature
+    e.appendChild(section("יצור"));
+    let order = ["starter", "common", "evolved", "final", "rare", "legendary", "boss"],
+      sp = el("select", "field-input");
+    sp.setAttribute("aria-label", "איזה יצור");
+    for (let s of Object.values(SPECIES).sort((a, b) => order.indexOf(a.rarity) - order.indexOf(b.rarity) || loc(a).localeCompare(loc(b), "he")))
+      sp.appendChild(new Option(`${ELEMENTS[s.types[0]]?.icon || ""} ${loc(s)}${s.rarity === "boss" ? " ☠" : s.rarity === "legendary" ? " ★" : ""}`, s.id));
+    sp.value = f.species, sp.onchange = () => { f.species = sp.value; };
+    let lv = num(f.level, 1, maxLv);
+    lv.setAttribute("aria-label", "רמה"), lv.classList.add("gm-num"), lv.onchange = () => { f.level = clampNum(lv, 1, maxLv, 30); };
+    let shiny = btn(`✨ נוצץ`, `small ${f.shiny ? "primary" : ""}`, () => {
+      f.shiny = !f.shiny, shiny.classList.toggle("primary", f.shiny), shiny.setAttribute("aria-pressed", String(f.shiny));
+    });
+    shiny.setAttribute("aria-pressed", String(f.shiny));
+    e.appendChild(row(sp, lv));
+    let give = btn("🎁 תן את היצור", "primary", () => (f.level = clampNum(lv, 1, maxLv, 30), ask("give", { to: f.to, what: "creature", species: f.species, level: f.level, shiny: f.shiny }))),
+      summon = btn("📍 זמן לידי", "", () => (f.level = clampNum(lv, 1, maxLv, 30), ask("summon", { species: f.species, level: f.level })));
+    e.appendChild(row(give, summon, shiny));
+    let sh = el("div", "hint");
+    sh.textContent = "״תן״ מוסיף לצוות (או לקופסה כשהצוות מלא). ״זמן לידי״ מביא יצור פראי לידך — אפשר להילחם בו ולתפוס אותו.";
+    e.appendChild(sh);
+
+    // gold and things
+    e.appendChild(section("זהב וחפצים"));
+    let gold = num(f.gold, 1, this.gm?.limits?.gold || 1e7);
+    gold.setAttribute("aria-label", "כמה זהב"), gold.onchange = () => { f.gold = clampNum(gold, 1, this.gm?.limits?.gold || 1e7, 1e4); };
+    e.appendChild(row(gold, btn("💰 תן זהב", "", () => (f.gold = clampNum(gold, 1, this.gm?.limits?.gold || 1e7, 1e4), ask("give", { to: f.to, what: "gold", amount: f.gold })))));
+    let it = el("select", "field-input");
+    it.setAttribute("aria-label", "איזה חפץ");
+    let kinds = { sphere: "כדורים", heal: "שיקויים", revive: "החייאה", stamina: "מרץ", trainerHeal: "ריפוי מאמן", gear: "ציוד", material: "חומרים" };
+    for (let [kind, label] of Object.entries(kinds)) {
+      let g = document.createElement("optgroup");
+      g.label = label;
+      for (let item of Object.values(ITEMS)) item.kind === kind && g.appendChild(new Option(`${item.icon || ""} ${loc(item)}`, item.id));
+      g.children.length && it.appendChild(g);
+    }
+    it.value = f.item, it.onchange = () => { f.item = it.value; };
+    let qty = num(f.qty, 1, this.gm?.limits?.qty || 999);
+    qty.setAttribute("aria-label", "כמות"), qty.classList.add("gm-num"), qty.onchange = () => { f.qty = clampNum(qty, 1, this.gm?.limits?.qty || 999, 1); };
+    e.appendChild(row(it, qty));
+    e.appendChild(btn("📦 תן את החפץ", "", () => (f.qty = clampNum(qty, 1, this.gm?.limits?.qty || 999, 1), ask("give", { to: f.to, what: "item", item: f.item, qty: f.qty }))));
+    let fill = btn("♾ משאבים בלי סוף", "primary", () => ask("fill", { to: f.to }));
+    fill.style.marginTop = "var(--s2)", e.appendChild(fill);
+    let fh = el("div", "hint");
+    fh.textContent = `ממלא זהב עד ${(this.gm?.limits?.fillGold || 1e7).toLocaleString("en-US")} וכל כדור, שיקוי וחומר עד ${this.gm?.limits?.fillQty || 999}. אפשר ללחוץ שוב בכל פעם.`;
+    e.appendChild(fh);
+
+    // the trainer's own level
+    e.appendChild(section("רמת מאמן"));
+    let tl = num(f.trainer || this.profile?.level || 1, 1, maxLv);
+    tl.setAttribute("aria-label", "רמת מאמן"), tl.classList.add("gm-num"), tl.onchange = () => { f.trainer = clampNum(tl, 1, maxLv, 1); };
+    let th = el("div", "hint grow");
+    th.textContent = "קובע את הרמה של המאמן עצמו (לא של היצורים).";
+    e.appendChild(row(tl, btn("⬆ קבע רמה", "", () => (f.trainer = clampNum(tl, 1, maxLv, 1), ask("give", { to: f.to, what: "level", level: f.trainer })))));
+    e.appendChild(th);
+
+    // go and mend
+    e.appendChild(section("שיגור וריפוי"));
+    let zone = el("select", "field-input");
+    zone.setAttribute("aria-label", "לאיזה אזור");
+    for (let z of Object.values(ZONES)) zone.appendChild(new Option(`${loc(z)} · ${z.levels[0]}–${z.levels[1]}`, z.id));
+    zone.value = f.zone, zone.onchange = () => { f.zone = zone.value; };
+    e.appendChild(row(zone, btn("🌀 שגר אותי", "", () => ask("teleport", { zone: f.zone }))));
+    e.appendChild(row(
+      btn("👣 אל השחקן", "", () => f.to === "me" ? this.toast("בחר שחקן ברשימה למעלה", "bad") : ask("teleport", { player: f.to })),
+      btn("❤ ריפוי הצוות", "", () => ask("heal", { to: f.to }))
+    ));
+
+    // say something to everyone
+    e.appendChild(section("הודעה לכל השרת"));
+    let text = textInput("מה להגיד לכל השחקנים?");
+    text.maxLength = this.gm?.limits?.text || 200, text.value = f.text, text.oninput = () => { f.text = text.value; };
+    e.appendChild(row(text, btn("📢 שלח", "primary", () => {
+      let v = text.value.trim();
+      v ? (ask("announce", { text: v }), text.value = "", f.text = "") : this.toast("ההודעה ריקה", "bad");
+    })));
+
+    // the log
+    e.appendChild(section("יומן פעולות", ""));
+    let log = el("div", "gm-log");
+    this._gmLogBox = log, this.fillGmLog(), e.appendChild(log);
+    e.appendChild(btn("🔄 רענן יומן", "small ghost", () => ask("log")));
+  }
+  /** The "who" list, refilled in place so a reply never steals focus. */
+  fillGmWho() {
+    let who = this._gmWho,
+      f = this.gmForm;
+    if (!who || !f) return;
+    let others = (this.gmPlayers || []).filter(p => p.id !== this.profile?.id);
+    others.some(p => p.id === f.to) || (f.to = "me"), who.innerHTML = "", who.appendChild(new Option(`אני (${this.profile?.name || ""})`, "me"));
+    for (let p of others) who.appendChild(new Option(`${p.name} · Lv ${p.level} · ${loc(ZONES[p.zone]) || p.zone}`, p.id));
+    who.value = f.to;
+  }
+  fillGmLog() {
+    let box = this._gmLogBox;
+    if (!box) return;
+    box.innerHTML = "";
+    let rows = this.gmLog || [];
+    if (!rows.length) return box.appendChild(emptyState("🗒", "עוד אין פעולות ביומן"));
+    for (let r of rows.slice(0, 40)) {
+      let d = new Date(r.at),
+        line = el("div", "gm-log-row"),
+        time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      line.innerHTML = `<span class="mono">${ltr(time)}</span> <b>${Ze(r.gm?.name || "")}</b> ${Ze(this.gmSummary(r.op, r.detail, r.to && r.to.id !== r.gm?.id ? r.to.name : null))}`, box.appendChild(line);
+    }
+  }
+  gmRefresh(kind) {
+    if (this.openPanelId !== "gm") return;
+    kind === "players" ? this.fillGmWho() : kind === "log" && this.fillGmLog();
+  }
+  /** One line for what a GM did: the toast after it, and its row in the log. */
+  gmSummary(op, d = {}, to = null) {
+    d ||= {};
+    let whom = to ? ` ← ${to}` : "",
+      what = {
+        give: () => d.what === "creature" ? `${loc(SPECIES[d.species]) || d.species} ${d.shiny ? "✨ " : ""}Lv ${d.level}${d.where === "box" ? " (לקופסה)" : ""}` : d.what === "gold" ? `${Number(d.amount || 0).toLocaleString("en-US")}⛁` : d.what === "level" ? `רמת מאמן ${d.level}` : `${loc(ITEMS[d.item]) || d.item} ×${d.qty}`,
+        fill: () => "משאבים בלי סוף",
+        heal: () => "ריפוי הצוות",
+        teleport: () => d.beside ? `שיגור אל ${d.beside}` : `שיגור ל${loc(ZONES[d.zone]) || d.zone}`,
+        summon: () => `זימון ${loc(SPECIES[d.species]) || d.species} Lv ${d.level}`,
+        announce: () => `📢 ${d.text || ""}${Number.isFinite(d.reached) ? ` (${d.reached} שחקנים)` : ""}`
+      }[op];
+    return `${what ? what() : op}${whom}`;
+  }
+  /** A GM's announcement: across the top, long enough to read, tap to close. */
+  gmBanner(from, text) {
+    let host = $("#app") || document.body,
+      b = el("div", "gm-banner");
+    b.setAttribute("role", "status"), b.innerHTML = `<span class="who">📢 ${Ze(from || "GM")}</span><span class="what"></span>`, b.querySelector(".what").textContent = text || "";
+    b.onclick = () => b.remove(), host.appendChild(b), setTimeout(() => b.classList.add("out"), 7e3), setTimeout(() => b.remove(), 7600);
+  }
+
   panelMenu(e) {
     let t = el("div", "grid2"),
       n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+    // Only a session the server called a GM's ever gets the hello that sets this.
+    this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
     for (let [c, h] of n) {
       let d = el("button", "btn", c);
       if (h === "__view") {

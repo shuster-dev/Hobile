@@ -243,6 +243,29 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
 #boss-banner .t{color:#a3231b}
 .toast.good{border-color:#8fe7da}
 .toast.bad{border-color:#ffb1ab}
+/* A wild that has seen someone: "!" over its head, "?" when it lost them. */
+.nameplate.alert{background:#ffd23f;border:2px solid #fff;color:#6b2600;font-weight:900;font-size:18px;line-height:1;padding:4px 10px 5px;border-radius:14px;box-shadow:0 3px 10px rgba(42,47,77,.28);transform:translate(-50%,calc(-100% - 4px));animation:alertPop .34s cubic-bezier(.3,1.7,.5,1) both;max-width:none;overflow:visible}
+.nameplate.alert.high{transform:translate(-50%,calc(-100% - 30px))}
+.nameplate.alert.mine{background:#ff3b30;color:#fff;animation:alertPop .34s cubic-bezier(.3,1.7,.5,1) both,alertThrob .7s ease-in-out .34s infinite}
+.nameplate.alert.lost{background:#eef0f7;color:#4a5170}
+.nameplate.alert.flee{background:#e3f4ff;color:#2a5f86;font-size:15px}
+.nameplate .fierce{color:#d6261d;font-weight:900}
+@keyframes alertPop{0%{scale:.2;opacity:0}100%{scale:1;opacity:1}}
+@keyframes alertThrob{0%,100%{scale:1}50%{scale:1.14}}
+/* GM tools */
+.gm-row{margin-top:var(--s2);align-items:center}
+.gm-row .btn{flex:0 0 auto;white-space:nowrap}
+.gm-row .field-input{min-height:44px;padding:10px var(--s3)}
+.gm-row .gm-num{flex:0 0 84px;width:84px;text-align:center}
+.gm-log{display:flex;flex-direction:column;gap:6px;margin:var(--s2) 0;font-size:var(--t-xs);user-select:text;-webkit-user-select:text}
+.gm-log-row{background:rgba(42,47,77,.05);border-radius:var(--r1);padding:6px var(--s2);line-height:1.4}
+.gm-log-row .mono{opacity:.6}
+.ch-gm{color:#b86a00;font-weight:700}
+.gm-banner{position:absolute;top:calc(env(safe-area-inset-top,0px) + 64px);left:50%;transform:translateX(-50%);z-index:var(--z-toast);width:min(92vw,460px);box-sizing:border-box;background:linear-gradient(180deg,#fff8e6,#ffefc4);border:2px solid #f2b640;border-radius:var(--r3);box-shadow:var(--e2);padding:10px var(--s4);display:flex;flex-direction:column;gap:2px;animation:gmIn .4s cubic-bezier(.2,1.4,.4,1) both;pointer-events:auto}
+.gm-banner .who{font-size:var(--t-xs);font-weight:800;color:#a15c00}
+.gm-banner .what{font-size:var(--t-md);font-weight:700;color:#2a2f4d;word-break:break-word}
+.gm-banner.out{opacity:0;transition:opacity .5s}
+@keyframes gmIn{0%{opacity:0;transform:translate(-50%,-18px)}100%{opacity:1;transform:translate(-50%,0)}}
 
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>

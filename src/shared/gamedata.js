@@ -1515,6 +1515,31 @@ var MOVES = {
     })
   },
   STARTERS = ["cindcub", "puddlet", "sproutle"],
+  // How a species takes to a trainer walking through its ground. Anything not
+  // listed is calm: it wanders, and it only fights when you start it.
+  //   fierce     sees you, shouts, comes for you (server/game/field.js)
+  //   nocturnal  calm by day, fierce after dark
+  // Past the meadow, each zone's fierce ones are mostly of its own element, so
+  // a companion of that element is the way to walk it in peace; and every
+  // zone keeps calm ones too, so none is a gauntlet (tools/qa.mjs holds the
+  // line at 60% of a zone's spawns, day or night).
+  TEMPER = {
+    cindcub: "fierce",
+    pyrelynx: "fierce",
+    vulcanth: "fierce",
+    tidefin: "fierce",
+    maelstride: "fierce",
+    thornkin: "fierce",
+    verdammoth: "fierce",
+    sparkit: "fierce",
+    voltmane: "fierce",
+    boulderon: "fierce",
+    frostnib: "fierce",
+    glacilisk: "fierce",
+    ferrogeist: "fierce",
+    duskmaw: "fierce",
+    nocturnix: "nocturnal"
+  },
   ITEMS = {
     sphere_basic: {
       id: "sphere_basic",
@@ -3116,4 +3141,4 @@ for (let z of Object.values(ZONES)) if (z.capturable) Object.assign(QUESTS, zone
 Object.assign(QUESTS, NPC_QUESTS);
 Object.assign(ITEMS, MATERIALS);
 
-export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TYPE_CHART, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

@@ -2,8 +2,9 @@ import { Combat, Combatant, acceptQuest, activateZoneQuests, swapToUid, teamCrea
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
-import { handleWorldMessage, speakTo, visitCheck } from './world-messages.js';
+import { engageWild, handleWorldMessage, speakTo, visitCheck } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
+import { FIELD, fieldHint, keepSpot, savedSpot, tickField } from './field.js';
 import { weatherAt } from '../../shared/weather.js';
 
 var StoreBase = class {
@@ -89,9 +90,9 @@ var StoreBase = class {
     async guilds() {
       return this.guilds;
     }
-    async joinWorld(e = HOME_ZONE) {
+    async joinWorld(e = HOME_ZONE, from = null) {
       await this.leaveRoom();
-      let t = new WorldSim(this, e);
+      let t = new WorldSim(this, e, from);
       return this.room = t, t.start(), t;
     }
     async joinRoomById(e) {
@@ -112,8 +113,8 @@ var StoreBase = class {
     }
   },
   WorldSim = class {
-    constructor(e, t) {
-      this.net = e, this.zoneId = ZONES[t] ? t : HOME_ZONE, this.zone = ZONES[this.zoneId], this.roomId = "local-world", this.sessionId = "me", this.state = {
+    constructor(e, t, from = null) {
+      this.net = e, this.fromZone = from, this.zoneId = ZONES[t] ? t : HOME_ZONE, this.zone = ZONES[this.zoneId], this.roomId = "local-world", this.sessionId = "me", this.state = {
         zone: this.zoneId,
         serverTime: Date.now(),
         players: new Map(),
@@ -131,13 +132,33 @@ var StoreBase = class {
           top: []
         }
       }, this.wildDocs = new Map(), this.colliders = propsFor(this.zone).colliders, this.bossDef = WORLD_BOSSES.find(n => n.zone === this.zoneId) || WORLD_BOSSES[0], this.bossContribution = new Map();
+      // The same field rules the online room runs (server/game/field.js),
+      // with this simulation as the one player's context.
+      this.field = {
+        zone: this.zone,
+        colliders: this.colliders,
+        state: this.state,
+        wildDocs: this.wildDocs,
+        players: () => {
+          let me = this.field.player("me");
+          return me ? [me] : [];
+        },
+        player: key => {
+          let p = key === "me" && this.self();
+          return p ? { key: "me", p, doc: this.doc, ctx: this } : null;
+        },
+        engage: (entry, wildId) => engageWild(this, wildId, { ambush: !0 })
+      };
     }
     get doc() {
       return this.net.doc;
     }
     start() {
       let e = this.doc,
-        t = this.spawnPoint();
+        // Back from a fight or a dungeon: where you were. From another zone:
+        // its camp. (Every arrival used to be the camp.)
+        t = savedSpot(e, this.zoneId, this.zone, this.colliders, this.fromZone) || this.spawnPoint();
+      keepSpot(e, this.zoneId, t), this.calmUntil = Math.max(e.calmUntil || 0, Date.now() + FIELD.joinCalmMs), this.lastStepAt = 0;
       activateZoneQuests(e, this.zoneId);
       this.state.players.set("me", {
         id: e.id,
@@ -186,6 +207,8 @@ var StoreBase = class {
         t: Date.now(),
         text: `${this.zone.he} · מצב אימון לשחקן יחיד — אין כאן שחקנים אחרים. בגרסה המלאה עם שרת, כל מי שסביבך הוא שחקן אמיתי.`
       });
+      let hint = fieldHint(e, this.zone);
+      hint && (this.net.emit("chat", { ch: "system", t: Date.now(), text: hint }), this.net.save());
     }
     spawnPoint() {
       let e = this.zone.landmarks.find(t => t.kind === "town" || t.kind === "camp") || {
@@ -237,7 +260,9 @@ var StoreBase = class {
         x: s,
         z: r,
         rot: Math.random() * 6.28,
-        engagedBy: ""
+        engagedBy: "",
+        alert: "",
+        target: ""
       }), this.wildDocs.set(e, {
         species: t,
         level: n,
@@ -245,7 +270,9 @@ var StoreBase = class {
           x: s,
           z: r
         },
-        next: 0
+        next: 0,
+        mode: "",
+        restUntil: 0
       });
     }
     scheduleBoss() {
@@ -258,6 +285,7 @@ var StoreBase = class {
       for (let [n, s] of this.state.wilds) {
         if (s.engagedBy) continue;
         let r = this.wildDocs.get(n);
+        if (!r || r.mode) continue;          // moved by the field while it has a mood
         if (e > r.next) {
           let c = this.randomFieldPoint();
           r.target = {
@@ -273,7 +301,7 @@ var StoreBase = class {
           s.x += o / l * c, s.z += a / l * c, s.rot = Math.atan2(o, a);
         }
       }
-      this.state.wilds.size < WILD_COUNT && this.spawnWild(), this.tickBoss(e);
+      this.state.wilds.size < WILD_COUNT && this.spawnWild(), tickField(this.field, e, t), this.tickBoss(e);
     }
     tickBoss(e) {
       let t = this.state.boss;
@@ -373,7 +401,7 @@ var StoreBase = class {
     startBattle(opts) {
       let sim = new BattleSim(this.net, opts);
       this.net.pendingRooms.set(sim.roomId, sim);
-      this.net.emit("goto", { roomId: sim.roomId, kind: "battle" });
+      this.net.emit("goto", { roomId: sim.roomId, kind: "battle", wildId: opts.wildId, ambush: !!opts.ambush });
       return sim.roomId;
     }
     startDungeon(opts) {
@@ -494,7 +522,8 @@ var StoreBase = class {
     }
     /** Called exactly once, whatever ends the battle. */
     finish(e) {
-      this._ended || (this._ended = !0, this.onEnd(e));
+      // Whatever ended it, the field leaves you alone for a while after.
+      this._ended || (this._ended = !0, this.net.doc && (this.net.doc.calmUntil = Date.now() + FIELD.battleCalmMs), this.onEnd(e));
     }
     sync() {
       syncBattleState(this.state, this.sim);
@@ -554,7 +583,9 @@ var StoreBase = class {
       } else if (e.outcome !== "fled") {
         t.stats.deaths += 1;
         let a = Math.floor(t.gold * 0.02);
-        t.gold = Math.max(0, t.gold - a), o.gold = -a, o.blackout = !0, healTeam(t, 1);
+        // A blackout is the one fight you do not walk away from where it was:
+        // you wake at the camp, as the genre always has.
+        t.gold = Math.max(0, t.gold - a), o.gold = -a, o.blackout = !0, healTeam(t, 1), t.pos = null;
       }
       this.net.save(), o.profile = publicProfile(t), this.finish(s || r), this.net.emit("battleEnd", o);
     }
@@ -739,6 +770,7 @@ var StoreBase = class {
       this.finished = !0, this.state.phase = "over";
       let t = this.net.doc,
         n = activeCreature(t);
+      t.calmUntil = Date.now() + FIELD.battleCalmMs;
       n && (n.hp = Math.max(1, Math.round(this.you.hp))), e || healTeam(t, 1);
       let s = Math.floor(this.totalXp * (e ? 1 : 0.35)),
         r = Math.floor(this.totalGold * (e ? 1 : 0.35));

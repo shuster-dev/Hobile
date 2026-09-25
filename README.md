@@ -90,6 +90,7 @@ Set these before going live:
 | `CORS_ORIGIN` | the client's origin; `*` is for development |
 | `DB_DRIVER` | `memory` (default) or `mongo` |
 | `MONGO_URL` | required when `DB_DRIVER=mongo` |
+| `ADMIN_USERS` | optional — usernames with the GM tools (`src/server/admin.js`); registered accounts only |
 
 `.env.example` has the full list. The client picks its server from
 `window.HOBILE_SERVER` or a `?server=` parameter, and otherwise talks to the

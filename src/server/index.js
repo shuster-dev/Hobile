@@ -7,16 +7,25 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { openStore } from './store.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, validateUsername } from './auth.js';
+import { adminIds, isAdmin, reportAdmins } from './admin.js';
 import { WorldRoom } from './rooms/WorldRoom.js';
 import { BattleRoom } from './rooms/BattleRoom.js';
 import { DungeonRoom } from './rooms/DungeonRoom.js';
 import { createPlayerDoc, normalizeDoc, publicProfile, uid } from './game/combat.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR } from '../shared/gamedata.js';
 
+// A log pipe that closes (a supervisor restarting, a test harness that died)
+// must not take the server with it. Without a listener, a failed write to
+// stdout is an uncaught exception; @pm2/io, which Colyseus pulls in, answers
+// every uncaught exception by logging it — to the same dead pipe — and the two
+// chase each other at full speed until memory runs out.
+for (const out of [process.stdout, process.stderr]) out.on('error', () => {});
+
 const PORT = Number(process.env.PORT || 2567);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const store = await openStore(process.env);
+await reportAdmins(store);
 const app = express();
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
@@ -72,7 +81,10 @@ app.get('/api/me', requireAuth, async (req, res) => {
   // renews it. Without this a player who came back after the 30-day TTL found
   // an account they had no way to prove was theirs — which is the reset this
   // whole flow exists to prevent.
-  const account = { guest: !!user?.guest, username: user?.guest ? '' : (user?.username || ''), token: signToken(req.userId) };
+  const account = {
+    guest: !!user?.guest, username: user?.guest ? '' : (user?.username || ''), token: signToken(req.userId),
+    ...(isAdmin(user) ? { admin: true } : {}),
+  };
   const doc = await store.getDoc(req.userId);
   if (!doc) return res.json({ hasCharacter: false, ...account });
   normalizeDoc(doc);
@@ -119,7 +131,8 @@ app.post('/api/character', requireAuth, async (req, res) => {
 });
 
 app.get('/api/leaderboard', requireAuth, async (req, res) => {
-  res.json(await store.leaderboard(String(req.query.kind || 'level')));
+  // GMs can hand themselves anything, so they are left off the board.
+  res.json(await store.leaderboard(String(req.query.kind || 'level'), 50, await adminIds(store)));
 });
 app.get('/api/guilds', requireAuth, async (req, res) => res.json(await store.listGuilds()));
 

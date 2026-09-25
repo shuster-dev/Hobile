@@ -11,6 +11,7 @@ import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, S
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
 import { weatherAt } from '../shared/weather.js';
+import { FIELD_FROM_LEVEL, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
 
 var WANT_LOGIN = "hobile.wantLogin";
 
@@ -33,6 +34,11 @@ var Game = class {
     });
     initDevice(), this.bindFullscreen();
     this.bindNet(), this.bindButtons(), this.loop = this.loop.bind(this), requestAnimationFrame(this.loop);
+    // A locked phone or a switched app: tell the world, so nothing out in the
+    // field starts on a player who is not looking at the game.
+    document.addEventListener("visibilitychange", () => {
+      this.mode === "world" && this.net.send("presence", { away: document.visibilityState === "hidden" });
+    });
   }
   /**
    * The fullscreen affordance, and the honest fallback.
@@ -319,6 +325,9 @@ var Game = class {
     }
   }
   async enterWorld(e = HOME_ZONE, t = null, soft = !1) {
+    // GM tools come back with the zone's hello, or not at all: the server
+    // decides on every arrival, so nothing is carried over from the last one.
+    this.ui.gm = null;
     this.mode = "loading", this.ui.setLoading(!0, "נכנס לעולם…"), await this.net.leaveRoom(!0);
     let n = !1;
     for (let s = 0; s < 3 && !n; s++) try {
@@ -331,7 +340,7 @@ var Game = class {
       this.mode = "boot", this.ui.setLoading(!1), this.ui.toast("לא ניתן להתחבר לעולם", "bad"), this.showLogin();
       return;
     }
-    this.mode = "world", this.spawned = !1;
+    this.mode = "world", this.spawned = !1, this._chasers = null;
     try {
       let s = globalThis.localStorage?.getItem("hobile.view");
       s && this.world.setViewMode(s);
@@ -449,7 +458,7 @@ var Game = class {
       this.engagePending = 0, this.ui.toast(Oc(t.code), "bad");
     }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
       if (!this.transitioning) {
-        this.transitioning = !0, this.engagePending = 0;
+        this.transitioning = !0, this.engagePending = 0, this.ambush = t.kind === "battle" && t.ambush ? { wildId: t.wildId } : null;
         try {
           t.kind === "world" ? await this.enterWorld(t.zone, t.fromZone) : await this.enterRoom(t.roomId, t.kind);
         } finally {
@@ -474,7 +483,9 @@ var Game = class {
       let me = this.battle?.combatants?.find(c => c.id === this.battle.youId),
         foe = this.battle?.combatants?.find(c => me && c.side !== me.side && c.kind !== "trainer"),
         sp = foe && SPECIES[foe.species];
-      this.ui.battleBanner(sp && foe.kind !== "boss" && !this.battle.combatants.some(c => c.side === foe.side && c.kind === "trainer") ? `${loc(sp)} פראי הופיע!` : "הקרב מתחיל!", 1400);
+      let wild = sp && foe.kind !== "boss" && !this.battle.combatants.some(c => c.side === foe.side && c.kind === "trainer");
+      // It came for you: say so, rather than as if you had walked up to it.
+      this.ui.battleBanner(wild && this.ambush ? `❗ ${loc(sp)} תקף אותך!` : wild ? `${loc(sp)} פראי הופיע!` : "הקרב מתחיל!", 1400), this.ambush && vibrate([40, 30, 40]), this.ambush = null;
       // The sky is doing something to the numbers, so say so once. Without this
       // the only way to find out rain helps a water move is to notice it.
       let w = this.battle.weather;
@@ -548,6 +559,13 @@ var Game = class {
       let n = [`+${t.xp} XP`, `+${t.gold}⛁`];
       for (let s of t.items || []) n.push(loc(ITEMS[s]));
       setTimeout(() => this.ui.toast(n.join(" · "), t.success ? "good" : ""), 400), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), 2200);
+    }), e.on("gm", t => this.onGm(t)), e.on("gmGift", t => {
+      // Someone with the keys sent you something (or you sent it to yourself).
+      audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
+      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : "משאבים בלי סוף";
+      this.ui.celebrate(t.from ? "🎁 מתנה!" : "🎁 נוסף!", "quest"), this.ui.toast(t.from ? `${t.from} (GM) שלח לך: ${what}` : `נוסף לך: ${what}`, "good"), t.what === "creature" && this.wantFaces(this.profile?.team);
+    }), e.on("gmAnnounce", t => {
+      audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
       audio.sfx("bossRoar"), audio.playMusic("boss"), vibrate([60, 60, 120]), this.ui.toast(`⚠ ${t.he || t.name} הופיע באזור!`, "bad");
     }), e.on("bossHit", () => {}), e.on("bossCounter", t => {
@@ -565,6 +583,50 @@ var Game = class {
       if (t === 4e3) return this.ui.toast("נותקת מהעולם", "bad"), this.showLogin();
       this.mode !== "boot" && this.reconnect();
     });
+  }
+  /** Replies to the GM panel. Only a GM's session is ever sent these. */
+  onGm(t) {
+    if (!t) return;
+    if (t.kind === "hello") {
+      this.ui.gm = { on: !0, limits: t.limits || {} };
+      this.ui.openPanelId === "menu" && this.ui.renderPanel("menu");
+      return;
+    }
+    if (t.kind === "players") return this.ui.gmPlayers = t.players || [], this.ui.gmRefresh("players");
+    if (t.kind === "log") return this.ui.gmLog = t.rows || [], this.ui.gmRefresh("log");
+    if (t.kind === "done") {
+      audio.sfx("ui"), this.ui.toast(`✔ ${this.ui.gmSummary(t.op, t.detail, t.to)}`, "good");
+      t.op !== "teleport" && this.net.send("gm", { op: "log" });
+      return;
+    }
+    t.kind === "error" && (audio.sfx("deny"), this.ui.toast({
+      forbidden: "אין לך הרשאת GM",
+      player_offline: "השחקן כבר לא מחובר",
+      bad_species: "יצור לא מוכר",
+      bad_item: "חפץ לא מוכר",
+      bad_amount: "סכום לא תקין",
+      bad_zone: "אזור לא מוכר",
+      too_many_summons: "יש כבר יותר מדי יצורים מזומנים באזור",
+      empty: "ההודעה ריקה",
+      log_unavailable: "היומן לא זמין כרגע"
+    }[t.code] || t.code, "bad"));
+  }
+  /** A wild coming for me: say it once when it starts, and once if I got
+   *  away. The "!" over its head is drawn with the nameplates. */
+  watchField(s) {
+    let me = this.profile?.id;
+    if (!me || !s?.wilds) return;
+    let chasers = this._chasers ||= new Map();
+    s.wilds.forEach((w, id) => {
+      let mine = w.alert === "!" && w.target === me;
+      if (mine && !chasers.has(id)) {
+        chasers.set(id, w.species), audio.sfx("alert"), vibrate([30, 40, 30]);
+        this.ui.toast(`❗ ${loc(SPECIES[w.species])} הבחין בך — ברח או הילחם!`, "bad");
+      } else if (!mine && chasers.has(id)) {
+        w.alert === "?" && this.ui.toast(`💨 ברחת מ${loc(SPECIES[chasers.get(id)])}`, "good"), chasers.delete(id);
+      }
+    });
+    for (let id of [...chasers.keys()]) s.wilds.has(id) || chasers.delete(id);
   }
   renderInvitePrompt(e) {
     let t = document.querySelector("#panel .body");
@@ -652,6 +714,8 @@ var Game = class {
           : "שתף ← הוסף למסך הבית, ואז המשחק ייפתח בלי הדפדפן", "good");
       },
       openSpecies: t => e("card", { species: t }),
+      gm: (op, data = {}) => e("gm", { ...data, op }),
+      gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" })),
       clinicHeal: () => e("clinicHeal"),
       // NB: swapCreature is defined once, further down in this same object.
       // It used to be declared here too, sending an unhandled "switchCreature"
@@ -970,7 +1034,7 @@ var Game = class {
         signature: `w:${d.species}`,
         species: d.species
       }), this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving !== !1);
-    }), s.boss?.active && (r.add("boss"), this.world.ensureActor("boss", {
+    }), this.watchField(s), s.boss?.active && (r.add("boss"), this.world.ensureActor("boss", {
       kind: "boss",
       signature: `b:${s.boss.species}`,
       species: s.boss.species
@@ -1105,10 +1169,29 @@ var Game = class {
   updateNameplates(e, t) {
     let n = [],
       me = this.world.selfPosition(),
+      lead = (this.profile?.team || []).find(c => c.hp > 0),
+      night = isNight(e.serverTime || Date.now()),
       // A label is for the creature you might walk up to, not for every one on
       // the horizon: a field of them piled into one unreadable stack.
       near = r => Math.hypot(r.holder.position.x - me.x, r.holder.position.z - me.z) < (r.kind === "wild" ? 13 : 30);
     for (let [s, r] of this.world.actors) {
+      if (r.kind === "wild") {
+        // "!" it saw someone and is coming; "?" it lost them; 💨 it is running.
+        // Seen from further than the name is, because it is a warning.
+        let w = e.wilds.get(s),
+          far = Math.hypot(r.holder.position.x - me.x, r.holder.position.z - me.z);
+        if (w?.alert && far < 28) {
+          let q = this.world.project(r.holder.position.clone().add(new Vector3(0, 2.1, 0)));
+          q.visible && n.push({
+            key: `alert:${s}`,
+            kind: `alert ${w.alert === "!" ? w.target === this.profile?.id ? "mine" : "bang" : w.alert === "?" ? "lost" : "flee"}${near(r) ? " high" : ""}`,
+            x: q.x,
+            y: q.y,
+            visible: !0,
+            label: w.alert === "~" ? "💨" : w.alert
+          });
+        }
+      }
       if (r.kind !== "boss" && !near(r)) continue;
       let o = r.holder.position.clone().add(new Vector3(0, r.kind === "boss" ? 4.6 : 2.1, 0)),
         a = this.world.project(o);
@@ -1131,13 +1214,16 @@ var Game = class {
       } else if (r.kind === "wild") {
         let l = e.wilds.get(s);
         if (!l) continue;
+        // ⚔: this one would come for you — fierce, not of your companion's
+        // element, not so much weaker that it would run. Town never has it.
+        let hostile = !ZONES[this.zone?.id]?.urban && (this.profile?.level || 1) >= FIELD_FROM_LEVEL && temperOf(l.species, night) === "fierce" && stanceOfLead(l.species, l.level, lead) === "fight";
         n.push({
           key: s,
           kind: "wild",
           x: a.x,
           y: a.y,
           visible: !0,
-          label: `${loc(SPECIES[l.species])} <span class="mono">${l.level}</span>`
+          label: `${loc(SPECIES[l.species])} <span class="mono">${l.level}</span>${hostile ? ' <span class="fierce" aria-label="תוקפני">⚔</span>' : ""}`
         });
       } else r.kind === "boss" && e.boss?.active && n.push({
         key: s,

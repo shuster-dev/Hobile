@@ -628,6 +628,25 @@ var sb = 1.0594630943592953,
             gain: 0.07
           });
           break;
+        case "alert":
+          // "!" — something out there has seen you. Two sharp rising blips.
+          this.tone(n, {
+            type: "square",
+            freq: 740,
+            to: 1180,
+            dur: 0.07,
+            gain: 0.13,
+            cutoff: 3600
+          }), this.tone(n, {
+            type: "square",
+            freq: 990,
+            to: 1560,
+            dur: 0.1,
+            gain: 0.14,
+            at: 0.09,
+            cutoff: 4200
+          });
+          break;
         default:
           break;
       }

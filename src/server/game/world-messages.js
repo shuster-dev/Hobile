@@ -21,11 +21,53 @@ import {
   startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView,
 } from './combat.js';
 import { hpRatio } from './player.js';
+import { FIELD, calmWild, keepSpot } from './field.js';
+import { handleGm } from './gm.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
 // 20 a second and a sprint is about 7 m/s, so 3m leaves generous headroom for
 // a late packet while making a teleport impossible.
 const MAX_STEP = 3;
+
+const PLAYER_CHANNELS = new Set(['zone', 'world', 'party', 'guild', 'whisper']);
+
+/**
+ * Start a fight with a wild. One path whoever starts it: the player walking
+ * up and pressing the button, or a fierce wild catching them (`ambush`).
+ * Returns true when a battle is on its way.
+ */
+export function engageWild(ctx, wildId, { ambush = false } = {}) {
+  const n = ctx.doc, s = ctx.self(), now = Date.now();
+  const o = ctx.state.wilds.get(wildId);
+  if (!o || o.engagedBy) return ctx.net.emit('error', { code: 'wild_gone' }), false;
+  if (!s || Math.hypot(o.x - s.x, o.z - s.z) > 8) return ctx.net.emit('error', { code: 'too_far' }), false;
+  const a = activeCreature(n);
+  if (!a || a.hp <= 0) return ctx.net.emit('error', { code: 'no_healthy_creature' }), false;
+  // One fight at a time. The client guards its own button, but the server is
+  // the one that knows a wild is also about to catch this player.
+  if (now < (ctx.battlePending || 0)) return false;
+  ctx.battlePending = now + FIELD.pendingMs;
+  o.engagedBy = n.id;
+  const d = ctx.wildDocs.get(wildId);
+  d && calmWild(o, d, now, 0);
+  ctx.startBattle({
+    zoneId: ctx.zoneId,
+    wildId,
+    ambush,
+    wild: { species: o.species, level: o.level },
+    onEnd: (captured) => {
+      // Whatever became of the fight, this session is free to start another.
+      ctx.battlePending = 0;
+      if (captured) { ctx.state.wilds.delete(wildId); ctx.wildDocs.delete(wildId); return; }
+      o.engagedBy = '';
+      // It stands where the fight was, and so will you: give it a while
+      // before it looks at anyone again.
+      const dd = ctx.wildDocs.get(wildId);
+      dd && calmWild(o, dd, Date.now(), FIELD.foughtRestMs);
+    },
+  });
+  return true;
+}
 
 /** Talk to an NPC: their lines for who the player is right now, and any
  *  "talk to …" quest step that completes by it. One implementation for both
@@ -97,7 +139,10 @@ export function handleWorldMessage(ctx, e, t = {}) {
           ctx.welcome();
           break;
         case "move":
-          if (ctx.inside) break;          // indoors: the overworld avatar stays put
+          // Indoors the overworld avatar stays put; and once a portal or a GM
+          // warp has sent the player on, the packets still in flight from
+          // before must not write the old zone back over where they are going.
+          if (ctx.inside || ctx.warping) break;
           if (Number.isFinite(t.x) && Number.isFinite(t.z)) {
             // Clamp the step, then resolve collisions. A client that sends a
             // position 400m away is not walking, and without this the server
@@ -109,13 +154,27 @@ export function handleWorldMessage(ctx, e, t = {}) {
             tx = Math.max(-half, Math.min(half, tx));
             tz = Math.max(-half, Math.min(half, tz));
             let o = resolveCollision(ctx.colliders, tx, tz, 0.42);
-            s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, ctx.checkVisits(n, s);
+            // The client reports ~12 times a second whether or not the stick
+            // is held, so "stepped" is a real change of place, not a packet.
+            (t.moving || Math.hypot(o.x - s.x, o.z - s.z) > 0.05) && (ctx.lastStepAt = r);
+            s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, keepSpot(n, ctx.zoneId, s), ctx.checkVisits(n, s);
           }
+          break;
+        case "presence":
+          // The tab went to the background (a phone locked, an app switch):
+          // nothing in the field should start on someone who is not there.
+          ctx.away = !!t.away;
+          break;
+        case "gm":
+          handleGm(ctx, t);
           break;
         case "chat":
           {
+            // A player picks among the channels players have. "gm" and
+            // "system" are the server's own voice, and used to be claimable
+            // by anyone who typed the name into the message.
             let o = {
-              ch: t.ch || "zone",
+              ch: PLAYER_CHANNELS.has(t.ch) ? t.ch : "zone",
               from: n.name,
               fromId: n.id,
               text: String(t.text || "").slice(0, 240),
@@ -125,41 +184,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             break;
           }
         case "engage":
-          {
-            let o = ctx.state.wilds.get(t.wildId);
-            if (!o || o.engagedBy) {
-              ctx.net.emit("error", {
-                code: "wild_gone"
-              });
-              return;
-            }
-            if (Math.hypot(o.x - s.x, o.z - s.z) > 8) {
-              ctx.net.emit("error", {
-                code: "too_far"
-              });
-              return;
-            }
-            let a = activeCreature(n);
-            if (!a || a.hp <= 0) {
-              ctx.net.emit("error", {
-                code: "no_healthy_creature"
-              });
-              return;
-            }
-            o.engagedBy = n.id;
-            ctx.startBattle({
-              zoneId: ctx.zoneId,
-              wildId: t.wildId,
-              wild: {
-                species: o.species,
-                level: o.level
-              },
-              onEnd: captured => {
-                captured ? (ctx.state.wilds.delete(t.wildId), ctx.wildDocs.delete(t.wildId)) : o.engagedBy = "";
-              }
-            });
-            break;
-          }
+          engageWild(ctx, typeof t.wildId == "string" ? t.wildId : "");
+          break;
         case "duel":
         // The client has a whole accept path behind this — a toast, a pending
         // id, and the action button — and nothing on the server answered the
@@ -214,7 +240,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               });
               return;
             }
-            n.zone = t.zone, ctx.net.save(), ctx.net.emit("goto", {
+            n.zone = t.zone, ctx.warping = !0, ctx.net.save(), ctx.net.emit("goto", {
               kind: "world",
               zone: t.zone,
               fromZone: ctx.zoneId
@@ -272,7 +298,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               return;
             }
             // Park the player in the doorway so stepping back out is sensible.
-            s.x = a.x, s.z = a.z, s.moving = !1, s.status = "inside";
+            s.x = a.x, s.z = a.z, s.moving = !1, s.status = "inside", keepSpot(n, ctx.zoneId, s);
             ctx.inside = o.interior;
             ctx.net.emit("building", {
               id: o.interior,

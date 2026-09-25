@@ -132,6 +132,13 @@ ok('a wild creature is reachable on foot', !!reached && reached.dist < 3, JSON.s
 ok('walking into it starts a fight', entered, JSON.stringify((await state()).refused));
 
 if (entered) {
+  // Where the fight started, to hold the return to it. The spot is written on
+  // every accepted step, so at this moment it is the last one before the fight.
+  const spotAtFight = await page.evaluate(() => {
+    const g = window.__hobile, p = g.net.doc?.pos;
+    g.net.on?.('battleEnd', (e) => { window.__end = e; });
+    return p && { zone: p.zone, x: p.x, z: p.z };
+  });
   await wait(1800);
   const bt = await page.evaluate(() => {
     const b = window.__hobile.battle;
@@ -184,6 +191,15 @@ if (entered) {
   await page.waitForFunction(() => window.__hobile?.mode === 'world', null, { timeout: 30000 }).catch(() => {});
   const after = await state();
   ok('the fight ends and the world comes back', after.mode === 'world', JSON.stringify({ fight, after: after.mode }));
+  // Every arrival used to be the camp, so every fight sent you home. Now only
+  // a blackout does.
+  await page.waitForFunction(() => window.__hobile?.spawned, null, { timeout: 15000 }).catch(() => {});
+  const back = await page.evaluate(() => {
+    const g = window.__hobile, s = g.worldState()?.players?.get?.(g.net?.room?.sessionId || 'me');
+    return { x: s?.x, z: s?.z, blackout: !!window.__end?.blackout, outcome: window.__end?.outcome };
+  });
+  ok('and it puts you back where the fight started', !!spotAtFight && (back.blackout
+    || Math.hypot(back.x - spotAtFight.x, back.z - spotAtFight.z) < 2.5), JSON.stringify({ spotAtFight, back }));
   ok('something was earned — xp, gold or a creature',
     after.xp > before.xp || after.gold !== before.gold || after.team > before.team,
     JSON.stringify({ before: { xp: before.xp, gold: before.gold, team: before.team },

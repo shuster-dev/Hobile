@@ -1,6 +1,6 @@
 import { Room } from '@colyseus/core';
 import { WorldState, PlayerState, WildState, BossContributor } from '../state.js';
-import { handleWorldMessage, speakTo, visitCheck } from '../game/world-messages.js';
+import { engageWild, handleWorldMessage, speakTo, visitCheck } from '../game/world-messages.js';
 import { hpRatio } from '../game/player.js';
 import {
   HOME_ZONE, ZONES, SPECIES, WORLD_BOSSES, PROGRESSION,
@@ -10,12 +10,61 @@ import { propsFor, resolveCollision } from '../../shared/props.js';
 import {
   activeCreature, activateZoneQuests, normalizeDoc, publicProfile, syncQuests, uid, grantXp, giveItem, DAY_MS,
 } from '../game/combat.js';
+import { FIELD, fieldHint, keepSpot, savedSpot, tickField } from '../game/field.js';
+import { GM_LIMITS } from '../game/gm.js';
+import { isAdmin } from '../admin.js';
 import { verifyToken } from '../auth.js';
 
 const TICK_MS = 50;
 const SAVE_EVERY_MS = 20_000;
 const WILD_TARGET = 14;
 const MAX_MOVE_PER_PACKET = 2.2;   // metres; the client sends ~20/s
+const SUMMON_LIFE_MS = 5 * 60_000; // a GM's summoned wild goes home after this
+
+// Every zone room in this process. One server holds them all, so "everyone
+// online" for the GM tools is a walk over this set, not a service.
+const WORLDS = new Set();
+
+function onlinePlayers() {
+  const out = [];
+  for (const room of WORLDS) {
+    for (const doc of room.docsBySession.values()) {
+      out.push({ id: doc.id, name: doc.name, level: doc.level, zone: room.zoneId });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** A live handle on someone online: their document, their avatar, a way to
+ *  tell their screen. Their document is the same object their session holds
+ *  (the store keeps one per player), so a change here is a change there. */
+function reachPlayer(id) {
+  for (const room of WORLDS) {
+    for (const [sessionId, doc] of room.docsBySession) {
+      if (doc.id !== id) continue;
+      const client = room.clients.find((c) => c.sessionId === sessionId);
+      if (!client) continue;
+      return {
+        doc,
+        zoneId: room.zoneId,
+        self: () => room.state.players.get(sessionId),
+        send: (event, data) => client.send(event, data),
+        save: () => { room.dirty = true; },
+      };
+    }
+  }
+  return null;
+}
+
+function broadcastAll(msg) {
+  let reached = 0;
+  for (const room of WORLDS) {
+    room.broadcast('chat', msg);
+    room.broadcast('gmAnnounce', { from: msg.from, text: msg.text });
+    reached += room.clients.length;
+  }
+  return reached;
+}
 
 export class WorldRoom extends Room {
   // Instance onAuth, not the static one: this client sends its token in the
@@ -57,19 +106,47 @@ export class WorldRoom extends Room {
       }
     });
 
+    // What field.js needs to know about this room.
+    this.field = {
+      zone: this.zone,
+      colliders: this.colliders,
+      state: this.state,
+      wildDocs: this.wildDocs,
+      players: () => this.fieldPlayers(),
+      player: (key) => this.fieldPlayer(key),
+      engage: (entry, wildId) => engageWild(entry.ctx, wildId, { ambush: true }),
+    };
+
     this.setSimulationInterval(() => this.tick(), TICK_MS);
     this.lastSave = Date.now();
+    WORLDS.add(this);
+  }
+
+  fieldPlayer(key) {
+    const p = this.state.players.get(key), doc = this.docsBySession.get(key), ctx = this.ctxBySession.get(key);
+    return p && doc && ctx ? { key, p, doc, ctx } : null;
+  }
+  *fieldPlayers() {
+    for (const key of this.state.players.keys()) {
+      const e = this.fieldPlayer(key);
+      if (e) yield e;
+    }
   }
 
   async onJoin(client, options = {}, auth) {
     const userId = auth?.sub;
     const doc = await this.store.getDoc(userId);
     if (!doc) { client.send('error', { code: 'no_character' }); client.leave(4000); return; }
+    const user = await this.store.findUserById(userId).catch(() => null);
     normalizeDoc(doc);
     activateZoneQuests(doc, this.zoneId);
     doc.zone = this.zoneId;
 
-    const spawn = this.spawnPoint(options.fromZone);
+    // Back from a fight, a dungeon or a dropped connection: where you were.
+    // From another zone: its camp.
+    const spawn = savedSpot(doc, this.zoneId, this.zone, this.colliders, options.fromZone)
+      || this.spawnPoint(options.fromZone);
+    keepSpot(doc, this.zoneId, spawn);
     const p = new PlayerState();
     Object.assign(p, {
       id: doc.id, name: doc.name, level: doc.level,
@@ -81,7 +158,7 @@ export class WorldRoom extends Room {
     });
     this.state.players.set(client.sessionId, p);
     this.docsBySession.set(client.sessionId, doc);
-    this.ctxBySession.set(client.sessionId, this.makeContext(client, doc));
+    this.ctxBySession.set(client.sessionId, this.makeContext(client, doc, user));
     this.broadcast('chat', {
       ch: 'system', t: Date.now(), text: `${doc.name} הגיע ל${this.zone.he}.`,
     }, { except: client });
@@ -96,12 +173,13 @@ export class WorldRoom extends Room {
   }
 
   async onDispose() {
+    WORLDS.delete(this);
     for (const doc of this.docsBySession.values()) await this.store.saveDoc(doc).catch(() => {});
   }
 
   /** The surface world-messages.js is written against, bound to one client. */
-  makeContext(client, doc) {
-    const room = this, seen = new Set();
+  makeContext(client, doc, user = null) {
+    const room = this, seen = new Set(), admin = isAdmin(user);
     const ctx = {
       doc,
       zone: this.zone,
@@ -111,6 +189,19 @@ export class WorldRoom extends Room {
       wildDocs: this.wildDocs,
       bossContribution: this.bossContribution,
       _bossCd: 0,
+      // Nothing in the field starts on someone who has just arrived, and the
+      // half-minute after a fight carries over from the battle that set it.
+      calmUntil: Math.max(doc.calmUntil || 0, Date.now() + FIELD.joinCalmMs),
+      lastStepAt: 0,
+      admin,
+      gm: admin ? {
+        online: () => onlinePlayers(),
+        reach: (id) => reachPlayer(id),
+        broadcast: (msg) => broadcastAll(msg),
+        summon: (species, level) => room.summon(client, species, level),
+        audit: (entry) => room.audit(doc, user, entry),
+        recent: (n) => room.store.adminLog ? room.store.adminLog(n) : [],
+      } : null,
       net: {
         emit: (event, data) => client.send(event, data),
         save: () => { room.dirty = true; },
@@ -145,6 +236,9 @@ export class WorldRoom extends Room {
     client.send('guild', this.guildView(doc));
     client.send('party', this.partyView(doc));
     client.send('friends', this.friendList(doc));
+    if (this.ctxBySession.get(client.sessionId)?.admin) client.send('gm', { kind: 'hello', limits: GM_LIMITS });
+    const hint = fieldHint(doc, this.zone);
+    if (hint) { client.send('chat', { ch: 'system', t: Date.now(), text: hint }); this.dirty = true; }
     const others = Math.max(0, this.state.players.size - 1);
     client.send('chat', {
       ch: 'system', t: Date.now(),
@@ -206,15 +300,42 @@ export class WorldRoom extends Room {
     return { x: half * 0.6, z: half * 0.6 };
   }
 
-  spawnWild() {
+  spawnWild(species = weightedPick(this.zone.spawns), level = randomLevel(this.zoneId), at = this.randomFieldPoint()) {
     const id = 'w' + uid().slice(0, 8);
-    const species = weightedPick(this.zone.spawns);
-    const level = randomLevel(this.zoneId);
-    const { x, z } = this.randomFieldPoint();
+    const { x, z } = at;
     const w = new WildState();
-    Object.assign(w, { id, species, level, x, z, rot: Math.random() * 6.28, engagedBy: '' });
+    Object.assign(w, { id, species, level, x, z, rot: Math.random() * 6.28, engagedBy: '', alert: '', target: '' });
     this.state.wilds.set(id, w);
-    this.wildDocs.set(id, { species, level, target: { x, z }, next: 0 });
+    this.wildDocs.set(id, { species, level, target: { x, z }, next: 0, mode: '', restUntil: 0 });
+    return id;
+  }
+
+  /** A GM calls a wild to their side. It is an ordinary wild from then on —
+   *  catchable, and fierce if its species is — and it goes home after a while
+   *  if nobody takes it on, so summons cannot pile up in a zone. */
+  summon(client, species, level) {
+    let alive = 0;
+    for (const d of this.wildDocs.values()) if (d.summonedUntil) alive++;
+    if (alive >= GM_LIMITS.summons) return null;
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return null;
+    const a = Math.random() * Math.PI * 2;
+    const at = resolveCollision(this.colliders, p.x + Math.cos(a) * 3.5, p.z + Math.sin(a) * 3.5, 0.5);
+    const id = this.spawnWild(species, level, at);
+    Object.assign(this.wildDocs.get(id), { summonedUntil: Date.now() + SUMMON_LIFE_MS, home: { x: at.x, z: at.z } });
+    return id;
+  }
+
+  /** Every GM action, in the server log and in the store. */
+  audit(doc, user, entry) {
+    const row = {
+      at: Date.now(),
+      gm: { id: doc.id, name: doc.name, username: user?.username || '' },
+      zone: this.zoneId,
+      ...entry,
+    };
+    console.log('[gm]', JSON.stringify(row));
+    this.store.logAdmin?.(row)?.catch?.((e) => console.warn('[gm] log write failed', e?.message));
   }
 
   scheduleBoss() {
@@ -278,11 +399,22 @@ export class WorldRoom extends Room {
     // wandering, and impossible to engage for the life of the zone. Room
     // options are passed by reference (the store already relies on that), so
     // the callback can simply go with it.
-    const reservation = await matchMaker.createRoom('battle', {
-      store: this.store, zoneId: this.zoneId, wild: opts.wild, ownerId: doc.id,
-      onEnd: opts.onEnd,
-    });
-    client.send('goto', { roomId: reservation.roomId, kind: 'battle', wildId: opts.wildId });
+    let reservation;
+    try {
+      reservation = await matchMaker.createRoom('battle', {
+        store: this.store, zoneId: this.zoneId, wild: opts.wild, ownerId: doc.id,
+        onEnd: opts.onEnd,
+      });
+    } catch (err) {
+      // A room that could not be made must not keep the wild, or the player.
+      console.error('[world] battle room', err);
+      try { opts.onEnd?.(false); } catch {}
+      const ctx = this.ctxBySession.get(client.sessionId);
+      if (ctx) ctx.battlePending = 0;
+      client.send('error', { code: 'server_error' });
+      return;
+    }
+    client.send('goto', { roomId: reservation.roomId, kind: 'battle', wildId: opts.wildId, ambush: !!opts.ambush });
   }
 
   async startDungeon(client, doc, opts) {
@@ -297,12 +429,21 @@ export class WorldRoom extends Room {
     const now = Date.now();
     this.state.serverTime = now;
 
-    // wild wander
+    // wild wander — a wild with a mood (coming for someone, running, looking
+    // around for who it lost) is moved by the field instead
     for (const [id, w] of this.state.wilds) {
       const d = this.wildDocs.get(id);
-      if (!d || w.engagedBy) continue;
+      if (!d || w.engagedBy || d.mode) continue;
+      if (d.summonedUntil && now > d.summonedUntil) {
+        this.state.wilds.delete(id); this.wildDocs.delete(id);
+        continue;
+      }
       if (now >= d.next) {
-        const t = this.randomFieldPoint();
+        // A summoned one stays near where it was called: "next to me" should
+        // still be next to you in half a minute.
+        const a = Math.random() * Math.PI * 2, r = 1 + Math.random() * 4;
+        const t = d.home ? resolveCollision(this.colliders, d.home.x + Math.cos(a) * r, d.home.z + Math.sin(a) * r, 0.5)
+          : this.randomFieldPoint();
         d.target = t;
         d.next = now + 4000 + Math.random() * 6000;
       }
@@ -315,6 +456,9 @@ export class WorldRoom extends Room {
       }
     }
     while (this.state.wilds.size < WILD_TARGET) this.spawnWild();
+
+    // who notices whom
+    tickField(this.field, now, TICK_MS);
 
     // boss window
     const b = this.state.boss;

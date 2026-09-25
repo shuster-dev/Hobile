@@ -35,3 +35,8 @@ services:
         value: "*"
       - key: MAX_PLAYERS_PER_ZONE
         value: "60"
+      # GM accounts: usernames, comma-separated. Set it in the dashboard
+      # (Environment), never here — the repo is public. Use a name that is
+      # already registered: an unregistered one goes to whoever takes it.
+      - key: ADMIN_USERS
+        sync: false

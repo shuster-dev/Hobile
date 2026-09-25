@@ -705,5 +705,350 @@ ok('a thrown sphere freezes every combatant', throwRes.ok
 ok('the freeze window matches PROGRESSION', [...b4.sim.combatants.values()]
   .every((c) => c.frozenUntil - now <= PROGRESSION.captureWindowMs + 50));
 
+// ---------------------------------------------------------------- your spot
+// Every arrival used to be the camp, so every fight and every capture sent the
+// player home. The spot is kept on the document and a return puts you on it.
+section('your spot');
+const F = await import('../src/server/game/field.js');
+{
+  const sdoc = C.createPlayerDoc('u7', 'QA7', {}, 'puddlet');
+  C.normalizeDoc(sdoc);
+  const snet = { doc: sdoc, guilds: [], emit: () => {}, save: () => {}, pendingRooms: new Map() };
+  const meadow = ZONES.verdant_meadow, camp = meadow.landmarks.find((l) => l.kind === 'camp');
+  const w1 = new B.WorldSim(snet, 'verdant_meadow');
+  w1.start(); w1.stop();
+  const spot = w1.randomFieldPoint();
+  Object.assign(w1.self(), spot);
+  w1.handle('move', { x: spot.x + 0.8, z: spot.z + 0.3, moving: true });
+  const at = { x: w1.self().x, z: w1.self().z };
+  ok('an accepted step is kept on the document', sdoc.pos?.zone === 'verdant_meadow'
+    && near(sdoc.pos.x, at.x, 0.02) && near(sdoc.pos.z, at.z, 0.02), JSON.stringify(sdoc.pos));
+  ok('the spot is out in the field, not at the camp', Math.hypot(at.x - camp.x, at.z - camp.z) > camp.r + 2);
+
+  const w2 = new B.WorldSim(snet, 'verdant_meadow');
+  w2.start(); w2.stop();
+  ok('coming back to the zone (a fight, a capture) puts you on it',
+    Math.hypot(w2.self().x - at.x, w2.self().z - at.z) < 0.8,
+    `${w2.self().x.toFixed(1)},${w2.self().z.toFixed(1)} vs ${at.x.toFixed(1)},${at.z.toFixed(1)}`);
+
+  const w3 = new B.WorldSim(snet, 'verdant_meadow', 'aetherport');
+  w3.start(); w3.stop();
+  ok('arriving from another zone still lands at its camp',
+    Math.hypot(w3.self().x - camp.x, w3.self().z - camp.z) < camp.r, `${w3.self().x.toFixed(1)},${w3.self().z.toFixed(1)}`);
+
+  sdoc.pos = { zone: 'verdant_meadow', x: at.x, z: at.z };
+  const w4 = new B.WorldSim(snet, 'stonewake_mesa');
+  w4.start(); w4.stop();
+  const camp4 = ZONES.stonewake_mesa.landmarks.find((l) => l.kind === 'camp');
+  ok('a spot in one zone is not used in another',
+    Math.hypot(w4.self().x - camp4.x, w4.self().z - camp4.z) < camp4.r);
+
+  ok('a spot inside a wall is pushed out of it', (() => {
+    const c = w1.colliders.find((k) => k.r && k.r > 0.5);
+    if (!c) return true;
+    const s = F.savedSpot({ pos: { zone: 'verdant_meadow', x: c.x, z: c.z } }, 'verdant_meadow', meadow, w1.colliders, null);
+    return Math.hypot(s.x - c.x, s.z - c.z) >= c.r;
+  })());
+  ok('a spot off the edge of the world is brought back onto it', (() => {
+    const s = F.savedSpot({ pos: { zone: 'verdant_meadow', x: 9e3, z: -9e3 } }, 'verdant_meadow', meadow, w1.colliders, null);
+    return Math.abs(s.x) <= meadow.size / 2 && Math.abs(s.z) <= meadow.size / 2;
+  })());
+  ok('a spot with no numbers in it is ignored',
+    F.savedSpot({ pos: { zone: 'verdant_meadow', x: 'a', z: null } }, 'verdant_meadow', meadow, w1.colliders, null) === null);
+
+  // losing is the one fight you do not walk away from where it was
+  sdoc.pos = { zone: 'verdant_meadow', x: at.x, z: at.z };
+  const lost = new B.BattleSim(snet, { zoneId: 'verdant_meadow', wild: { species: 'sparkit', level: 5 } });
+  lost.resolve({ outcome: 'b' });
+  ok('a blackout sends you back to the camp', sdoc.pos === null);
+  ok('and any fight leaves half a minute of calm behind it',
+    sdoc.calmUntil - Date.now() > F.FIELD.battleCalmMs - 2000 && sdoc.calmUntil - Date.now() <= F.FIELD.battleCalmMs);
+  sdoc.pos = { zone: 'verdant_meadow', x: at.x, z: at.z };
+  const won = new B.BattleSim(snet, { zoneId: 'verdant_meadow', wild: { species: 'sparkit', level: 5 } });
+  won.resolve({ outcome: 'a' });
+  ok('a win keeps the spot', sdoc.pos?.zone === 'verdant_meadow');
+  const ran = new B.BattleSim(snet, { zoneId: 'verdant_meadow', wild: { species: 'sparkit', level: 5 } });
+  ran.resolve({ outcome: 'fled' });
+  ok('so does running away', sdoc.pos?.zone === 'verdant_meadow');
+}
+
+// ---------------------------------------------------------------- the field
+// Wilds that come for you, the balanced way (server/game/field.js).
+section('the field');
+{
+  for (const [id, t] of Object.entries(G.TEMPER)) {
+    ok(`temper ${id} names a species and a real temper`, !!SPECIES[id] && (t === 'fierce' || t === 'nocturnal'), t);
+  }
+  for (const z of Object.values(ZONES)) {
+    if (z.urban) continue;
+    const total = z.spawns.reduce((a, [, w]) => a + w, 0);
+    const share = (night) => z.spawns.filter(([s]) => F.temperOf(s, night) === 'fierce').reduce((a, [, w]) => a + w, 0) / total;
+    ok(`${z.id}: some of it comes for you, most of it does not`,
+      share(false) > 0 && share(false) <= 0.6 && share(true) <= 0.6,
+      `day ${(share(false) * 100).toFixed(0)}% night ${(share(true) * 100).toFixed(0)}%`);
+  }
+  ok('nocturnal is calm by day and fierce by night',
+    F.temperOf('nocturnix', false) === 'calm' && F.temperOf('nocturnix', true) === 'fierce');
+
+  const fdoc = C.createPlayerDoc('u8', 'QA8', {}, 'puddlet');
+  C.normalizeDoc(fdoc);
+  fdoc.level = 6;
+  const lead = C.activeCreature(fdoc);
+  ok('the same element as your companion leaves you be', F.stanceToward('tidefin', 20, fdoc) === 'kin');
+  ok('a dual type sharing either element does too', F.stanceToward('mossnail', 9, fdoc) === 'kin');
+  ok('another element comes for you', F.stanceToward('sparkit', 6, fdoc) === 'fight');
+  lead.level = 20;
+  ok('one far weaker than your companion runs instead', F.stanceToward('sparkit', 8, fdoc) === 'flee');
+  ok('one only a little weaker still fights', F.stanceToward('sparkit', 16, fdoc) === 'fight');
+  lead.level = 5;
+  const hp = lead.hp;
+  for (const u of fdoc.team) fdoc.creatures[u].hp = 0;
+  ok('nothing of yours standing: nothing starts on you', F.stanceToward('sparkit', 5, fdoc) === 'unarmed');
+  lead.hp = hp;
+
+  ok('the rule about elements is explained once, where it applies', (() => {
+    const hd = C.createPlayerDoc('u9', 'QA9', {}, 'cindcub');
+    const newbie = F.fieldHint(hd, ZONES.verdant_meadow);
+    hd.level = 5;
+    const town = F.fieldHint(hd, ZONES.aetherport), first = F.fieldHint(hd, ZONES.verdant_meadow), again = F.fieldHint(hd, ZONES.emberfall_canyon);
+    return newbie === null && town === null && typeof first === 'string' && first.includes('יסוד') && again === null;
+  })());
+  ok('town is safe ground', F.inSafeGround(ZONES.aetherport, 30, 30));
+  const meadow = ZONES.verdant_meadow, camp = meadow.landmarks.find((l) => l.kind === 'camp');
+  ok('a camp is safe ground', F.inSafeGround(meadow, camp.x + 2, camp.z - 2));
+
+  // A live field on the single-player simulation, on a clock the test holds.
+  const fev = [];
+  const fnet = { doc: fdoc, guilds: [], emit: (k, v) => fev.push([k, v]), save: () => {}, pendingRooms: new Map() };
+  const fw = new B.WorldSim(fnet, 'verdant_meadow');
+  fw.start(); fw.stop();
+  fw.state.wilds.clear(); fw.wildDocs.clear();
+  const home = fw.randomFieldPoint();
+  ok('open field is not safe ground', !F.inSafeGround(meadow, home.x, home.z, F.FIELD.safeMargin));
+  let T = Date.now() + 3_600_000;
+  const self = () => fw.self();
+  const reset = () => {
+    Object.assign(self(), { x: home.x, z: home.z, status: 'idle' });
+    fw.calmUntil = 0; fw.escapedUntil = 0; fw.battlePending = 0; fw.chasedBy = null; fw.lastStepAt = T; fw.away = false;
+    fw.state.wilds.clear(); fw.wildDocs.clear(); fev.length = 0;
+  };
+  // A spot `dist` away with nothing solid between it and the player.
+  const clear = (dist) => {
+    const p = self();
+    for (let k = 0; k < 16; k++) {
+      const a = k / 16 * Math.PI * 2, x = p.x + Math.cos(a) * dist, z = p.z + Math.sin(a) * dist;
+      const blocked = fw.colliders.some((c) => {
+        const r = (c.r ?? Math.max(c.hw, c.hd)) + 0.9, vx = x - p.x, vz = z - p.z;
+        const t = Math.max(0, Math.min(1, ((c.x - p.x) * vx + (c.z - p.z) * vz) / (vx * vx + vz * vz)));
+        return Math.hypot(p.x + vx * t - c.x, p.z + vz * t - c.z) < r;
+      });
+      if (!blocked && Math.abs(x) < meadow.size / 2 - 3 && Math.abs(z) < meadow.size / 2 - 3) return { x, z };
+    }
+    return null;
+  };
+  const put = (species, level, dist) => {
+    const at = clear(dist), id = 'q' + Math.random().toString(36).slice(2, 8);
+    if (!at) return null;
+    fw.state.wilds.set(id, { id, species, level, x: at.x, z: at.z, rot: 0, engagedBy: '', alert: '', target: '' });
+    fw.wildDocs.set(id, { species, level, target: { ...at }, next: T + 1e9, mode: '', restUntil: 0 });
+    return id;
+  };
+  const run = (ms, until = () => false, stepping = true) => {
+    for (let t = 0; t < ms; t += 50) {
+      T += 50; stepping && (fw.lastStepAt = T);
+      F.tickField(fw.field, T, 50);
+      if (until()) return true;
+    }
+    return false;
+  };
+  const dist = (id) => { const w = fw.state.wilds.get(id), p = self(); return Math.hypot(w.x - p.x, w.z - p.z); };
+
+  reset();
+  let id = put('sparkit', 6, 4.5);
+  ok('a test spot with a clear line exists', !!id);
+  ok('a fierce wild of another element sees you: "!"',
+    run(6000, () => fw.state.wilds.get(id).alert === '!') && fw.state.wilds.get(id).target === fdoc.id,
+    JSON.stringify(fw.state.wilds.get(id)));
+  const seenAt = { ...fw.state.wilds.get(id) };
+  run(F.FIELD.alertMs - 100);
+  ok('and stands still while the "!" shows', Math.hypot(fw.state.wilds.get(id).x - seenAt.x, fw.state.wilds.get(id).z - seenAt.z) < 0.01);
+  ok('then comes for you and the fight starts where it caught you',
+    run(4000, () => fev.some(([k]) => k === 'goto')), JSON.stringify({ d: dist(id).toFixed(2), mode: fw.wildDocs.get(id)?.mode }));
+  const g = fev.find(([k]) => k === 'goto')?.[1];
+  ok('as an ambush, through the same battle path as pressing the button',
+    g?.kind === 'battle' && g.ambush === true && fw.state.wilds.get(id).engagedBy === fdoc.id && fnet.pendingRooms.has(g.roomId));
+  ok('a caught player is not caught twice', (() => {
+    const id2 = put('voltmane', 6, 3);
+    return !run(3000, () => fev.filter(([k]) => k === 'goto').length > 1);
+  })());
+
+  reset();
+  fw.chasedBy = 'long-gone';
+  id = put('sparkit', 6, 4.5);
+  ok('a pursuer that is no longer there does not keep the others off',
+    run(6000, () => fw.state.wilds.get(id).alert === '!'), String(fw.chasedBy));
+
+  reset();
+  id = put('tidefin', 8, 4);
+  ok('one sharing your companion\'s element never starts', !run(6000, () => fw.state.wilds.get(id).alert));
+
+  reset();
+  id = put('mossnail', 6, 4);
+  ok('a calm species never starts', !run(6000, () => fw.state.wilds.get(id).alert));
+
+  reset();
+  id = put('sparkit', 6, 4.5);
+  run(6000, () => fw.state.wilds.get(id).alert === '!');
+  {
+    // run: put 16m between you and it in one go
+    const w = fw.state.wilds.get(id), p = self(), dx = p.x - w.x, dz = p.z - w.z, d = Math.hypot(dx, dz);
+    Object.assign(p, { x: w.x + dx / d * 16, z: w.z + dz / d * 16 });
+  }
+  ok('out of sight, it gives up: "?"', run(1500, () => fw.state.wilds.get(id).alert === '?'));
+  ok('and nothing starts on you again straight away', fw.escapedUntil > T && !fw.chasedBy);
+  ok('then it wanders off', run(F.FIELD.lostMs + 200, () => !fw.state.wilds.get(id).alert));
+  ok('and leaves everyone alone for a while', fw.wildDocs.get(id).restUntil > T + F.FIELD.wildRestMs - 3000);
+
+  reset();
+  id = put('sparkit', 6, 5);
+  ok('a trainer at a run gets away', (() => {
+    run(6000, () => fw.state.wilds.get(id).alert === '!');
+    const w = fw.state.wilds.get(id);
+    // run straight away from it at full speed, 7.4 m/s, for the whole chase
+    for (let t = 0; t < F.FIELD.chaseMs + F.FIELD.alertMs + 1000; t += 50) {
+      const p = self(), dx = p.x - w.x, dz = p.z - w.z, d = Math.hypot(dx, dz) || 1;
+      Object.assign(p, { x: p.x + dx / d * 0.37, z: p.z + dz / d * 0.37 });
+      T += 50; fw.lastStepAt = T; F.tickField(fw.field, T, 50);
+      if (fev.some(([k]) => k === 'goto')) return false;
+    }
+    return true;
+  })());
+
+  reset();
+  lead.level = 20;
+  id = put('sparkit', 6, 3.5);
+  const d0 = dist(id);
+  ok('one far weaker runs from you', run(1500, () => fw.state.wilds.get(id).alert === '~'));
+  run(1200);
+  ok('and gets further away, not closer', dist(id) > d0 + 1, `${d0.toFixed(1)} → ${dist(id).toFixed(1)}`);
+  ok('and never starts a fight', !fev.some(([k]) => k === 'goto'));
+  lead.level = 5;
+
+  const quiet = (label, setup, stepping = true) => {
+    reset();
+    const qid = put('sparkit', 6, 3.5);
+    setup();
+    ok(label, !run(5000, () => fw.state.wilds.get(qid).alert, stepping));
+  };
+  quiet('nothing starts in the half-minute after a fight', () => { fw.calmUntil = T + F.FIELD.battleCalmMs; });
+  quiet('nothing starts on a trainer who stepped away from the game', () => { fw.away = true; });
+  quiet('or who has not taken a step in a minute', () => { fw.lastStepAt = T - F.FIELD.awayMs - 1; }, false);
+  quiet('or who is still new', () => { fdoc.level = 2; });
+  fdoc.level = 6;
+  quiet('or who is indoors', () => { self().status = 'inside'; });
+  quiet('or inside a camp', () => {
+    Object.assign(self(), { x: camp.x + 1, z: camp.z + 1 });
+    for (const [, w] of fw.state.wilds) Object.assign(w, { x: camp.x + 3.5, z: camp.z + 1 });
+  });
+  ok('the town never has it at all', (() => {
+    const tw = new B.WorldSim(fnet, 'aetherport');
+    tw.start(); tw.stop();
+    tw.calmUntil = 0; tw.lastStepAt = T;
+    for (const [, w] of tw.state.wilds) Object.assign(w, { species: 'sparkit', level: 6, x: tw.self().x + 3, z: tw.self().z });
+    let seen = false;
+    for (let t = 0; t < 4000; t += 50) {
+      T += 50; tw.lastStepAt = T; F.tickField(tw.field, T, 50);
+      for (const [, w] of tw.state.wilds) seen ||= !!w.alert;
+    }
+    return !seen;
+  })());
+}
+
+// ---------------------------------------------------------------- GM tools
+section('GM tools');
+{
+  const A = await import('../src/server/admin.js');
+  ok('ADMIN_USERS is read as names, any separator, any case',
+    [...A.adminNames({ ADMIN_USERS: ' Meir, dana;;yoni  ' })].join() === 'meir,dana,yoni');
+  ok('a listed, registered account is a GM', A.isAdmin({ username: 'dana', id: 'x' }, { ADMIN_USERS: 'meir,dana' }));
+  ok('an unlisted one is not', !A.isAdmin({ username: 'eve', id: 'x' }, { ADMIN_USERS: 'meir,dana' }));
+  ok('a guest never is, whatever its placeholder name', !A.isAdmin({ username: 'guest_ab12cd34', guest: true }, { ADMIN_USERS: 'guest_ab12cd34' }));
+  ok('nothing listed: nobody', !A.isAdmin({ username: 'meir' }, {}));
+
+  const GMm = await import('../src/server/game/gm.js');
+  const gdoc = C.createPlayerDoc('g1', 'Keeper', {}, 'cindcub'), odoc = C.createPlayerDoc('o1', 'Other', {}, 'puddlet');
+  C.normalizeDoc(gdoc); C.normalizeDoc(odoc);
+  const gev = [], oev = [], logged = [], said = [];
+  const oself = { x: 3, z: 4, hpRatio: 0, petSpecies: '' };
+  const gctx = {
+    doc: gdoc, zoneId: 'verdant_meadow', admin: true,
+    self: () => ({ x: 0, z: 0 }),
+    net: { emit: (k, v) => gev.push([k, v]), save: () => {} },
+    gm: {
+      online: () => [{ id: 'o1', name: 'Other', level: 1, zone: 'aetherport' }],
+      reach: (id) => id === 'o1' ? { doc: odoc, zoneId: 'aetherport', self: () => oself, send: (k, v) => oev.push([k, v]), save: () => {} } : null,
+      broadcast: (m) => (said.push(m), 3),
+      summon: () => 'w1',
+      audit: (e) => logged.push(e),
+      recent: () => logged.slice().reverse(),
+    },
+  };
+  const last = (list, kind) => [...list].reverse().find(([k, v]) => k === 'gm' && (!kind || v.kind === kind))?.[1];
+
+  const gold0 = gdoc.gold;
+  GMm.handleGm({ ...gctx, admin: false }, { op: 'fill' });
+  ok('refused unless the server said this session is a GM',
+    gev.some(([k, v]) => k === 'error' && v.code === 'forbidden') && gdoc.gold === gold0 && !logged.length);
+
+  GMm.handleGm(gctx, { op: 'give', what: 'creature', species: 'aurorix', level: 50, shiny: true });
+  const got = Object.values(gdoc.creatures).find((c) => c.species === 'aurorix');
+  ok('any creature at any level', got?.level === 50 && got.shiny === true && gdoc.dex?.aurorix?.caught === 1);
+  ok('and it goes on the record', logged.at(-1)?.op === 'give' && logged.at(-1).detail?.species === 'aurorix');
+  GMm.handleGm(gctx, { op: 'give', what: 'creature', species: 'sparkit', level: 999 });
+  ok('levels are held to the cap', Object.values(gdoc.creatures).find((c) => c.species === 'sparkit')?.level === PROGRESSION.maxLevel);
+  for (const bad of ['__proto__', 'constructor', 'nope', 42]) {
+    GMm.handleGm(gctx, { op: 'give', what: 'creature', species: bad, level: 5 });
+    ok(`a made-up species is refused (${bad})`, last(gev, 'error')?.code === 'bad_species');
+  }
+
+  GMm.handleGm(gctx, { op: 'give', to: 'o1', what: 'gold', amount: 5000 });
+  ok('gold to someone else online', odoc.gold === 500 + 5000 && oev.some(([k, v]) => k === 'gmGift' && v.what === 'gold' && v.from === 'Keeper'));
+  ok('their screen is told', oev.some(([k]) => k === 'profile'));
+  GMm.handleGm(gctx, { op: 'give', to: 'o1', what: 'item', item: 'sphere_ultra', qty: 5000 });
+  ok('items to someone else, held to the cap', odoc.inventory.sphere_ultra === GMm.GM_LIMITS.qty);
+  GMm.handleGm(gctx, { op: 'give', to: 'o1', what: 'gold', amount: -50 });
+  ok('no gold taken away through a gift', odoc.gold === 5500 && last(gev, 'error')?.code === 'bad_amount');
+  GMm.handleGm(gctx, { op: 'give', to: 'nobody', what: 'gold', amount: 5 });
+  ok('someone not online is refused', last(gev, 'error')?.code === 'player_offline');
+
+  GMm.handleGm(gctx, { op: 'fill' });
+  ok('resources without end', gdoc.gold >= GMm.GM_LIMITS.fillGold
+    && Object.values(ITEMS).filter((i) => ['sphere', 'heal', 'material'].includes(i.kind)).every((i) => gdoc.inventory[i.id] === GMm.GM_LIMITS.fillQty));
+  ok('but not a stack of every sword', Object.values(ITEMS).filter((i) => i.kind === 'gear').every((i) => !gdoc.inventory[i.id]));
+
+  for (const u of odoc.team) odoc.creatures[u].hp = 0;
+  GMm.handleGm(gctx, { op: 'heal', to: 'o1' });
+  ok('heal anyone online', odoc.team.every((u) => odoc.creatures[u].hp === odoc.creatures[u].maxHp) && oev.some(([k]) => k === 'healed'));
+
+  GMm.handleGm(gctx, { op: 'teleport', zone: 'umbral_grove' });
+  const go = [...gev].reverse().find(([k]) => k === 'goto')?.[1];
+  ok('teleport to any zone, level or not', go?.kind === 'world' && go.zone === 'umbral_grove' && go.fromZone === 'verdant_meadow');
+  gctx.warping = false;
+  GMm.handleGm(gctx, { op: 'teleport', player: 'o1' });
+  const go2 = [...gev].reverse().find(([k]) => k === 'goto')?.[1];
+  ok('or to a player, arriving beside them', go2?.zone === 'aetherport' && !go2.fromZone
+    && gdoc.pos?.zone === 'aetherport' && Math.hypot(gdoc.pos.x - 3, gdoc.pos.z - 4) < 2);
+
+  GMm.handleGm(gctx, { op: 'announce', text: '  שלום   לכולם  ' });
+  ok('an announcement reaches the whole server', said.at(-1)?.ch === 'gm' && said.at(-1).text === 'שלום לכולם');
+  GMm.handleGm(gctx, { op: 'announce', text: 'x'.repeat(900) });
+  ok('and is kept short', said.at(-1).text.length === GMm.GM_LIMITS.text);
+  GMm.handleGm(gctx, { op: 'summon', species: 'duskmaw', level: 40 });
+  ok('summon a wild', logged.at(-1)?.op === 'summon');
+  GMm.handleGm(gctx, { op: 'rm -rf' });
+  ok('an unknown op is refused', last(gev, 'error')?.code === 'unknown_op');
+  ok('every change was logged', logged.length === gev.filter(([k, v]) => k === 'gm' && v.kind === 'done').length, `${logged.length}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
