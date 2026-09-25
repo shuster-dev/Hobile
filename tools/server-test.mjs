@@ -226,6 +226,47 @@ if (gotBattle) {
     && said[0].lines?.length > 0 && !!said[0].lines[0].he, JSON.stringify(said[0] || {}).slice(0, 160));
 }
 
+// Errands: an NPC offers one, it can be taken, done, and handed in for its
+// reward, and the next in the chain opens.
+{
+  const { NPCS, npcAt } = await import('../src/shared/npcs.js');
+  const { DAY_MS } = await import('../src/server/game/combat.js');
+  const phase = () => (Date.now() % DAY_MS / DAY_MS + 1) % 1;
+  const me = () => [...roomA.state.players.values()].find((p) => p.name === 'Alice');
+  if (NPCS.bex) {
+    for (let i = 0; i < 120; i++) {
+      const p = me(), at = npcAt('bex', phase()), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
+      if (d < 2.5) break;
+      const k = Math.min(2.5, d - 1.5) / d;
+      roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
+      await wait(60);
+    }
+    const said = [];
+    roomA.onMessage('dialogue', (m) => said.push(m));
+    roomA.send('talk', { npcId: 'bex' });
+    await until(() => said.some((m) => m.npcId === 'bex'), 4000);
+    const b = said.find((m) => m.npcId === 'bex');
+    ok('an NPC with an errand offers it', b?.errand?.mode === 'offer' && b.errand.id === 'n_bex_1', JSON.stringify(b?.errand));
+  }
+  const acc = [], got = [], errs = [];
+  roomA.onMessage('questAccepted', (m) => acc.push(m));
+  roomA.onMessage('questClaimed', (m) => got.push(m));
+  roomA.onMessage('error', (m) => errs.push(m?.code));
+  roomA.send('questClaim', { questId: 'n_noga_1' });
+  await wait(300);
+  ok('an errand not taken cannot be handed in', got.length === 0);
+  roomA.send('questAccept', { questId: 'n_noga_1' });
+  ok('the nurse\'s errand can be taken', await until(() => acc.length > 0, 3000), errs.join(','));
+  roomA.send('clinicHeal');
+  await wait(400);
+  roomA.send('questClaim', { questId: 'n_noga_1' });
+  ok('done at the clinic and handed in, it pays what it promised',
+    await until(() => got.length > 0, 3000) && got[0].reward?.gold === 150, JSON.stringify(got[0] || errs));
+  const prof = (await api('/api/me', null, a.json.token)).json.profile;
+  ok('and the next in her chain can be taken', prof?.quests?.done?.includes('n_noga_1')
+    && !prof?.quests?.active?.n_noga_1, JSON.stringify(prof?.quests?.done));
+}
+
 // persistence across a reconnect
 await roomA.leave();
 await wait(400);

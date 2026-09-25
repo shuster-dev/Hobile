@@ -13,9 +13,10 @@
 // WorldSim satisfies it directly; WorldRoom builds one per connected client.
 import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, SPECIES, ZONES, statsFor } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
+import { giverView } from '../../shared/story.js';
 import { resolveCollision } from '../../shared/props.js';
 import {
-  activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
+  acceptQuest, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
   collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
   startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView,
 } from './combat.js';
@@ -34,7 +35,10 @@ export function speakTo(ctx, doc, npcId, phase) {
   const npc = Object.prototype.hasOwnProperty.call(NPCS, npcId) ? NPCS[npcId] : null;
   if (!npc) return ctx.net.emit('error', { code: 'no_such_npc' });
   const me = ctx.self(), at = npcAt(npcId, phase);
-  if (me && Math.hypot(me.x - at.x, me.z - at.z) > 5.5) return ctx.net.emit('error', { code: 'too_far' });
+  // Generous: the client draws a walking NPC easing toward where the schedule
+  // says it is, pushed clear of props, so the two can be metres apart while
+  // the player is plainly standing next to it.
+  if (me && Math.hypot(me.x - at.x, me.z - at.z) > 9) return ctx.net.emit('error', { code: 'too_far' });
   const facts = {
     hasStarter: (doc.creatures && Object.keys(doc.creatures).length > 0) || (doc.team || []).length > 0,
     captures: doc.stats?.captures || 0,
@@ -47,12 +51,17 @@ export function speakTo(ctx, doc, npcId, phase) {
       done: Object.entries(doc.quests?.active || {}).filter(([, q]) => q.done).map(([id]) => id),
     },
   };
-  const raw = npcLines(npcId, facts);
-  const said = Array.isArray(raw) ? { lines: raw, en: [] } : (raw || { lines: ['…'], en: [] });
   const done = syncQuests(doc, { kind: 'talk', target: npcId });
+  // An errand outranks small talk: something to hand in, then something new,
+  // then how the current one is going.
+  const v = giverView(doc, npcId);
+  const errand = v.ready ? { mode: 'ready', q: v.ready } : v.offer ? { mode: 'offer', q: v.offer } : v.active ? { mode: 'active', q: v.active } : null;
+  const raw = errand ? errand.q.lines?.[errand.mode === 'ready' ? 'done' : errand.mode === 'offer' ? 'offer' : 'busy'] : npcLines(npcId, facts);
+  const said = Array.isArray(raw) ? { lines: raw, en: [] } : (raw || { lines: ['…'], en: [] });
   ctx.net.save();
   ctx.net.emit('dialogue', {
     npcId, id: npcId, name: npc.name, he: npc.he, questsDone: done,
+    errand: errand ? { mode: errand.mode, id: errand.q.id } : null,
     lines: (said.lines || ['…']).map((he, i) => ({ he, en: said.en?.[i] || '' })),
   });
   for (const id of done) ctx.net.emit('questDone', { id });
@@ -72,6 +81,11 @@ export function visitCheck(ctx, doc, pos, seen) {
     ctx.net.emit('profile', publicProfile(doc));
   }
 }
+
+function announce(ctx, done) {
+  for (const id of done || []) ctx.net.emit('questDone', { id });
+}
+const teamCreaturesOf = (doc) => (doc.team || []).map((u) => doc.creatures?.[u]).filter(Boolean);
 
 export function handleWorldMessage(ctx, e, t = {}) {
       let n = ctx.doc,
@@ -228,7 +242,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
           {
             let o = ctx.zone.landmarks.find(a => a.id === t.target || a.kind === t.target);
             if (!o) return;
-            o.kind === "npc" ? ctx.speak(n, o.id || o.npc) : (o.kind === "plaza" || o.kind === "town" || o.kind === "camp") && (healTeam(n, 1), s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("healed", {}), ctx.net.emit("profile", publicProfile(n)));
+            o.kind === "npc" ? ctx.speak(n, o.id || o.npc) : (o.kind === "plaza" || o.kind === "town" || o.kind === "camp") && (healTeam(n, 1), s.hpRatio = hpRatio(n), announce(ctx, syncQuests(n, { kind: "heal" })), ctx.net.save(), ctx.net.emit("healed", {}), ctx.net.emit("profile", publicProfile(n)));
             break;
           }
         case "dex":
@@ -312,6 +326,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             }
             let a = e === "baseCraft" ? syncQuests(n, {
               kind: "craft"
+            }) : e === "baseTrain" ? syncQuests(n, {
+              kind: "train"
             }) : e === "baseCollect" && o.star ? syncQuests(n, {
               kind: "star",
               star: o.star
@@ -384,6 +400,23 @@ export function handleWorldMessage(ctx, e, t = {}) {
             n.team = o, n.box = [...a].filter(l => !o.includes(l)), s.petSpecies = activeCreature(n)?.species || "", s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
             break;
           }
+        case "questAccept":
+          {
+            if (!acceptQuest(n, t.questId)) return ctx.net.emit("error", { code: "cannot_accept" });
+            ctx.net.save(), ctx.net.emit("questAccepted", { questId: t.questId }), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
+        case "clinicHeal":
+          {
+            // Priced here, not by the client: the same sum the counter shows.
+            let team = teamCreaturesOf(n),
+              cost = Math.max(40, Math.round(team.reduce((a, c) => a + (c.level || 1), 0) * 14 + team.filter(c => c.hp <= 0).length * 120));
+            if ((n.gold || 0) < cost) return ctx.net.emit("error", { code: "not_enough_gold" });
+            n.gold -= cost, healTeam(n, 1);
+            let me = ctx.self();
+            me && (me.hpRatio = hpRatio(n)), announce(ctx, syncQuests(n, { kind: "heal" })), ctx.net.save(), ctx.net.emit("healed", { cost }), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
         case "questClaim":
           {
             let o = claimQuest(n, t.questId);
@@ -395,7 +428,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             }
             ctx.net.save(), ctx.net.emit("questClaimed", {
               questId: t.questId,
-              reward: o.reward
+              reward: o.reward,
+              creature: o.creature || null
             }), ctx.net.emit("profile", publicProfile(n));
             break;
           }

@@ -8,7 +8,7 @@ import {
 } from '../../shared/gamedata.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
 import {
-  activeCreature, normalizeDoc, publicProfile, syncQuests, uid, grantXp, giveItem, DAY_MS,
+  activeCreature, activateZoneQuests, normalizeDoc, publicProfile, syncQuests, uid, grantXp, giveItem, DAY_MS,
 } from '../game/combat.js';
 import { verifyToken } from '../auth.js';
 
@@ -66,7 +66,7 @@ export class WorldRoom extends Room {
     const doc = await this.store.getDoc(userId);
     if (!doc) { client.send('error', { code: 'no_character' }); client.leave(4000); return; }
     normalizeDoc(doc);
-    syncQuests(doc, this.zoneId);
+    activateZoneQuests(doc, this.zoneId);
     doc.zone = this.zoneId;
 
     const spawn = this.spawnPoint(options.fromZone);

@@ -1,4 +1,4 @@
-import { Combat, Combatant, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { Combat, Combatant, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
@@ -138,6 +138,7 @@ var StoreBase = class {
     start() {
       let e = this.doc,
         t = this.spawnPoint();
+      activateZoneQuests(e, this.zoneId);
       this.state.players.set("me", {
         id: e.id,
         name: e.name,
@@ -521,9 +522,12 @@ var StoreBase = class {
         let a = creaturePower(this.foe, t.level),
           l = creatureScore(this.foe);
         if (t.gold += l, o.xp = a, o.gold = l, n && o.events.push(...grantXpTo(n, a)), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
+          let foeSp = [...this.sim.combatants.values()].find(d => d.side === "b")?.creature?.species;
           t.stats.battlesWon += 1, o.questsDone = syncQuests(t, {
             kind: "defeat",
-            zone: this.zoneId
+            zone: this.zoneId,
+            species: foeSp,
+            elements: SPECIES[foeSp]?.types || []
           });
           let c = [...this.sim.combatants.values()].find(d => d.side === "b"),
             h = SPECIES[c?.creature?.species]?.types?.[0] || "metal";
@@ -541,7 +545,10 @@ var StoreBase = class {
           o.card = creatureCard(t, c.uid);
           if (!dex.isNew) o.duplicate = duplicateReward(t, c.species);
           o.questsDone.push(...syncQuests(t, {
-            kind: "capture"
+            kind: "capture",
+            zone: this.zoneId,
+            species: c.species,
+            elements: SPECIES[c.species]?.types || []
           }));
         }
       } else if (e.outcome !== "fled") {

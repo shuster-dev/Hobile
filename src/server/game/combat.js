@@ -1,3 +1,4 @@
+import { heldProgress, questState } from '../../shared/story.js';
 import { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
 var combatantSeq = 0,
@@ -940,6 +941,14 @@ function syncQuests(i, e) {
       let o = Object.prototype.hasOwnProperty.call(QUESTS, s) ? QUESTS[s] : null;
       if (!o?.goal || !r || r.done) return;
       let a = o.goal;
+      // Goals measured from what the player holds (level, dex, items, stars)
+      // are judged by questState, not counted from events.
+      if (o.chain === "npc" && heldProgress(i, o) != null) return;
+      // A catch in a zone, of a species, of an element: every one of those
+      // conditions has to hold. Capture events used to carry none of them, so
+      // "catch two in the Meadow" and "catch a Sproutle" could never finish.
+      if (a.species && a.species !== e.species) return;
+      if (a.element && !(e.elements || []).includes(a.element)) return;
       if (a.kind === e.kind && !(a.zone && a.zone !== e.zone) && !(a.target && a.target !== e.target) && !(a.party && !e.party)) {
         if (a.star) {
           if (!(Number(e.star) >= a.star)) return;
@@ -954,10 +963,41 @@ function syncQuests(i, e) {
   return t;
 }
 
+/** Accept an errand from someone in town. */
+function acceptQuest(i, e) {
+  let t = typeof e == "string" && Object.prototype.hasOwnProperty.call(QUESTS, e) ? QUESTS[e] : null;
+  if (!t || t.chain !== "npc" || questState(i, t) !== "available") return !1;
+  return ensureQuests(i).active[e] = { progress: 0, at: Date.now() }, !0;
+}
+
+/** Hand in an errand: take what it asked for, give what it promised. */
+function claimNpcQuest(i, t) {
+  if (questState(i, t) !== "ready") return null;
+  if (t.goal.kind === "deliver" && !takeItem(i, t.goal.item, t.goal.count || 1)) return null;
+  delete i.quests.active[t.id], i.quests.done.includes(t.id) || i.quests.done.push(t.id), i.gold += t.reward.gold || 0;
+  for (let [o, a] of t.reward.items || []) giveItem(i, o, a);
+  let r = grantXp(i, t.reward.xp || 0),
+    c = null;
+  if (t.reward.creature && SPECIES[t.reward.creature.species]) {
+    c = makeCreature(t.reward.creature.species, t.reward.creature.level || 5), addCreature(i, c), dexRecord(i, c.species, c);
+  }
+  return { reward: t.reward, events: r, creature: c ? creatureCard(i, c.uid) : null };
+}
+
+/** A zone's own errands open the first time you set foot there, one at a time. */
+function activateZoneQuests(i, z) {
+  ensureQuests(i);
+  let ids = Object.keys(QUESTS).filter(k => QUESTS[k].chain === "zone" && QUESTS[k].goal?.zone === z).sort((a, b) => QUESTS[a].step - QUESTS[b].step);
+  if (!ids.length || ids.some(k => i.quests.active[k])) return !1;
+  let next = ids.find(k => !i.quests.done.includes(k));
+  return next ? (i.quests.active[next] = { progress: 0 }, !0) : !1;
+}
+
 function claimQuest(i, e) {
   let t = typeof e == "string" && Object.prototype.hasOwnProperty.call(QUESTS, e) ? QUESTS[e] : null;
   if (!t) return null;
   ensureQuests(i);
+  if (t.chain === "npc") return claimNpcQuest(i, t);
   let n = o => Object.prototype.hasOwnProperty.call(o, e) ? o[e] : null,
     s = n(i.quests.active) || n(i.quests.dailies);
   if (!s || !s.done || s.claimed) return null;
@@ -972,6 +1012,8 @@ function claimQuest(i, e) {
       progress: 0
     });
   }
+  // A zone's chain moves on the same way: hunt, then catch, then the prize.
+  t.chain === "zone" && (delete i.quests.active[e], i.quests.done.includes(e) || i.quests.done.push(e), activateZoneQuests(i, t.goal.zone));
   return {
     reward: t.reward,
     events: r
@@ -998,6 +1040,7 @@ function publicProfile(i) {
     friendRequests: i.friendRequests,
     guildId: i.guildId,
     quests: i.quests,
+    dex: i.dex,
     stats: i.stats,
     unlockedZones: i.unlockedZones,
     settings: i.settings
@@ -1419,4 +1462,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { WEATHER_BOOST, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

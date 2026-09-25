@@ -1,5 +1,7 @@
 import { audio } from './gfx/battle.js';
 import { zoneMinimap } from './input.js';
+import { NPCS } from '../shared/npcs.js';
+import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
 import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf } from '../shared/gamedata.js';
 
 var $ = i => document.querySelector(i),
@@ -49,6 +51,7 @@ var STRINGS = {
     cannot_equip: "אי אפשר לצייד את הפריט הזה",
     cannot_use: "אי אפשר להשתמש בזה כאן",
     cannot_claim: "הפרס עדיין לא מוכן לאיסוף",
+    cannot_accept: "המשימה הזאת עוד לא זמינה",
     not_found: "לא נמצא",
     max_level: "המבנה כבר ברמה המרבית",
     cannot_afford: "חסרים חומרים או זהב",
@@ -220,6 +223,40 @@ var UI = class {
       };
     s.addEventListener("click", h), this._dialogueCleanup = () => clearInterval(l), c(!1);
   }
+  /** The words for a reward: gold, XP, items, and a creature if there is one. */
+  rewardText(r = {}) {
+    // Each part isolated: "150⛁ · 100 XP · 5× כדור" mixes both directions, and
+    // left to the bidi algorithm the numbers wander into each other's places.
+    let parts = [];
+    r.gold && parts.push(`${r.gold.toLocaleString("en-US")}⛁`), r.xp && parts.push(`${r.xp} XP`);
+    for (let [id, n] of r.items || []) ITEMS[id] && parts.push(`${Ze(loc(ITEMS[id]))}${n > 1 ? ` ×${n}` : ""}`);
+    r.creature && SPECIES[r.creature.species] && parts.push(`🐾 ${Ze(loc(SPECIES[r.creature.species]))} · רמה ${r.creature.level}`);
+    return parts.map(p => `<bdi>${p}</bdi>`).join(" · ");
+  }
+  /** After an NPC has had their say: take the errand on, or hand it in. */
+  errandCard(q, mode, who) {
+    this.closeDialogue();
+    let s = el("div", "dialogue errand"),
+      held = heldProgress(this.profile, q),
+      need = q.goal.count || 1;
+    s.innerHTML = `
+      <div class="who"><span class="face">${mode === "ready" ? "🎁" : "📜"}</span><b></b></div>
+      <div class="errand-kicker">${mode === "ready" ? "משימה הושלמה" : "משימה חדשה"}</div>
+      <div class="errand-title"></div>
+      <div class="errand-desc"></div>
+      ${held != null && mode === "offer" ? `<div class="errand-have">יש לך כבר ${ltr(String(Math.min(held, need)))} / ${ltr(String(need))}</div>` : ""}
+      <div class="errand-reward"><span>פרס</span><b></b></div>
+      <div class="errand-actions"></div>`;
+    s.querySelector(".who b").textContent = who || "", s.querySelector(".errand-title").textContent = loc(q), s.querySelector(".errand-desc").textContent = q.descHe || q.desc || "", s.querySelector(".errand-reward b").innerHTML = this.rewardText(q.reward);
+    let acts = s.querySelector(".errand-actions"),
+      yes = el("button", "btn primary", mode === "ready" ? "קבל פרס" : "קבל משימה"),
+      no = el("button", "btn ghost", mode === "ready" ? "אחר כך" : "לא עכשיו");
+    yes.onclick = ev => {
+      ev.stopPropagation(), mode === "ready" ? this.hooks.claimQuest?.(q.id) : this.hooks.acceptQuest?.(q.id), this.closeDialogue();
+    }, no.onclick = ev => {
+      ev.stopPropagation(), this.closeDialogue();
+    }, acts.append(yes, no), document.body.appendChild(s), document.body.classList.add("talking"), this._dialogue = s;
+  }
   closeDialogue() {
     document.body.classList.remove("talking"), this._dialogueCleanup?.(), this._dialogueCleanup = null, this._dialogue?.remove(), this._dialogue = null;
   }
@@ -249,7 +286,7 @@ var UI = class {
   renderTracker() {
     let e = $("#tracker-list");
     if (!this.profile) return;
-    let t = [...Object.entries(this.profile.quests.active || {}), ...Object.entries(this.profile.quests.dailies || {})].map(([u, f]) => [u, f, QUESTS[u]]).filter(([, u, f]) => f && !u.claimed),
+    let t = [...Object.entries(this.profile.quests.active || {}), ...Object.entries(this.profile.quests.dailies || {})].map(([u, f]) => [u, qLive(this.profile, u, f), QUESTS[u]]).filter(([, u, f]) => f && !u.claimed),
       n = t.map(([u, f]) => `${u}:${f.progress || 0}:${f.done ? 1 : 0}`).join("|");
     if (e.dataset.sig === n) return;
     if (e.dataset.sig = n, e.innerHTML = "", !t.length) {
@@ -264,7 +301,7 @@ var UI = class {
       h = !!a.done,
       d = el("div", `q-lead ${l.chain} ${h ? "done" : ""}`);
     d.innerHTML = `
-      <div class="q-kicker">${h ? "הושלם — אסוף את הפרס" : "המשימה הנוכחית"}</div>
+      <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם — אסוף את הפרס" : "המשימה הנוכחית"}</div>
       <div class="q-title">${Ze(loc(l))}</div>
       <div class="q-meter">${r(a.progress, c, h)}
         <span class="mono">${h ? "✓" : rangeLabel(Math.min(a.progress || 0, c), c, "/")}</span></div>`, d.onclick = () => this.openPanel("quests"), e.appendChild(d);
@@ -881,19 +918,21 @@ var UI = class {
     let n = (s, r) => {
       if (r.length) {
         e.appendChild(section(s, `${ltr(r.length)}`));
-        for (let [o, a] of r) {
+        for (let [o, a0] of r) {
           let l = QUESTS[o];
           if (!l) continue;
+          let a = qLive(t, o, a0);
           let c = l.goal.count || 1,
             h = !!a.done,
             d = el("div", `list-item ${h && !a.claimed ? "ready" : ""}`);
           if (d.innerHTML = `<div class="grow">
             <b>${Ze(loc(l))}</b>
-            <span>${Ze(l.descHe || l.desc)}</span>
+            <span>${l.chain === "npc" ? `${Ze(giverName(l.giver))}: ` : ""}${Ze(l.descHe || l.desc)}</span>
             <div class="bar xp" style="margin-top:6px"><i style="width:${Math.min(100, (a.progress || 0) / c * 100)}%"></i></div>
             <span class="mono">${rangeLabel(Math.min(a.progress || 0, c), c, " / ")}
               · ${ltr(`${l.reward.gold}⛁`)} · ${ltr(`${l.reward.xp} XP`)}</span>
-          </div>`, h && !a.claimed) {
+          </div>`, h && !a.claimed && l.chain === "npc") d.appendChild(el("span", "pill good", l.giver === "noga" ? "חזור למרפאה" : `חזור אל ${giverName(l.giver)}`));
+          else if (h && !a.claimed) {
             let u = el("button", "btn small primary", "קבל");
             u.onclick = () => this.hooks.claimQuest?.(o), d.appendChild(u);
           } else a.claimed && d.appendChild(el("span", "pill good", "הושלם"));
@@ -1040,6 +1079,22 @@ var UI = class {
       a = (t.trainerHp ?? 1) < (t.trainerMaxHp ?? 1),
       l = Math.max(40, Math.round(s.reduce((p, x) => p + (x?.level || 1), 0) * 14 + o * 120)),
       c = r > 0 || o > 0 || a;
+    // The nurse's own errands, at her counter: she has no street to stand in.
+    let v = giverView(t, "noga"),
+      eq = v.ready || v.offer || v.active;
+    if (eq) {
+      let m = v.ready ? "ready" : v.offer ? "offer" : "active",
+        box = el("div", `list-item errand-row ${m === "ready" ? "ready" : ""}`),
+        pr = qLive(t, eq.id, t.quests?.active?.[eq.id] || { progress: 0 });
+      box.innerHTML = `<div class="ico-lg">${m === "ready" ? "🎁" : "✚"}</div>
+        <div class="grow"><b>${Ze(loc(eq))}</b><span>האחות נוגה: ${Ze(eq.descHe)}</span>
+        <span>${m === "active" ? rangeLabel(Math.min(pr.progress || 0, eq.goal.count || 1), eq.goal.count || 1, " / ") + " · " : ""}פרס: ${this.rewardText(eq.reward)}</span></div>`;
+      if (m !== "active") {
+        let b = el("button", "btn small primary", m === "ready" ? "קבל פרס" : "קבל");
+        b.onclick = () => m === "ready" ? this.hooks.claimQuest?.(eq.id) : this.hooks.acceptQuest?.(eq.id), box.appendChild(b);
+      }
+      e.appendChild(section("משימה מהאחות נוגה")), e.appendChild(box);
+    }
     e.appendChild(section("טיפול", ltr(`${n.toLocaleString("en-US")}⛁`)));
     let h = el("div", "list-item");
     h.innerHTML = `<div class="ico-lg">🩺</div>
@@ -1290,6 +1345,18 @@ var UI = class {
     for (let [s, r] of this._plates) n.has(s) || (r.remove(), this._plates.delete(s));
   }
 };
+
+/** A quest's progress as it stands: counted from events, or read from what you hold. */
+function qLive(profile, id, st) {
+  let q = QUESTS[id];
+  if (!q || q.chain !== "npc") return st;
+  let held = heldProgress(profile, q);
+  return held == null ? st : { ...st, progress: held, done: questState(profile, q) === "ready" };
+}
+
+function giverName(g) {
+  return NPCS[g]?.he || GIVERS[g]?.he || g;
+}
 
 function section(i, e = "") {
   let t = el("div", "section");

@@ -9,6 +9,7 @@ import { Net, remembering, setRemember } from './net.js';
 import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
 import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
 import { NPCS } from '../shared/npcs.js';
+import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
 import { weatherAt } from '../shared/weather.js';
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -372,7 +373,7 @@ var Game = class {
   bindNet() {
     let e = this.net;
     e.on("profile", t => {
-      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]);
+      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)]));
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t);
     }), e.on("chat", t => {
@@ -424,11 +425,13 @@ var Game = class {
       };
       this.world.enterInterior(n) && (audio.sfx("ui"), this.ui.toast(`${t.he || t.name}`, "good"));
     }), e.on("dialogue", t => {
+      let q = t.errand && QUESTS[t.errand.id];
       audio.sfx("ui"), this.ui.showDialogue({
         name: t.he || t.name,
         lines: t.lines.map(n => n.he || n.en),
         onDone: () => {
           t.questsDone?.length && (audio.sfx("quest"), this.ui.celebrate("משימה הושלמה", "quest"), this.ui.toast("משימה הושלמה — אספו את הפרס בחלון המשימות", "good"));
+          q && t.errand.mode !== "active" && this.ui.errandCard(q, t.errand.mode, t.he || t.name);
         }
       });
     }), e.on("questDone", t => {
@@ -436,7 +439,12 @@ var Game = class {
       let n = QUESTS[t?.id];
       this.ui.celebrate(n ? loc(n) : "משימה הושלמה", "quest"), this.ui.toast("משימה הושלמה — אספו את הפרס בחלון המשימות", "good"), this.ui.openPanelId === "quests" && this.ui.renderPanel("quests");
     }), e.on("questClaimed", t => {
-      audio.sfx("quest"), this.ui.celebrate("משימה הושלמה", "quest"), this.ui.toast(`פרס נאסף: ${t.reward.gold}⛁ · ${t.reward.xp} XP`, "good");
+      audio.sfx("quest"), vibrate([20, 50, 30]);
+      let c = t.creature;
+      this.ui.celebrate(c ? `${loc(SPECIES[c.species])} הצטרף אליך!` : "פרס נאסף", "quest"), this.ui.toastHtml(this.ui.rewardText(t.reward)), c && this.wantFaces(this.profile?.team);
+    }), e.on("questAccepted", t => {
+      let q = QUESTS[t?.questId];
+      q && this.ui.toast(`משימה חדשה: ${loc(q)}`, "good");
     }), e.on("error", t => {
       this.engagePending = 0, this.ui.toast(Oc(t.code), "bad");
     }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
@@ -675,6 +683,9 @@ var Game = class {
         itemId: t,
         qty: n
       }),
+      acceptQuest: t => (audio.sfx("quest"), e("questAccept", {
+        questId: t
+      })),
       claimQuest: t => e("questClaim", {
         questId: t
       }),

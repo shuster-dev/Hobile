@@ -4695,7 +4695,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         this._plates = this._plates || new Map();
         for (let t of this.npcs.values()) {
           let n = this._plates.get(t.id);
-          n || (n = document.createElement("div"), n.className = "nameplate npc", n.style.borderColor = "rgba(47, 230, 208, 0.42)", n.textContent = t.def.he || t.def.name, this._plates.set(t.id, n)), n.isConnected || e.appendChild(n);
+          n || (n = document.createElement("div"), n.className = "nameplate npc", n.style.borderColor = "rgba(47, 230, 208, 0.42)", this._plates.set(t.id, n)), n.isConnected || e.appendChild(n);
+          // ! has something for you, ? is waiting for what you owe it, … is
+          // the errand you are on. The mark is how a town tells you where to go.
+          let mk = this.npcMarks?.[t.id] || "";
+          n._mk !== mk && (n._mk = mk, n.innerHTML = `${mk ? `<span class="mark m${mk === "!" ? "new" : mk === "?" ? "ready" : "busy"}">${mk}</span>` : ""}${(t.def.he || t.def.name || "").replace(/[<>&]/g, "")}`);
           let s = this.npcScreenPos(t.id),
             r = t.holder.visible && s.visible && s.dist < 42;
           n.style.display = r ? "block" : "none", r && (n.style.left = `${s.x}px`, n.style.top = `${s.y}px`, n.style.opacity = String(Math.max(0.35, 1 - s.dist / 46)));

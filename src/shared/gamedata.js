@@ -1,3 +1,4 @@
+import { NPC_QUESTS } from './story.js';
 var ELEMENTS = {
     ember: {
       name: "Ember",
@@ -3111,6 +3112,8 @@ function seededRandom(i) {
 
 // derived tables (were bundle bootstrap side effects)
 for (let z of Object.values(ZONES)) if (z.capturable) Object.assign(QUESTS, zoneQuestChain(z));
+// The townsfolk's errands (story.js) live in the same table, so every lookup by id works.
+Object.assign(QUESTS, NPC_QUESTS);
 Object.assign(ITEMS, MATERIALS);
 
 export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TYPE_CHART, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
