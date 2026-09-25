@@ -5,7 +5,7 @@ import { BattleView, audio } from './gfx/battle.js';
 import { CreatorStage, portraits } from './gfx/stage.js';
 import { WorldView } from './gfx/world.js';
 import { CameraRig, Joystick, Keyboard } from './input.js';
-import { Net } from './net.js';
+import { Net, remembering, setRemember } from './net.js';
 import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
 import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
 import { NPCS } from '../shared/npcs.js';
@@ -82,7 +82,10 @@ var Game = class {
       this.ui.setLoading(!1), this.showLogin();
       return;
     }
-    let t = await this.showTitle(this.prepareSession());
+    let t = await this.showTitle(this.prepareSession(m => {
+      let el = $("#title-sub");
+      el && (el.textContent = m);
+    }));
     if (this.world.titleView(!1), t.next === "login") return this.showLogin();
     if (t.next === "create") return this.showCreate();
     await this.enterWorld(t.zone);
@@ -94,21 +97,35 @@ var Game = class {
    * it can be claimed later with a username and a password without losing any
    * of it. A sign-up wall in front of a game link is where most people stop.
    */
-  async prepareSession() {
+  async prepareSession(note = () => {}) {
+    // Only the server saying "that token is not good" is a reason to log out.
+    // Anything else — no network, a 502 while the free server wakes up, a
+    // timeout — is a reason to wait and ask again. Treating every failure as
+    // a bad token is what deleted the saved login and sent players back to the
+    // password form every time they came back after a break.
+    let refused = o => o?.status === 401 || o?.status === 403,
+      patient = async fn => {
+        for (let i = 0; ; i++) try {
+          return await fn();
+        } catch (o) {
+          if (refused(o) || i >= 11) throw o;
+          note(i < 2 ? "מתחבר…" : "השרת מתעורר — עוד רגע…"), await new Promise(r => setTimeout(r, Math.min(8e3, 1500 * (i + 1))));
+        }
+      };
     try {
-      this.net.hasSession() || await this.net.guest();
+      this.net.hasSession() || await patient(() => this.net.guest());
     } catch {
       return { next: "login" };
     }
     try {
-      let e = await this.net.me();
+      let e = await patient(() => this.net.me());
       return this.setAccount(e), e.hasCharacter ? {
         next: "world",
         zone: e.profile.zone || HOME_ZONE,
         name: e.profile.name
       } : { next: "create" };
-    } catch {
-      return this.net.logout(), { next: "login" };
+    } catch (o) {
+      return refused(o) && this.net.logout(), { next: "login" };
     }
   }
   /**
@@ -130,8 +147,9 @@ var Game = class {
       s = $("#screen-title .title-top");
     // One copy of the logo in the page; the title borrows it.
     if (s && !s.querySelector(".logo")) {
-      let a = $("#screen-login .logo")?.cloneNode(!0);
-      a && s.prepend(a);
+      let a = $("#screen-login .logo")?.cloneNode(!0),
+        he = $("#screen-login .logo-he")?.cloneNode(!0);
+      a && (s.prepend(a), he && a.after(he));
     }
     t.disabled = !0, t.textContent = "טוען…", n.textContent = "";
     let r = null;
@@ -157,22 +175,32 @@ var Game = class {
     this.ui.showScreen("login"), this.ui.setMode("none");
     let e = !1,
       t = s => {
-        e = s, $("#tab-login").classList.toggle("on", !s), $("#tab-register").classList.toggle("on", s), $("#btn-submit").textContent = s ? "צור חשבון" : "התחבר";
-      };
+        e = s, $("#tab-login").classList.toggle("on", !s), $("#tab-register").classList.toggle("on", s), $("#btn-submit").textContent = s ? "צור חשבון" : "התחבר", $("#in-pass").setAttribute("autocomplete", s ? "new-password" : "current-password");
+      },
+      keep = $("#in-remember");
+    // The name comes back filled in; the password is the phone's to offer —
+    // a real form with a submit is what makes iOS and Android offer to save it.
+    keep && (keep.checked = remembering());
+    try {
+      remembering() && !$("#in-user").value && ($("#in-user").value = localStorage.getItem("hobile.user") || "");
+    } catch {}
     $("#tab-login").onclick = () => t(!1), $("#tab-register").onclick = () => t(!0);
     let n = async () => {
       let s = $("#in-user").value.trim(),
         r = $("#in-pass").value;
-      $("#login-error").textContent = "";
+      $("#login-error").textContent = "", setRemember(!keep || keep.checked);
       try {
         let o = e ? await this.net.register(s, r) : await this.net.login(s, r);
+        try {
+          remembering() ? localStorage.setItem("hobile.user", s) : localStorage.removeItem("hobile.user");
+        } catch {}
         this.ui.showScreen(null), this.setAccount(await this.net.me().catch(() => ({}))), o.hasCharacter ? await this.enterWorld() : this.showCreate();
       } catch (o) {
         $("#login-error").textContent = Oc(o.code);
       }
     };
-    $("#btn-submit").onclick = n, $("#in-pass").onkeydown = s => {
-      s.key === "Enter" && n();
+    $("#login-form").onsubmit = s => {
+      s.preventDefault(), n();
     }, $("#btn-guest").onclick = async () => {
       try {
         await this.net.guest(), this.setAccount(await this.net.me().catch(() => ({
@@ -266,7 +294,30 @@ var Game = class {
       }
     };
   }
-  async enterWorld(e = HOME_ZONE, t = null) {
+  /** The socket went (a phone locking, a network change, the server
+   *  restarting): go back into the same zone on the same token, quietly and
+   *  with patience, instead of throwing the player out to a login form. */
+  async reconnect() {
+    if (this._reconnecting) return;
+    this._reconnecting = !0;
+    let zone = this.zone?.id || this.profile?.zone || HOME_ZONE;
+    try {
+      for (let i = 0; i < 8; i++) {
+        this.ui.toast(i ? "מתחבר מחדש…" : "החיבור נותק — מתחבר מחדש…");
+        this.transitioning = !0;
+        try {
+          if (await this.enterWorld(zone, null, !0)) return;
+        } finally {
+          this.transitioning = !1;
+        }
+        await new Promise(r => setTimeout(r, Math.min(15e3, 2e3 * (i + 1))));
+      }
+      this.ui.toast("לא ניתן להתחבר לעולם", "bad"), this.showLogin();
+    } finally {
+      this._reconnecting = !1;
+    }
+  }
+  async enterWorld(e = HOME_ZONE, t = null, soft = !1) {
     this.mode = "loading", this.ui.setLoading(!0, "נכנס לעולם…"), await this.net.leaveRoom(!0);
     let n = !1;
     for (let s = 0; s < 3 && !n; s++) try {
@@ -275,6 +326,7 @@ var Game = class {
       s < 2 && (this.ui.setLoading(!0, "מתחבר מחדש…"), await new Promise(r => setTimeout(r, 700)));
     }
     if (!n) {
+      if (soft) return this.ui.setLoading(!1), !1;
       this.mode = "boot", this.ui.setLoading(!1), this.ui.toast("לא ניתן להתחבר לעולם", "bad"), this.showLogin();
       return;
     }
@@ -284,6 +336,7 @@ var Game = class {
       s && this.world.setViewMode(s);
     } catch {}
     this.ui.showScreen(null), this.ui.setMode("world"), this.ui.setLoading(!1), audio.playMusic(e), t && audio.sfx("portal"), this.wantFaces(this.profile?.team);
+    return !0;
   }
   /** Portraits of the team, for the battle screen's team pills: a creature you
    *  can swap to should look like itself, not like a coloured dot. Drawn once
@@ -386,7 +439,7 @@ var Game = class {
       audio.sfx("quest"), this.ui.celebrate("משימה הושלמה", "quest"), this.ui.toast(`פרס נאסף: ${t.reward.gold}⛁ · ${t.reward.xp} XP`, "good");
     }), e.on("error", t => {
       this.engagePending = 0, this.ui.toast(Oc(t.code), "bad");
-    }), e.on("roomError", () => this.ui.toast("שגיאת חיבור", "bad")), e.on("goto", async t => {
+    }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
       if (!this.transitioning) {
         this.transitioning = !0, this.engagePending = 0;
         try {
@@ -485,9 +538,13 @@ var Game = class {
     }), e.on("bossReward", t => {
       audio.sfx("coin"), this.ui.toast(`דירוג ${t.rank} · +${t.gold}⛁ · +${t.xp} XP`, "good");
     }), e.on("left", ({
-      code: t
+      code: t,
+      unexpected: n
     }) => {
-      this.mode === "world" && t >= 4e3 && (this.ui.toast("נותקת מהעולם", "bad"), this.showLogin());
+      if (!n || this.transitioning) return;
+      // 4000 is the server saying there is no character on this account.
+      if (t === 4e3) return this.ui.toast("נותקת מהעולם", "bad"), this.showLogin();
+      this.mode !== "boot" && this.reconnect();
     });
   }
   renderInvitePrompt(e) {
@@ -1024,8 +1081,13 @@ var Game = class {
     } : null;
   }
   updateNameplates(e, t) {
-    let n = [];
+    let n = [],
+      me = this.world.selfPosition(),
+      // A label is for the creature you might walk up to, not for every one on
+      // the horizon: a field of them piled into one unreadable stack.
+      near = r => Math.hypot(r.holder.position.x - me.x, r.holder.position.z - me.z) < (r.kind === "wild" ? 13 : 30);
     for (let [s, r] of this.world.actors) {
+      if (r.kind !== "boss" && !near(r)) continue;
       let o = r.holder.position.clone().add(new Vector3(0, r.kind === "boss" ? 4.6 : 2.1, 0)),
         a = this.world.project(o);
       if (!(!a.visible || this.underHud(a))) if (r.kind === "player") {

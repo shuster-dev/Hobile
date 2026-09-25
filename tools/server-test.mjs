@@ -202,6 +202,30 @@ if (gotBattle) {
     roomA.state.wilds.get(wild.id)?.engagedBy || '(gone or released)');
 }
 
+// NPCs speak — online, not just in the offline build, whose copy of this was
+// the only one that worked: the server answered every NPC with no lines.
+{
+  const { NPCS, npcAt } = await import('../src/shared/npcs.js');
+  const { DAY_MS } = await import('../src/server/game/combat.js');
+  const phase = () => (Date.now() % DAY_MS / DAY_MS + 1) % 1;
+  const me = () => [...roomA.state.players.values()].find((p) => p.name === 'Alice');
+  const id = Object.keys(NPCS).filter((k) => !NPCS[k].zone || NPCS[k].zone === 'aetherport')
+    .sort((x, y) => { const p = me(), a = npcAt(x, phase()), b = npcAt(y, phase());
+      return Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z); })[0];
+  for (let i = 0; i < 80; i++) {
+    const p = me(), at = npcAt(id, phase()), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
+    if (d < 2.5) break;
+    const k = Math.min(2.5, d - 1.5) / d;
+    roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
+    await wait(60);
+  }
+  const said = [];
+  roomA.onMessage('dialogue', (m) => said.push(m));
+  roomA.send('talk', { npcId: id });
+  ok(`an NPC answers when spoken to (${id})`, await until(() => said.length > 0, 4000)
+    && said[0].lines?.length > 0 && !!said[0].lines[0].he, JSON.stringify(said[0] || {}).slice(0, 160));
+}
+
 // persistence across a reconnect
 await roomA.leave();
 await wait(400);

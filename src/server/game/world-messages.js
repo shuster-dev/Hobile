@@ -26,6 +26,53 @@ import { hpRatio } from './player.js';
 // a late packet while making a teleport impossible.
 const MAX_STEP = 3;
 
+/** Talk to an NPC: their lines for who the player is right now, and any
+ *  "talk to …" quest step that completes by it. One implementation for both
+ *  drivers — the online room had a stub here that answered every NPC with no
+ *  lines at all, which is why nobody in the world would speak. */
+export function speakTo(ctx, doc, npcId, phase) {
+  const npc = Object.prototype.hasOwnProperty.call(NPCS, npcId) ? NPCS[npcId] : null;
+  if (!npc) return ctx.net.emit('error', { code: 'no_such_npc' });
+  const me = ctx.self(), at = npcAt(npcId, phase);
+  if (me && Math.hypot(me.x - at.x, me.z - at.z) > 5.5) return ctx.net.emit('error', { code: 'too_far' });
+  const facts = {
+    hasStarter: (doc.creatures && Object.keys(doc.creatures).length > 0) || (doc.team || []).length > 0,
+    captures: doc.stats?.captures || 0,
+    battlesWon: doc.stats?.battlesWon || 0,
+    level: doc.level || 1,
+    guildId: doc.guildId || null,
+    night: phase < 0.15 || phase > 0.78,
+    quests: {
+      active: Object.keys(doc.quests?.active || {}),
+      done: Object.entries(doc.quests?.active || {}).filter(([, q]) => q.done).map(([id]) => id),
+    },
+  };
+  const raw = npcLines(npcId, facts);
+  const said = Array.isArray(raw) ? { lines: raw, en: [] } : (raw || { lines: ['…'], en: [] });
+  const done = syncQuests(doc, { kind: 'talk', target: npcId });
+  ctx.net.save();
+  ctx.net.emit('dialogue', {
+    npcId, id: npcId, name: npc.name, he: npc.he, questsDone: done,
+    lines: (said.lines || ['…']).map((he, i) => ({ he, en: said.en?.[i] || '' })),
+  });
+  for (const id of done) ctx.net.emit('questDone', { id });
+  ctx.net.emit('profile', publicProfile(doc));
+}
+
+/** Walking into a landmark's circle completes "go to …" quest steps. The
+ *  online room had this as a no-op too, so no visit step could finish there. */
+export function visitCheck(ctx, doc, pos, seen) {
+  for (const l of ctx.zone.landmarks) {
+    if (!l.r || seen.has(l.kind) || Math.hypot(l.x - pos.x, l.z - pos.z) > l.r) continue;
+    seen.add(l.kind);
+    const done = syncQuests(doc, { kind: 'visit', target: l.kind, zone: ctx.zoneId });
+    if (!done.length) continue;
+    ctx.net.save();
+    for (const id of done) ctx.net.emit('questDone', { id });
+    ctx.net.emit('profile', publicProfile(doc));
+  }
+}
+
 export function handleWorldMessage(ctx, e, t = {}) {
       let n = ctx.doc,
         s = ctx.self(),

@@ -2,7 +2,7 @@ import { Combat, Combatant, swapToUid, teamCreatures, dexRecord, duplicateReward
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
-import { handleWorldMessage } from './world-messages.js';
+import { handleWorldMessage, speakTo, visitCheck } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
 import { weatherAt } from '../../shared/weather.js';
 
@@ -354,74 +354,10 @@ var StoreBase = class {
       return (Date.now() % DAY_MS / DAY_MS + 1) % 1;
     }
     speak(e, t) {
-      let n = Object.prototype.hasOwnProperty.call(NPCS, t) ? NPCS[t] : null;
-      if (!n) {
-        this.net.emit("error", {
-          code: "no_such_npc"
-        });
-        return;
-      }
-      let s = this.state.players.get("me"),
-        r = npcAt(t, this.dayPhase());
-      if (s && Math.hypot(s.x - r.x, s.z - r.z) > 5.5) {
-        this.net.emit("error", {
-          code: "too_far"
-        });
-        return;
-      }
-      let o = this.dayPhase(),
-        a = {
-          hasStarter: (e.creatures || []).length > 0,
-          captures: e.stats?.captures || 0,
-          battlesWon: e.stats?.battlesWon || 0,
-          level: e.level || 1,
-          guildId: e.guildId || null,
-          night: o < 0.15 || o > 0.78,
-          quests: {
-            active: Object.keys(e.quests?.active || {}),
-            done: Object.entries(e.quests?.active || {}).filter(([, h]) => h.done).map(([h]) => h)
-          }
-        },
-        raw = npcLines(t, a),
-        l = Array.isArray(raw) ? { lines: raw, en: [] } : (raw || { lines: ["…"], en: [] }),
-        c = syncQuests(e, {
-          kind: "talk",
-          target: t
-        });
-      this.net.save(), this.net.emit("dialogue", {
-        npcId: t,
-        id: t,
-        name: n.name,
-        he: n.he,
-        questsDone: c,
-        lines: (l?.lines || ["…"]).map((h, d) => ({
-          he: h,
-          en: l?.en?.[d] || ""
-        }))
-      });
-      for (let h of c) this.net.emit("questDone", {
-        id: h
-      });
-      this.net.emit("profile", publicProfile(e));
+      speakTo(this, e, t, this.dayPhase());
     }
     checkVisits(e, t) {
-      let n = this._visited || (this._visited = new Set());
-      for (let s of this.zone.landmarks) {
-        if (!s.r || n.has(s.kind) || Math.hypot(s.x - t.x, s.z - t.z) > s.r) continue;
-        n.add(s.kind);
-        let r = syncQuests(e, {
-          kind: "visit",
-          target: s.kind,
-          zone: this.zoneId
-        });
-        if (r.length) {
-          this.net.save();
-          for (let o of r) this.net.emit("questDone", {
-            id: o
-          });
-          this.net.emit("profile", publicProfile(e));
-        }
-      }
+      visitCheck(this, e, t, this._visited || (this._visited = new Set()));
     }
     handle(e, t = {}) {
       return handleWorldMessage(this, e, t);

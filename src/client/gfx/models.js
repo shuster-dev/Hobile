@@ -641,8 +641,10 @@ export function animateModel(group, timeMs, moving, speed = 1) {
       m.once.until -= dt;
       if (m.once.until <= 0) m.once = null;
     }
+    const gs = group.userData.groundSpeed;
     if (!m.once) {
-      const want = !moving ? 'idle' : (speed > 1.6 && m.actions.run ? 'run' : 'walk');
+      const fast = gs != null ? gs > 1.7 * (m.height || 1) : speed > 1.6;
+      const want = !moving ? 'idle' : (fast && m.actions.run ? 'run' : 'walk');
       if (want !== m.current && m.actions[want]) {
         const to = m.actions[want];
         const from = m.actions[m.current];
@@ -651,6 +653,13 @@ export function animateModel(group, timeMs, moving, speed = 1) {
         m.current = want;
       }
     }
+    // Feet that keep pace with the ground: a clip's own stride, in metres per
+    // second, is about 0.88 of the body's height walking and 2.3 running.
+    const act = m.actions[m.current];
+    if (act && gs != null && !m.once) {
+      act.timeScale = m.current === 'idle' ? 1
+        : Math.min(2.4, Math.max(0.6, gs / ((m.current === 'run' ? 2.3 : 0.88) * (m.height || 1))));
+    }
     m.mixer.update(dt);
     group.position.y = group.userData.baseY || 0;
     return true;
@@ -658,14 +667,20 @@ export function animateModel(group, timeMs, moving, speed = 1) {
   if (!m.rig?.bound) return true;
 
   const t = timeMs * 0.001 + m.phase;
-  const run = speed > 1.6;
+  const gs = group.userData.groundSpeed;
+  const run = gs != null ? gs > 1.7 * (m.height || 1) : speed > 1.6;
   // Ease between standing and walking instead of switching: a creature that
   // snaps from one to the other reads as a puppet.
   const target = moving ? 1 : 0;
   m.blend += Math.max(-1, Math.min(1, target - m.blend)) * Math.min(1, dt * 7);
   const k = m.blend;
 
-  const rate = (run ? 9.2 : 6.2) * speed;
+  // The gait keeps pace with the ground (a cycle is about 1.1 body-heights),
+  // within bounds a leg can still be seen to swing.
+  const pace = (run ? 9.2 : 6.2) * speed;
+  const rate = gs != null && moving
+    ? Math.min(pace * 2.2, Math.max(pace * 0.6, Math.PI * 2 * gs / (1.1 * (m.height || 1))))
+    : pace;
   m.gait += dt * rate;
   const p = m.gait;
   const { bound, mode } = m.rig;

@@ -1,6 +1,6 @@
 import { Room } from '@colyseus/core';
 import { WorldState, PlayerState, WildState, BossContributor } from '../state.js';
-import { handleWorldMessage } from '../game/world-messages.js';
+import { handleWorldMessage, speakTo, visitCheck } from '../game/world-messages.js';
 import { hpRatio } from '../game/player.js';
 import {
   HOME_ZONE, ZONES, SPECIES, WORLD_BOSSES, PROGRESSION,
@@ -8,7 +8,7 @@ import {
 } from '../../shared/gamedata.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
 import {
-  activeCreature, normalizeDoc, publicProfile, syncQuests, uid, grantXp, giveItem,
+  activeCreature, normalizeDoc, publicProfile, syncQuests, uid, grantXp, giveItem, DAY_MS,
 } from '../game/combat.js';
 import { verifyToken } from '../auth.js';
 
@@ -101,8 +101,8 @@ export class WorldRoom extends Room {
 
   /** The surface world-messages.js is written against, bound to one client. */
   makeContext(client, doc) {
-    const room = this;
-    return {
+    const room = this, seen = new Set();
+    const ctx = {
       doc,
       zone: this.zone,
       zoneId: this.zoneId,
@@ -128,10 +128,11 @@ export class WorldRoom extends Room {
       partyView: () => room.partyView(doc),
       friendList: () => room.friendList(doc),
       refreshBossBoard: () => room.refreshBossBoard(),
-      checkVisits: () => {},
+      checkVisits: (d, pos) => visitCheck(ctx, d, pos, seen),
       startBattle: (opts) => room.startBattle(client, doc, opts),
       startDungeon: (opts) => room.startDungeon(client, doc, opts),
     };
+    return ctx;
   }
 
   welcome(client, doc) {
@@ -154,7 +155,8 @@ export class WorldRoom extends Room {
   }
 
   speak(client, doc, npcId) {
-    client.send('dialogue', { npc: npcId, lines: [] });
+    const ctx = this.ctxBySession.get(client.sessionId);
+    if (ctx) speakTo(ctx, doc, npcId, (Date.now() % DAY_MS / DAY_MS + 1) % 1);
   }
 
   guildView(doc) { return { id: doc.guildId || '', members: [], buffLevel: 0, bonuses: {} }; }

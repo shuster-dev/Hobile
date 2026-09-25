@@ -2,9 +2,21 @@ import { Client } from 'colyseus.js';
 
 var TOKEN_KEY = "hobile.token";
 
+// "Remember me" keeps the token in localStorage, which outlives the browser;
+// without it the token lives in sessionStorage and goes when the tab does.
+var REMEMBER_KEY = "hobile.remember";
+
+function remembering() {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) !== "0";
+  } catch {
+    return !0;
+  }
+}
+
 function readToken() {
   try {
-    return localStorage.getItem(TOKEN_KEY) || null;
+    return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || null;
   } catch {
     return null;
   }
@@ -12,7 +24,13 @@ function readToken() {
 
 function writeToken(i) {
   try {
-    i ? localStorage.setItem(TOKEN_KEY, i) : localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY), sessionStorage.removeItem(TOKEN_KEY), i && (remembering() ? localStorage : sessionStorage).setItem(TOKEN_KEY, i);
+  } catch {}
+}
+
+function setRemember(i) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, i ? "1" : "0");
   } catch {}
 }
 
@@ -112,7 +130,10 @@ var Net = class {
       return e.onMessage("*", (t, n) => {
         NET_EVENTS.includes(t) || this.emit(String(t), n);
       }), e.onLeave(t => this.emit("left", {
-        code: t
+        code: t,
+        // leaveRoom() lets go of the room before leaving it, so a room that
+        // is still ours when it closes is one we lost, not one we left.
+        unexpected: this.room === e
       })), e.onError((t, n) => this.emit("roomError", {
         code: t,
         message: n
@@ -145,4 +166,4 @@ var Net = class {
   },
   NET_EVENTS = ["profile", "zone", "chat", "goto", "error", "healed", "dialogue", "inventory", "party", "partyInvite", "friends", "friendRequest", "friendResult", "guild", "guildList", "questClaimed", "battleInit", "battleStart", "battleEvent", "battleEnd", "actionRejected", "emote", "dungeonInit", "dungeonEnd", "floor", "floorCleared", "bossSpawn", "bossHit", "bossCounter", "bossEnd", "bossReward", "duelRequest", "pong"];
 
-export { NET_EVENTS, Net, TOKEN_KEY, readToken, writeToken };
+export { NET_EVENTS, Net, TOKEN_KEY, readToken, remembering, setRemember, writeToken };

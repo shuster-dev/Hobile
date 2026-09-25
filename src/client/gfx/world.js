@@ -5058,9 +5058,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           r = n.rotTarget - s;
         for (; r > Math.PI;) r -= Math.PI * 2;
         for (; r < -Math.PI;) r += Math.PI * 2;
+        // How fast it is really going over the ground, so the walk cycle can
+        // be played at the speed the feet are covering it. Played at a fixed
+        // rate, a chibi's short stride at a run looked like skating.
+        let gp = n.holder.position,
+          gv = n._lp ? Math.hypot(gp.x - n._lp.x, gp.z - n._lp.z) / Math.max(e, 1e-3) : 0;
+        n._gs = (n._gs || 0) + (Math.min(12, gv) - (n._gs || 0)) * Math.min(1, e * 8), (n._lp ||= gp.clone()).copy(gp), n.group.userData.groundSpeed = n._gs;
         if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = 0, setCreatureLod(n.group, n.holder.position.distanceTo(this.camera.position)), animateCreature(n.group, t, n.moving), n.pet) {
           let o = new Vector3(-1.35, 0, -1.45);
-          n.pet.lag.lerp(o, Math.min(1, e * 3)), n.pet.holder.position.copy(n.pet.lag), n.pet.group.userData.baseY = 0, animateCreature(n.pet.group, t + 400, n.moving), n.pet.holder.rotation.y = Math.sin(this.time * 0.9) * 0.25;
+          n.pet._lp ||= n.pet.lag.clone();
+          let pv;
+          n.pet.lag.lerp(o, Math.min(1, e * 3)), pv = Math.hypot(n.pet.lag.x - n.pet._lp.x, n.pet.lag.z - n.pet._lp.z) / Math.max(e, 1e-3), n.pet._lp.copy(n.pet.lag), n.pet._gs = (n.pet._gs || 0) + (Math.min(12, pv) - (n.pet._gs || 0)) * Math.min(1, e * 8), n.pet.group.userData.groundSpeed = n.pet._gs, n.pet.holder.position.copy(n.pet.lag), n.pet.group.userData.baseY = 0, animateCreature(n.pet.group, t + 400, n.moving || n.pet._gs > 0.4), n.pet.holder.rotation.y = Math.sin(this.time * 0.9) * 0.25;
         }
       }
       for (let n = this.effects.length - 1; n >= 0; n--) {
@@ -5155,8 +5163,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         t.holder.visible = !1;
         let f = new Vector3(n.x, n.y + 1.62, n.z);
         f.x -= Math.sin(this.camYaw) * 0.16, f.z -= Math.cos(this.camYaw) * 0.16, this.camera.position.lerp(f, Math.min(1, e * 22));
+        // Look the way the stick walks: forward is (sin yaw, cos yaw) in both
+        // views. This used to look back along the third-person camera's arm,
+        // so in first person the stick was mirrored — up walked you backwards.
         let p = f.clone();
-        p.x -= Math.sin(this.camYaw) * 10, p.z -= Math.cos(this.camYaw) * 10, p.y += this.camPitch * 10, this.camera.lookAt(p);
+        p.x += Math.sin(this.camYaw) * 10, p.z += Math.cos(this.camYaw) * 10, p.y += this.camPitch * 10, this.camera.lookAt(p);
         return;
       }
       t.holder.visible = !0;
@@ -5253,8 +5264,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         l = Math.max(0, 1 - Math.abs(r) * 2.6) * (1 - a * 0.3);
       this.night = 1 - a;
       let c = (x, g, m) => new Color(x).lerp(new Color(g), m),
-        h = 725808,
-        d = 2372186,
+        // Night is a picture book's night: a deep blue sky and a moon bright
+        // enough to play by. It used to fall to near black — trees as solid
+        // silhouettes, the sky a void — which on a phone at arm's length is
+        // simply a dark screen.
+        h = 1451610,
+        d = 3822216,
         u = 16751196,
         f = this.sky.material.uniforms,
         // Weather rides on top of the day cycle rather than beside it: the sun,
@@ -5267,19 +5282,19 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       // cycle is paused, and thin out at night rather than turning to soot.
       f.uTime && (f.uTime.value = performance.now() * 0.001),
       f.uNight && (f.uNight.value = this.night),
-      f.uClouds && (f.uClouds.value = MathUtils.clamp((t.clouds ?? 0.5) * 0.3 + w.clouds * 0.8, 0, 1)), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = (0.42 + a * 2.05) * w.sun, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
+      f.uClouds && (f.uClouds.value = MathUtils.clamp((t.clouds ?? 0.5) * 0.3 + w.clouds * 0.8, 0, 1)), this.lights.sun.position.copy(o).multiplyScalar(60), this.lights.sun.intensity = (0.95 + a * 1.52) * w.sun, this.lights.sun.color.copy(c(11058431, t.sunLight, a).lerp(new Color(u), l * 0.6));
       let p = t.ambient ?? 1;
-      if (this.lights.hemi.intensity = (0.46 + a * 0.5) * p * w.amb, this.lights.hemi.color.copy(c(3358827, t.sky.horizon, a).lerp(HEMI_WARM, 0.42 * a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
-        this.scene.fog.color.copy(c(1186352, t.fog, a).lerp(new Color(u), l * 0.4).lerp(new Color(w.fogHue), w.fogMix * (0.35 + a * 0.65)));
+      if (this.lights.hemi.intensity = (0.82 + a * 0.14) * p * w.amb, this.lights.hemi.color.copy(c(7309000, t.sky.horizon, a).lerp(HEMI_WARM, 0.42 * a)), this.lights.rim.intensity = (0.4 + a * 0.22) * p, this.scene.fog) {
+        this.scene.fog.color.copy(c(2767462, t.fog, a).lerp(new Color(u), l * 0.4).lerp(new Color(w.fogHue), w.fogMix * (0.35 + a * 0.65)));
         let x = (t.fogNear ?? 62) * w.fog,
           g = (t.fogFar ?? 168) * w.fog;
-        this.scene.fog.near = x - this.night * x * 0.26, this.scene.fog.far = g - this.night * g * 0.26, this.hazeWall && this.hazeWall.uniforms.uColor.value.copy(this.scene.fog.color);
+        this.scene.fog.near = x - this.night * x * 0.1, this.scene.fog.far = g - this.night * g * 0.1, this.hazeWall && this.hazeWall.uniforms.uColor.value.copy(this.scene.fog.color);
       }
       let S = SEASON_LOOK[this._season] || SEASON_LOOK.summer;
       this.grade?.setMood({
         saturation: w.sat * S.sat,
         contrast: w.contrast * S.contrast
-      }), this.renderer && (this.renderer.toneMappingExposure = 1.02 - this.night * 0.08 + w.exposure), this.city?.setNight(this.night), this.plazaLight && (this.plazaLight.intensity = 0.4 + this.night * 5.5), this.setNpcs(e);
+      }), this.renderer && (this.renderer.toneMappingExposure = 1.02 - this.night * 0.02 + w.exposure), this.city?.setNight(this.night), this.plazaLight && (this.plazaLight.intensity = 0.4 + this.night * 5.5), this.setNpcs(e);
     }
     project(e) {
       let t = e.clone().project(this.camera);

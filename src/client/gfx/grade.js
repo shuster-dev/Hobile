@@ -50,7 +50,7 @@ void main() {
   // Vignette, stronger at night, so the edge of the screen stops competing
   // with the character in the middle of it.
   vec2 d = vUv - 0.5;
-  float v = 1.0 - dot(d, d) * (uVignette + uNight * 0.35);
+  float v = 1.0 - dot(d, d) * (uVignette + uNight * 0.12);
   c *= clamp(v, 0.0, 1.0);
 
   // Lightning. Flat and after the vignette, because a strike lights the whole
