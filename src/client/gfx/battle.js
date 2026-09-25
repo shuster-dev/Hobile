@@ -321,7 +321,9 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     spawnActor(e) {
       let t = new Group(),
         n = e.kind === "trainer",
-        s = n ? buildAvatar(this.appearance || {}) : buildCreature(e.species);
+        s = n ? buildAvatar(this.appearance || {}) : buildCreature(e.species, {
+          hi: !0
+        });
       s.userData.phase = lb(e.id), ir.setFromObject(s);
       let r = Number.isFinite(ir.max.y) ? Math.max(0.6, ir.max.y) : 1.6,
         o = Math.max(0.45, Math.max(ir.max.x - ir.min.x, ir.max.z - ir.min.z) * 0.5),

@@ -1,5 +1,7 @@
 import { Color, Group, Mesh, PointLight, SphereGeometry, TorusGeometry } from 'three';
 import { MODELS, animateModel, attachAvatar, attachModel } from './models.js';
+import { FIGURINES } from './figurine-designs.js';
+import { instance as figurine, setFigurineLod } from './figurine.js';
 import { HALF_PI, QUALITY, STYLE, TAU, TIER, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, mat, mergeByMaterial, outlineMat, profile, taperGeo, xf2 } from './core.js';
 import { UNIT_OCTA, applyElementKit, beads, buildAvian, buildBlob, buildGolem, buildInsect, buildQuad, buildSerpent, buildSprite, buildTail, curveAt, curveSampler, finPair, frills, gear, maw, palette, petals, podGeo, puff, shellHalves, speciesPalette, spikeGeo, spines, tuft, whiskers } from './parts.js';
 import { AVATAR, SPECIES, hashString, seededRandom } from '../../shared/gamedata.js';
@@ -1980,11 +1982,26 @@ function chibify(design) {
 
 function buildCreature(i, {
   outline: e = !0,
-  detail: t = 1
+  detail: t = 1,
+  hi: fine = !1
 } = {}) {
   let n = SPECIES[i],
     s = new Group();
   if (!n) return s;
+  // A sculpted figurine, where the species has one: see figurine.js.
+  let fd = FIGURINES[i];
+  if (fd) {
+    let r = n.model,
+      made = figurine(i, fd, {
+        outline: e && QUALITY.tier !== "low",
+        hi: fine
+      });
+    if (s.add(made.holder), s.userData.model = made.model, s.userData.rig = null, r.glow && QUALITY.tier !== "low") {
+      let p = new PointLight(speciesPalette(n).accent, 2.2, 5, 2);
+      p.position.set(0, made.model.height * 0.6, 0), made.holder.add(p);
+    }
+    return s.scale.setScalar(r.scale || 1), s.userData.speciesId = i, s.userData.phase = Math.random() * Math.PI * 2, s.userData.element = n.types[0], s;
+  }
   let r = n.model,
     o = chibify(DESIGN[i] || DESIGN[PLAN_SAMPLES[r.shape]] || DESIGN.glimmer),
     a = speciesPalette(n),
@@ -2299,6 +2316,11 @@ function buildAvatar(i = {}, {
 }
 
 function setCreatureLod(i, e) {
+  let fm = i.userData.model;
+  if (fm?.fig) {
+    setFigurineLod(fm, e > 16);
+    return;
+  }
   let t = i.userData.rig;
   if (!t) return;
   let n = e > 28;

@@ -1,51 +1,15 @@
 # Credits
 
-## Creature models
+## Creatures
 
-Every creature in the game is a model from the **XYZ** pack by
-[Polygonal Mind](https://github.com/PolygonalMind) (Zaragoza, 2015–2024),
-released through their Open Source Initiative.
+Every creature is sculpted in code for this game — `src/client/gfx/figurine.js`
+builds them and `src/client/gfx/figurine-designs.js` describes each one — so
+there is no third-party creature art in it.
 
-**Licence: CC0 1.0 Universal (public domain).** In the studio's own words, from
-the release's README:
-
-> This projects falls under the license **CC0**, which means that you are free
-> to use, modify, and distribute our work without any restrictions, even for
-> commercial purposes, and without having to attribute the original creator.
-
-Attribution is therefore not required. It is here because the work deserves it.
-
-| | |
-|---|---|
-| Original release | https://github.com/PolygonalMind/initiative-opensource-release |
-| glTF conversion | https://github.com/ToxSam/cc0-models-Polygonal-Mind (`projects/xyz`) |
-| Index used to find it | https://github.com/ToxSam/open-source-3D-assets |
-| Vendored in | `assets/models/` |
-
-The pack ships 60 creatures; 33 are used, one per species. The files are renamed
-to the pack's own creature names rather than to the species that uses them, so
-that a model can be reassigned without a file rename, and so it stays obvious
-which upstream asset a file came from.
-
-| species | model | species | model |
-|---|---|---|---|
-| cindcub | Trihound | glacilisk | Scorpy |
-| pyrelynx | Octogecko | umbrat | Mousylon |
-| vulcanth | Heptangle | nocturnix | Hexowl |
-| puddlet | Sauris | glimmer | Mushroomy |
-| tidefin | Rectashark | solaraith | Binguilon |
-| maelstride | Squaresquid | coglet | Vguy |
-| sproutle | Starplant | ferrogeist | Boargram |
-| thornkin | Cacturnion | mossnail | Snailus |
-| verdammoth | Owltron | emberfly | Rhomgon |
-| sparkit | Symbbit | duskmaw | Triangaroo |
-| voltmane | Cobrangle | aurorix | Mermalygon |
-| pebblin | Beaveriangle | magmadon | Monkeylon (Big Fighter) |
-| boulderon | Orclygon | leviathorn | Turtlelion |
-| zephyrb | Pentachick | nullwarden | Bigsastylon |
-| cirrowing | Natiangle | rootfather | Penturtlen |
-| frostnib | Penguiton | stormcaller | Mewphinx |
-| | | hollowking | Triplicoon |
+Until v0.24 the creatures were models from the **XYZ** pack by
+[Polygonal Mind](https://github.com/PolygonalMind), released CC0
+(https://github.com/PolygonalMind/initiative-opensource-release). Thanks to them
+for the years those models stood in.
 
 ## Character models
 

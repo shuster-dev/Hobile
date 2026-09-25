@@ -2,6 +2,8 @@ import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometr
 import { QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
+import { FIGURINES } from './figurine-designs.js';
+import { template as figurineTemplate } from './figurine.js';
 import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { NPCS, npcList } from '../../shared/npcs.js';
 import { BLOCK, CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, PLAZA, SIDEWALK, STREET_Y, TAU_G, blockGrid, curbHeight, fbm, gridOffset, hash, heightAt, mixHex, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand } from '../../shared/props.js';
@@ -3507,7 +3509,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -4854,6 +4856,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           placed.push({ x, y, w }), n.style.left = `${x}px`, n.style.top = `${y}px`, n.style.opacity = String(Math.max(0.35, 1 - s.dist / 46));
         }
       }
+    }
+    /** Sculpt the creatures this zone can spawn while it loads, so the first
+     *  one to walk into view does not stall a frame being made. The coarse
+     *  mesh now; the fine one bakes in the quiet moments after. */
+    warmCreatures(z) {
+      for (let [id] of z?.spawns || []) FIGURINES[id] && figurineTemplate(id, FIGURINES[id]);
     }
     clearPlates() {
       for (let e of this._plates?.values() || []) e.remove();

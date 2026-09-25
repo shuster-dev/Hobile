@@ -117,7 +117,7 @@ export class CreatorStage {
     if (species !== this.species) {
       this.species = species;
       dropTree(this.pet);
-      this.pet = buildCreature(species);
+      this.pet = buildCreature(species, { hi: true });
       this.petSpot.add(this.pet);
     }
   }
@@ -194,7 +194,7 @@ export async function portraits(speciesIds, size = 176) {
   const out = {};
   try {
     for (const id of speciesIds) {
-      const g = buildCreature(id);
+      const g = buildCreature(id, { hi: true });
       g.rotation.y = -0.45;
       scene.add(g);
       await until(() => !!g.userData.model, 4000);

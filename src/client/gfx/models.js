@@ -26,6 +26,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { QUALITY, STYLE, toonGradient } from './core.js';
+import { animateFigurine } from './figurine.js';
 
 /**
  * Where model files are served from.
@@ -44,59 +45,14 @@ export function setModelBase(base, inline) {
 /**
  * species id -> model.
  *
- * `size` is the creature's largest dimension in metres, and it is not a taste
- * decision: it is measured from the procedural body this model replaces
- * (`npm run audit`), so swapping a species changes how it looks and nothing
- * else — not the framing, not the battle camera, not where it stands.
+ * Empty now: every species is a figurine sculpted in code (figurine.js and
+ * figurine-designs.js), which loads with the page and needs no files. The
+ * machinery below — loading, the rig reader, the bone-driven animator — stays
+ * for the people, and for any creature that is ever given a model again: an
+ * entry here of `{ file, size }` is all it takes, with the `.glb` in
+ * `assets/models/`.
  */
-export const MODELS = {
-  // ember
-  cindcub: { file: 'trihound.glb', size: 1.6 },
-  pyrelynx: { file: 'octogecko.glb', size: 3.0 },
-  vulcanth: { file: 'heptangle.glb', size: 3.1 },
-  // aqua
-  puddlet: { file: 'sauris.glb', size: 1.1 },
-  tidefin: { file: 'rectashark.glb', size: 2.4, floats: true },
-  maelstride: { file: 'squaresquid.glb', size: 3.0 },
-  // verdant
-  sproutle: { file: 'starplant.glb', size: 1.0 },
-  thornkin: { file: 'cacturnion.glb', size: 1.8 },
-  verdammoth: { file: 'owltron.glb', size: 3.9 },
-  // volt
-  sparkit: { file: 'symbbit.glb', size: 1.2 },
-  voltmane: { file: 'cobrangle.glb', size: 2.4 },
-  // terra
-  pebblin: { file: 'beaveriangle.glb', size: 1.2 },
-  boulderon: { file: 'orclygon.glb', size: 2.5 },
-  // gale
-  zephyrb: { file: 'pentachick.glb', size: 1.5 },
-  cirrowing: { file: 'natiangle.glb', size: 3.2 },
-  // frost
-  frostnib: { file: 'penguiton.glb', size: 1.0 },
-  glacilisk: { file: 'scorpy.glb', size: 2.7 },
-  // umbra
-  umbrat: { file: 'mousylon.glb', size: 1.2 },
-  nocturnix: { file: 'hexowl.glb', size: 2.8 },
-  // lumen
-  glimmer: { file: 'mushroomy.glb', size: 0.9 },
-  solaraith: { file: 'binguilon.glb', size: 1.6 },
-  // metal
-  coglet: { file: 'vguy.glb', size: 1.1 },
-  ferrogeist: { file: 'boargram.glb', size: 2.5 },
-  // mixed commons
-  mossnail: { file: 'snailus.glb', size: 0.7 },
-  emberfly: { file: 'rhomgon.glb', size: 1.1, floats: true },
-  // rare and legendary
-  duskmaw: { file: 'triangaroo.glb', size: 2.8 },
-  aurorix: { file: 'mermalygon.glb', size: 5.0, floats: true },
-  // bosses
-  magmadon: { file: 'bigfighter.glb', size: 7.7 },
-  leviathorn: { file: 'turtlelion.glb', size: 8.0 },
-  nullwarden: { file: 'bigsastylon.glb', size: 9.3 },
-  rootfather: { file: 'penturtlen.glb', size: 7.8 },
-  stormcaller: { file: 'mewphinx.glb', size: 12.4 },
-  hollowking: { file: 'triplicoon.glb', size: 5.8 },
-};
+export const MODELS = {};
 
 /**
  * The people.
@@ -137,7 +93,7 @@ export function avatarFor(body) {
 
 /** One line each, because each pack shares one licence. */
 export const MODEL_CREDIT =
-  'Creature models: XYZ pack by Polygonal Mind, released CC0 (public domain).';
+  'Creatures: sculpted in code for this game.';
 export const AVATAR_CREDIT =
   'Character models: Aether Star Online open assets, released CC0 (public domain).';
 
@@ -650,6 +606,7 @@ export function playClip(group, name, { hold = false } = {}) {
 export function animateModel(group, timeMs, moving, speed = 1) {
   const m = group?.userData?.model;
   if (!m) return false;
+  if (m.fig) return animateFigurine(group, m, timeMs, moving, speed);
   const dt = m.last == null ? 0.016 : Math.min(0.1, Math.max(0, (timeMs - m.last) * 0.001));
   m.last = timeMs;
 

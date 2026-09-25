@@ -659,6 +659,38 @@ for (const z of wildZones) {
 }
 ok('the paths go round the trees, mostly', onPath.length <= wildZones.length * 2, onPath.join(' '));
 
+// Figurines: every species is sculpted, and every sculpture holds together.
+section('figurines');
+const Fig = await import('../src/client/gfx/figurine.js');
+const { FIGURINES } = await import('../src/client/gfx/figurine-designs.js');
+ok('every species has a figurine', Object.keys(G.SPECIES).every((id) => FIGURINES[id]),
+  Object.keys(G.SPECIES).filter((id) => !FIGURINES[id]).join(','));
+const figBad = [];
+for (const [id, d] of Object.entries(FIGURINES)) {
+  try {
+    const T = Fig.template(id, d, true);
+    const lo = T.geoLo, hi = T.geoHi;
+    const trisLo = lo.index.count / 3, trisHi = hi.index.count / 3;
+    const nb = T.names.length;
+    const fx = hi.attributes.aFx.array, si = hi.attributes.skinIndex.array, sw = hi.attributes.skinWeight.array;
+    let eyes = 0, badBone = 0, badW = 0;
+    for (let i = 0; i < fx.length; i += 4) if (fx[i + 2] < 4) eyes++;
+    for (let i = 0; i < si.length; i++) if (si[i] >= nb) badBone++;
+    for (let i = 0; i < sw.length; i += 4) if (Math.abs(sw[i] + sw[i + 1] + sw[i + 2] + sw[i + 3] - 1) > 1e-3) badW++;
+    const box = hi.boundingBox, span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
+    const why = [];
+    if (trisHi < 3000 || trisHi > 24000) why.push(`hi ${trisHi}`);
+    if (trisLo > 8000) why.push(`lo ${trisLo}`);
+    if (!eyes && d.eyes) why.push('no eyes');
+    if (badBone) why.push(`${badBone} bad bones`);
+    if (badW) why.push(`${badW} bad weights`);
+    if (Math.abs(span - d.size) > d.size * 0.12) why.push(`span ${span.toFixed(2)} vs ${d.size}`);
+    if (box.min.y < -0.02 * d.size) why.push('below the ground');
+    if (why.length) figBad.push(`${id}: ${why.join(', ')}`);
+  } catch (e) { figBad.push(`${id}: ${e.message}`); }
+}
+ok('every figurine bakes: in budget, eyes set in, bones and weights sound, the right size', figBad.length === 0, figBad.join(' | '));
+
 // capture freeze
 section('capture freeze');
 const doc4 = C.createPlayerDoc('u4', 'QA4', {}, 'cindcub');
