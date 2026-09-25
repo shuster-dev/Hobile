@@ -1,8 +1,9 @@
-import { AdditiveBlending, Box3, BufferAttribute, BufferGeometry, Color, CylinderGeometry, DoubleSide, Shape, ShapeGeometry, DynamicDrawUsage, Float32BufferAttribute, FogExp2, Group, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, OctahedronGeometry, PerspectiveCamera, PointLight, Points, PointsMaterial, Quaternion, RingGeometry, Scene, ShaderMaterial, SphereGeometry, TorusGeometry, Vector3 } from 'three';
+import { AdditiveBlending, BoxGeometry, DodecahedronGeometry, MeshStandardMaterial, Object3D, PlaneGeometry, Box3, BufferAttribute, BufferGeometry, Color, CylinderGeometry, DoubleSide, Shape, ShapeGeometry, DynamicDrawUsage, Float32BufferAttribute, FogExp2, Group, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, OctahedronGeometry, PerspectiveCamera, PointLight, Points, PointsMaterial, Quaternion, RingGeometry, Scene, ShaderMaterial, SphereGeometry, TorusGeometry, Vector3 } from 'three';
 import { Audio } from '../audio.js';
 import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
 import { ELEMENTS, MOVES, SPECIES } from '../../shared/gamedata.js';
+import { MEADOW, flowerBase, flowerHead, meadowTuft, thinMaterial } from './world.js';
 
 var audio = new Audio();
 
@@ -57,7 +58,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   },
   BattleView = class {
     constructor(e) {
-      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 1200), this.baseCam = new Vector3(-1.15, 5.9, 11.4), this.focus = new Vector3(0.35, 1.3, -0.5), this.targetCam = this.baseCam.clone(), this.targetFocus = this.focus.clone(), this.camPos = this.baseCam.clone(), this.camAim = this.focus.clone(), this.camOffset = new Vector3(), this.aimOffset = new Vector3(), this.camera.position.copy(this.baseCam), this.camera.lookAt(this.focus), this.actors = new Map(), this.effects = [], this.shake = 0, this.time = 0, this.trainer = null, this.appearance = null, this.myTrainerId = null, this.trainerFront = !1, this.dim = 0, this.frozenUntil = 0, this.sphereFx = null, this.roleBench = new Map(), this.roleSlot = new Map(), this.activeBySide = {
+      this.canvas = e, this.renderer = makeRenderer(e), this.scene = new Scene(), this.camera = new PerspectiveCamera(40, 1, 0.1, 1200), this.baseCam = new Vector3(-1.4, 7.2, 14.3), this.focus = new Vector3(0.35, 1.3, -0.5), this.targetCam = this.baseCam.clone(), this.targetFocus = this.focus.clone(), this.camPos = this.baseCam.clone(), this.camAim = this.focus.clone(), this.camOffset = new Vector3(), this.aimOffset = new Vector3(), this.camera.position.copy(this.baseCam), this.camera.lookAt(this.focus), this.actors = new Map(), this.effects = [], this.shake = 0, this.time = 0, this.trainer = null, this.appearance = null, this.myTrainerId = null, this.trainerFront = !1, this.dim = 0, this.frozenUntil = 0, this.sphereFx = null, this.roleBench = new Map(), this.roleSlot = new Map(), this.activeBySide = {
         a: null,
         b: null
       }, this._seen = new Set(), this._stale = [], this._side = {
@@ -88,10 +89,11 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let n = Math.tan(this.camera.fov * Math.PI / 360);
       this.vignette.scale.set(n * this.camera.aspect * 1.5, n * 1.5, 1);
     }
-    setTheme(e = "verdant", t = !1) {
+    setTheme(e = "verdant", t = !1, ctx = {}) {
       let s = (ELEMENTS[e] || ELEMENTS.verdant).color;
       this.accent = s;
-      let r = `${e}|${t ? 1 : 0}`;
+      let stage = t ? "" : ctx.stage || "",
+        r = `${e}|${t ? 1 : 0}|${stage}|${ctx.element || ""}|${ctx.zone || ""}`;
       if (this.themeKey === r && this.arena.children.length) return;
       this.themeKey = r, this.ringHostile = null;
       for (let y = this.arena.children.length - 1; y >= 0; y--) {
@@ -117,6 +119,12 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         ...o,
         sunDir: np
       }), this.scene.add(this.sky), this.scene.environment && this.scene.environment.dispose(), this.scene.environment = makeEnvironment(this.renderer, this.sky), this.scene.fog = new FogExp2(t ? 1446446 : 13627391, t ? 0.011 : 0.0075), this.lights.sun.intensity = t ? 1.9 : 2.25, this.lights.hemi.color.set(o.horizon), this.lightBase.sun = this.lights.sun.intensity, this.lightBase.hemi = this.lights.hemi.intensity;
+      // A wild fight in the field, or a town fight in the stadium; the rune pit
+      // below is only for dungeons now.
+      if (stage) {
+        this.runeRing = this.innerRing = this.lamp = this.motes = null, this.arena.add(stage === "stadium" ? buildStadium(s) : buildClearing(ctx.palette, s, ctx.element));
+        return;
+      }
       let a = [],
         l = mat(t ? 3814232 : 5213758, {
           roughness: 0.92
@@ -373,8 +381,10 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
      */
     heroScale(e) {
       if (e.kind === "trainer") return 1;
+      // Small creatures are drawn up toward a readable size, and the far side
+      // a little larger again, so a pebble-sized foe is not a speck.
       let t = e.height || 1.6;
-      return Math.min(1.5, Math.max(1, (1.6 / t) ** 0.4));
+      return Math.min(1.9, Math.max(1, (1.6 / t) ** 0.5)) * (e.side === "b" ? 1.18 : 1);
     }
     relayout() {
       for (let s of SIDES) {
@@ -424,7 +434,10 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       // side a speck on a narrow screen. Big things still push the camera out —
       // a boss that fills the frame is the point of a boss.
       let n = Math.min(6.5, Math.max(0, t - 2.4));
-      this.targetFocus.set(0.35, 1.3 + n * 0.4, -0.5), this.targetCam.set(-1.15, 5.9 + n * 0.6, 11.4 + n * 1.2);
+      // A longer lens from further back: your creature stays the size it was
+      // and the one across from you grows, which is how the handheld games get
+      // both into a tall screen at a size you can read.
+      this.targetFocus.set(0.35, 1.3 + n * 0.4, -0.5), this.targetCam.set(-1.4, 7.2 + n * 0.6, 14.3 + n * 1.2);
     }
     playEvent(e) {
       let t = this.actors.get(e.target),
@@ -1293,6 +1306,367 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     sphere_great: 10124287,
     sphere_ultra: 16761415
   };
+
+// --- stages -----------------------------------------------------------------
+// Where a fight happens says what kind of fight it is. A wild encounter is in
+// the field you were walking through: its own ground, grass, flowers and trees,
+// a chalk circle scuffed into the grass. A fight in town, or a duel, is in a
+// stadium — a court, stands, banners in the challenger's colour. Only dungeons
+// keep the dark rune pit.
+function seeded(n) {
+  let t = n >>> 0 || 1;
+  return () => (t = t * 1664525 + 1013904223 >>> 0) / 4294967296;
+}
+
+function buildClearing(pal = {}, accent = 16777215, element = "verdant") {
+  let g = new Group(),
+    R = seeded(911),
+    low = new Color(pal.groundLow ?? 6202439),
+    high = new Color(pal.groundHigh ?? 10342498),
+    sand = new Color(pal.path ?? 15126166),
+    c = new Color(),
+    tone = (x, z) => {
+      let k = 0.5 + 0.28 * Math.sin(x * 0.21 + 1.3) * Math.cos(z * 0.17) + 0.18 * Math.sin((x + z) * 0.09),
+        r = Math.hypot(x, z);
+      return c.copy(low).lerp(high, Math.min(1, Math.max(0, k))), r < 6.8 && c.lerp(sand, 0.42 * (1 - Math.max(0, r - 4.6) / 2.2)), c;
+    };
+  // Ground: flat, coloured like the zone's, worn to sand where the fight is.
+  let pg = new PlaneGeometry(130, 130, 72, 72);
+  pg.rotateX(-Math.PI / 2);
+  let pos = pg.attributes.position,
+    col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    let t = tone(pos.getX(i), pos.getZ(i));
+    col[i * 3] = t.r, col[i * 3 + 1] = t.g, col[i * 3 + 2] = t.b;
+  }
+  pg.setAttribute("color", new BufferAttribute(col, 3));
+  let ground = new Mesh(pg, new MeshStandardMaterial({
+    vertexColors: !0,
+    roughness: 0.95,
+    metalness: 0,
+    envMapIntensity: 0.3
+  }));
+  ground.receiveShadow = !0, g.add(ground);
+  // The chalk circle, and a mark where each side stands.
+  let chalk = mat(16316911, {
+      roughness: 0.9
+    }),
+    marks = [{
+      geo: xf2(new RingGeometry(5.62, 5.84, 72), {
+        y: 0.03,
+        rx: -Math.PI / 2
+      }),
+      mat: chalk
+    }];
+  for (let z of [SIDE_Z.a + 0.9, SIDE_Z.b - 0.9]) marks.push({
+    geo: xf2(new PlaneGeometry(1.7, 0.14), {
+      y: 0.03,
+      z,
+      rx: -Math.PI / 2
+    }),
+    mat: chalk
+  });
+  let m = mergeByMaterial(marks, {
+    castShadow: !1
+  });
+  m.receiveShadow = !0, g.add(m);
+  // Grass and flowers outside the circle, the same tufts the field grows.
+  let lowTier = QUALITY.tier === "low",
+    o = new Object3D(),
+    tufts = [];
+  for (let i = 0; i < (lowTier ? 380 : 900); i++) {
+    let a = R() * Math.PI * 2,
+      r = 6.4 + Math.pow(R(), 0.8) * 36,
+      x = Math.cos(a) * r,
+      z = Math.sin(a) * r;
+    // Nothing between the camera and the fight.
+    z > 3.5 && Math.abs(x + 1) < 5 || tufts.push([x, z, 0.8 + R() * 0.7, R() * 6.28]);
+  }
+  let gm = new InstancedMesh(meadowTuft(), thinMaterial({
+    vertexColors: !0,
+    roughness: 0.95,
+    envMapIntensity: 0.28
+  }), tufts.length);
+  tufts.forEach(([x, z, sc, rot], i) => {
+    o.position.set(x, 0, z), o.rotation.set(0, rot, 0), o.scale.setScalar(sc), o.updateMatrix(), gm.setMatrixAt(i, o.matrix), gm.setColorAt(i, tone(x, z));
+  }), gm.receiveShadow = !0, g.add(gm);
+  let M = MEADOW[element] || MEADOW.verdant,
+    flowers = [];
+  for (let b = 0; b < 14; b++) {
+    let a = R() * Math.PI * 2,
+      r = 7 + R() * 22,
+      bx = Math.cos(a) * r,
+      bz = Math.sin(a) * r,
+      pet = M.petals[Math.floor(R() * M.petals.length)];
+    if (bz > 3 && Math.abs(bx + 1) < 6) continue;
+    for (let k = 0; k < 11; k++) {
+      let aa = R() * Math.PI * 2,
+        rr = Math.sqrt(R()) * 2;
+      flowers.push([bx + Math.cos(aa) * rr, bz + Math.sin(aa) * rr, pet, 0.17 + R() * 0.07]);
+    }
+  }
+  let fh = new InstancedMesh(flowerHead(), thinMaterial({
+      vertexColors: !0,
+      roughness: 0.7
+    }), flowers.length),
+    fb = new InstancedMesh(flowerBase(M.heart, pal.leaf ?? 4630604), thinMaterial({
+      vertexColors: !0,
+      roughness: 0.8
+    }), flowers.length);
+  flowers.forEach(([x, z, pet, sc], i) => {
+    o.position.set(x, 0, z), o.rotation.set((R() - 0.5) * 0.5, R() * 6.28, (R() - 0.5) * 0.5), o.scale.setScalar(sc), o.updateMatrix(), fh.setMatrixAt(i, o.matrix), fb.setMatrixAt(i, o.matrix), fh.setColorAt(i, c.set(pet));
+  }), g.add(fh, fb);
+  // Trees round the far side and the flanks, bushes and rocks nearer in, and
+  // hills beyond — so the clearing is somewhere, not a disc in the sky.
+  let leafA = mat(pal.leaf ?? 4630604, {
+      roughness: 0.85
+    }),
+    leafB = mat(new Color(pal.leaf ?? 4630604).lerp(new Color(16777215), 0.18).getHex(), {
+      roughness: 0.85
+    }),
+    bark = mat(pal.bark ?? 7032130, {
+      roughness: 0.9
+    }),
+    rock = mat(pal.rock ?? 9277330, {
+      roughness: 0.9,
+      flat: !0
+    }),
+    parts = [];
+  for (let i = 0; i < 20; i++) {
+    let a = -Math.PI * 0.08 - R() * Math.PI * 1.16,
+      r = 17 + R() * 16,
+      x = Math.cos(a) * r,
+      z = Math.sin(a) * r,
+      s = 0.9 + R() * 0.6,
+      lm = R() < 0.5 ? leafA : leafB;
+    parts.push({
+      geo: xf2(new CylinderGeometry(0.26 * s, 0.4 * s, 3 * s, 7), {
+        x,
+        y: 1.5 * s,
+        z
+      }),
+      mat: bark
+    });
+    for (let k = 0; k < 3; k++) parts.push({
+      geo: xf2(new IcosahedronGeometry(1, 1), {
+        x: x + (R() - 0.5) * 1.6 * s,
+        y: (3.4 + k * 0.9 + R() * 0.4) * s,
+        z: z + (R() - 0.5) * 1.6 * s,
+        sx: (2 - k * 0.45) * s,
+        sy: (1.6 - k * 0.3) * s,
+        sz: (2 - k * 0.45) * s
+      }),
+      mat: lm
+    });
+  }
+  for (let i = 0; i < 12; i++) {
+    let a = -Math.PI * 0.05 - R() * Math.PI * 1.1,
+      r = 8.5 + R() * 7,
+      x = Math.cos(a) * r,
+      z = Math.sin(a) * r,
+      big = R() < 0.5;
+    parts.push(big ? {
+      geo: xf2(new IcosahedronGeometry(1, 1), {
+        x,
+        y: 0.55,
+        z,
+        sx: 1.3,
+        sy: 0.95,
+        sz: 1.2
+      }),
+      mat: leafB
+    } : {
+      geo: xf2(new DodecahedronGeometry(0.8, 0), {
+        x,
+        y: 0.35,
+        z,
+        ry: R() * 3
+      }),
+      mat: rock
+    });
+  }
+  let hill = mat(new Color(pal.groundHigh ?? 10342498).lerp(new Color(13627391), 0.35).getHex(), {
+    roughness: 1
+  });
+  for (let i = 0; i < 6; i++) {
+    let a = -Math.PI * 0.15 - i / 5 * Math.PI * 0.7,
+      r = 78 + R() * 14;
+    parts.push({
+      geo: xf2(new SphereGeometry(1, 20, 12), {
+        x: Math.cos(a) * r,
+        y: -6,
+        z: Math.sin(a) * r,
+        sx: 30 + R() * 16,
+        sy: 16 + R() * 10,
+        sz: 22
+      }),
+      mat: hill
+    });
+  }
+  let props = mergeByMaterial(parts, {
+    castShadow: !0
+  });
+  return props.receiveShadow = !0, g.add(props), g;
+}
+
+function buildStadium(accent = 3106512) {
+  let parts = [],
+    concrete = mat(15590362, {
+      roughness: 0.92
+    }),
+    seatC = mat(16762967, {
+      roughness: 0.6
+    }),
+    court = mat(4161494, {
+      roughness: 0.8
+    }),
+    inner = mat(5937126, {
+      roughness: 0.8
+    }),
+    line = mat(16777215, {
+      roughness: 0.6
+    }),
+    seatA = mat(accent, {
+      roughness: 0.6
+    }),
+    seatB = mat(16052714, {
+      roughness: 0.7
+    }),
+    steel = mat(10134453, {
+      roughness: 0.5
+    }),
+    wall = mat(15262420, {
+      roughness: 0.85
+    }),
+    glass = new MeshStandardMaterial({
+      color: 12117503,
+      emissive: 7322623,
+      emissiveIntensity: 0.35,
+      roughness: 0.15,
+      metalness: 0.2
+    }),
+    lamp = new MeshStandardMaterial({
+      color: 16777215,
+      emissive: 16775392,
+      emissiveIntensity: 1.2
+    }),
+    box = (w, h, d, o, m) => parts.push({
+      geo: xf2(new BoxGeometry(w, h, d), o),
+      mat: m
+    });
+  // The court: blue, a lighter field inside it, white lines, and our own
+  // mark in the middle — the shard from the logo, not anyone else's.
+  box(80, 0.3, 80, {
+    y: -0.15
+  }, concrete), box(14, 0.06, 21, {
+    y: 0.03
+  }, court), box(11.6, 0.07, 18.6, {
+    y: 0.04
+  }, inner);
+  for (let [w, d, x, z] of [[11.6, 0.12, 0, 9.3], [11.6, 0.12, 0, -9.3], [0.12, 18.6, 5.8, 0], [0.12, 18.6, -5.8, 0], [11.6, 0.1, 0, 0]]) box(w, 0.02, d, {
+    x,
+    y: 0.085,
+    z
+  }, line);
+  parts.push({
+    geo: xf2(new RingGeometry(2.3, 2.44, 64), {
+      y: 0.09,
+      rx: -Math.PI / 2
+    }),
+    mat: line
+  });
+  let star = new Shape();
+  for (let k = 0; k < 8; k++) {
+    let a = k / 8 * Math.PI * 2,
+      r = k % 2 ? 0.34 : 1.05;
+    star[k ? "lineTo" : "moveTo"](Math.sin(a) * r, Math.cos(a) * r);
+  }
+  parts.push({
+    geo: xf2(new ShapeGeometry(star), {
+      y: 0.095,
+      rx: -Math.PI / 2
+    }),
+    mat: seatA
+  });
+  // Stands: stepped, on the far side and both flanks, seats in two colours.
+  let stand = (cx, cz, len, ry) => {
+    for (let k = 0; k < 6; k++) {
+      let y = 0.35 + k * 0.62,
+        back = 1.5 * k,
+        rot = (dx, dz) => ({
+          x: cx + Math.cos(ry) * dx + Math.sin(ry) * dz,
+          z: cz - Math.sin(ry) * dx + Math.cos(ry) * dz
+        }),
+        b = rot(0, -back);
+      box(len, y * 2, 1.5, {
+        ...b,
+        y: y * 0.5 + 0.05,
+        ry
+      }, concrete);
+      for (let q = 0; q < len / 1.2 - 1; q++) {
+        let s2 = rot(-len / 2 + 0.9 + q * 1.2, -back + 0.2);
+        box(1.05, 0.34, 0.7, {
+          ...s2,
+          y: y + 0.22,
+          ry
+        }, [seatA, seatC, seatB][k % 3]);
+      }
+    }
+  };
+  stand(0, -16, 34, 0), stand(-15, -2, 26, Math.PI / 2), stand(15, -2, 26, -Math.PI / 2);
+  // Boards along the foot of the stands, in the challenger's colour.
+  box(34, 0.9, 0.2, {
+    y: 0.45,
+    z: -15.1
+  }, seatA), box(0.2, 0.9, 26, {
+    x: -14.1,
+    y: 0.45,
+    z: -2
+  }, seatA), box(0.2, 0.9, 26, {
+    x: 14.1,
+    y: 0.45,
+    z: -2
+  }, seatA);
+  // The building behind the stands, windows lit, like the halls at the harbour.
+  box(58, 16, 5, {
+    y: 8,
+    z: -31
+  }, wall), box(59, 1, 6, {
+    y: 16.4,
+    z: -31
+  }, steel);
+  for (let r = 0; r < 3; r++)
+    for (let q = 0; q < 12; q++) box(2.8, 2.2, 0.2, {
+      x: -24.2 + q * 4.4,
+      y: 5.5 + r * 3.6,
+      z: -28.4
+    }, glass);
+  // Banners and floodlights.
+  for (let [x, z] of [[-9, -12], [9, -12], [-12, 4], [12, 4]]) box(0.14, 9, 0.14, {
+    x,
+    y: 4.5,
+    z
+  }, steel), box(1.5, 2.6, 0.06, {
+    x: x + 0.8 * Math.sign(-x),
+    y: 7.4,
+    z
+  }, seatA);
+  for (let [x, z] of [[-19, -20], [19, -20], [-21, 2], [21, 2]]) box(0.4, 17, 0.4, {
+    x,
+    y: 8.5,
+    z
+  }, steel), box(3.4, 1.4, 0.5, {
+    x,
+    y: 17.3,
+    z: z + 0.4,
+    rx: 0.35
+  }, lamp);
+  let g = new Group(),
+    m = mergeByMaterial(parts, {
+      castShadow: !0
+    });
+  return m.receiveShadow = !0, g.add(m), g;
+}
 
 function buildSphereProp(i) {
   let e = new Group(),

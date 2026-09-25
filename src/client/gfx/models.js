@@ -407,6 +407,14 @@ function bindRig(rig, root) {
     arms: rig.arms.map(chain),
     wings: rig.wings.map(chain),
   };
+  // Some models rest in a T-pose, arms straight out. The walk only swings a
+  // limb about its rest, so those stood in battle like scarecrows. An arm
+  // whose first bone points sideways is lowered to hang first.
+  rig.bound.armDrop = rig.arms.map((list) => {
+    if (!list[0] || !list[1]) return 0;
+    const d = list[1].getWorldPosition(new Vector3()).sub(list[0].getWorldPosition(new Vector3())).normalize();
+    return Math.abs(d.y) < 0.55 ? 1.1 : 0;
+  });
   rig.bound.all = [
     ...rig.bound.spine, rig.bound.head,
     ...rig.bound.tails.flat(), ...rig.bound.appendages.flat(),
@@ -414,6 +422,8 @@ function bindRig(rig, root) {
   ].filter(Boolean);
   return rig;
 }
+
+const ARM_DROP_SIGN = -1;
 
 /** Start every animated bone from its rest pose, before the pose is built up. */
 function resetPose(bound) {
@@ -759,7 +769,7 @@ export function animateModel(group, timeMs, moving, speed = 1) {
     const ph = p + (i === 0 ? Math.PI : 0);
     turn(upper, 'right', Math.sin(ph) * amp * 0.45);
     turn(fore, 'right', Math.max(0, Math.sin(ph + 0.5)) * amp * 0.35);
-    turn(upper, 'fwd', (i ? -1 : 1) * (0.05 + Math.sin(t * 1.5) * 0.03) * idle);
+    turn(upper, 'fwd', (i ? -1 : 1) * (0.05 + Math.sin(t * 1.5) * 0.03) * idle + (i ? -1 : 1) * ARM_DROP_SIGN * (bound.armDrop?.[i] || 0));
   });
 
   applyPose(bound);

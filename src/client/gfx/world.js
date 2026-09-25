@@ -5757,6 +5757,23 @@ function upGeometry(pos, col) {
   return g.setAttribute("position", new Float32BufferAttribute(pos, 3)), g.setAttribute("normal", new BufferAttribute(n, 3)), g.setAttribute("color", new Float32BufferAttribute(col, 3)), g.computeBoundingSphere(), g;
 }
 
+/** A sheet with no inside (grass, petals) lit the same from either face; see
+ *  windMaterial's `thin`. For places with no wind to add, like the arena. */
+function thinMaterial(o) {
+  let m = new MeshStandardMaterial({
+    side: DoubleSide,
+    ...o
+  });
+  return m.onBeforeCompile = s => {
+    s.fragmentShader = s.fragmentShader.replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
+      #ifdef DOUBLE_SIDED
+        normal *= faceDirection;
+        nonPerturbedNormal = normal;
+      #endif
+    `);
+  }, m.customProgramCacheKey = () => "thin", m;
+}
+
 /** Point every normal straight up — see `upGeometry`. */
 function upNormals(g) {
   let n = g.attributes.normal;
@@ -5984,4 +6001,4 @@ function disposeTree(i) {
   });
 }
 
-export { $_, A_, B_, C_, DOOR_W, INTERIORS, SEASON_LOOK, WEATHER_LOOK, O_, PartBuilder, R_, SUN_DIR, SUN_STRENGTH, U_, V_, WALL_H, W_, WorldView, X_, boxHit, buildAmbientMotes, buildBuildingBlock, buildBush, buildCityGround, buildDust, buildEdgeWall, buildFogWall, buildGroundMesh, buildInterior, buildLamp, buildNpcBody, buildReed, buildRimRange, buildRockProp, buildRug, buildTerrainMesh, buildTreeProp, buildWainscot, buildWaterPlane, buildingIndex, circleHit, collectColliders, disposeTree, eb, eo, interiorOf, jitter, mergePlain, mergeProps, npcNear, offsetGeometry, propRadius, q_, rngFromFloat, rotateLocal, tintHex, vertexColorMat, zoneTheme };
+export { MEADOW, FLOWER_H, flowerBase, flowerHead, meadowTuft, thinMaterial, $_, A_, B_, C_, DOOR_W, INTERIORS, SEASON_LOOK, WEATHER_LOOK, O_, PartBuilder, R_, SUN_DIR, SUN_STRENGTH, U_, V_, WALL_H, W_, WorldView, X_, boxHit, buildAmbientMotes, buildBuildingBlock, buildBush, buildCityGround, buildDust, buildEdgeWall, buildFogWall, buildGroundMesh, buildInterior, buildLamp, buildNpcBody, buildReed, buildRimRange, buildRockProp, buildRug, buildTerrainMesh, buildTreeProp, buildWainscot, buildWaterPlane, buildingIndex, circleHit, collectColliders, disposeTree, eb, eo, interiorOf, jitter, mergePlain, mergeProps, npcNear, offsetGeometry, propRadius, q_, rngFromFloat, rotateLocal, tintHex, vertexColorMat, zoneTheme };

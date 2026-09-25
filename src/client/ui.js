@@ -169,6 +169,8 @@ var UI = class {
     e && $(`#screen-${e}`).classList.remove("hidden");
   }
   setMode(e) {
+    // A new fight starts with new rows: ids can repeat from one to the next.
+    e !== "battle" && this._rows && (this._rows.forEach(f => f.remove()), this._rows.clear());
     if ($("#hud").classList.toggle("hidden", e !== "world"), $("#battle-hud").classList.toggle("hidden", e !== "battle"), $("#world-canvas").classList.toggle("hidden", e !== "world"), $("#battle-canvas").classList.toggle("hidden", e !== "battle"), e !== "world") {
       this.closePanel(), this.closeDialogue();
       for (let t of document.querySelectorAll("#overlay .nameplate")) t.remove();
@@ -1232,8 +1234,22 @@ var UI = class {
   }
   renderBattle(e, t, n) {
     let s = $("#combat-bars"),
-      ss = $("#combat-bars-self") || s;
-    s.innerHTML = "", ss.innerHTML = "";
+      ss = $("#combat-bars-self") || s,
+      rows = this._rows || (this._rows = new Map()),
+      keep = new Set(),
+      // Rows live across updates, so a bar that changes width animates — and
+      // the pale "ghost" behind it drains after it, the way a hit reads.
+      row = (key, cls, parent) => {
+        let f = rows.get(key);
+        f || (f = el("div", cls), f.innerHTML = `<div class="name"><b></b><span class="mono"></span></div><div class="bar hp"><b class="ghost"></b><i></i></div><div class="bar stam" style="margin-top:3px"><i></i></div><div class="fx"></div>`, rows.set(key, f));
+        return f.className = cls, keep.add(key), parent.appendChild(f), f;
+      },
+      fill = (f, name, meta, p, stam, fx) => {
+        f.querySelector(".name b").innerHTML = name, f.querySelector(".name .mono").innerHTML = meta;
+        let hp = f.querySelector(".bar.hp"),
+          st = f.querySelector(".bar.stam");
+        hp.classList.toggle("low", p < 30), hp.querySelector("i").style.width = `${p}%`, hp.querySelector(".ghost").style.width = `${p}%`, st.style.display = stam == null ? "none" : "", stam != null && (st.querySelector("i").style.width = `${stam}%`), f.querySelector(".fx").innerHTML = fx;
+      };
     let r = e.find(d => d.id === t),
       o = e.filter(d => d.side !== r?.side),
       a = e.filter(d => d.side === r?.side),
@@ -1242,22 +1258,11 @@ var UI = class {
       h = c?.benched && a.some(d => d.kind === "creature" && d.hp > 0);
     for (let d of [...o.filter(l), ...a.filter(l)]) {
       let u = SPECIES[d.species],
-        f = el("div", `combat-row ${d.side !== r?.side ? "foe" : ""}`),
-        p = d.hp / Math.max(1, d.maxHp) * 100;
-      f.innerHTML = `
-        <div class="name"><b>${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}</b><span class="mono">${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}</span></div>
-        <div class="bar hp ${p < 30 ? "low" : ""}"><i style="width:${p}%"></i></div>
-        ${d.id === t ? `<div class="bar stam" style="margin-top:3px"><i style="width:${d.stamina / PROGRESSION.staminaMax * 100}%"></i></div>` : ""}
-        <div class="fx">${(d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join("")}</div>`, (d.side !== r?.side ? s : ss).appendChild(f);
+        f = row(d.id, `combat-row ${d.side !== r?.side ? "foe" : ""}`, d.side !== r?.side ? s : ss);
+      fill(f, `${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, (d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join(""));
     }
-    if (c) {
-      let d = c.hp / Math.max(1, c.maxHp) * 100,
-        u = el("div", `combat-row self ${h ? "shielded" : "exposed"}`);
-      u.innerHTML = `
-        <div class="name"><b>${Ze(c.name)}</b><span class="mono">${rangeLabel(c.hp, c.maxHp, "/")}</span></div>
-        <div class="bar hp ${d < 30 ? "low" : ""}"><i style="width:${d}%"></i></div>
-        <div class="fx"><span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span></div>`, ss.appendChild(u);
-    }
+    c && fill(row(`trainer:${c.id}`, `combat-row self ${h ? "shielded" : "exposed"}`, ss), Ze(c.name), rangeLabel(c.hp, c.maxHp, "/"), c.hp / Math.max(1, c.maxHp) * 100, null, `<span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span>`);
+    for (let [k, f] of rows) keep.has(k) || (f.remove(), rows.delete(k));
     (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = o.filter(l)[0] || null, this.renderTeamBar(r);
   }
   buildBattleButtons(e, t) {

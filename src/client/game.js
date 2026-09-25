@@ -459,11 +459,22 @@ var Game = class {
     }), e.on("battleInit", t => {
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
-      this.battleView.setTheme(n || this.zoneElement(), !1);
+      let zd = ZONES[this.zone?.id] || {};
+      this.battleView.setTheme(n || this.zoneElement(), !1, {
+        stage: zd.urban || t.mode === "pvp" || t.duel ? "stadium" : "clearing",
+        palette: this.world.palette,
+        element: zd.element || "verdant",
+        zone: zd.id
+      });
     }), e.on("dungeonInit", t => {
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer)), this.battleView.setTheme(t.dungeon.element, !0), this.ui.battleBanner(`${loc(t.dungeon)} — קומה 1`, 1800);
     }), e.on("battleStart", () => {
-      this.ui.battleBanner("הקרב מתחיל!", 1e3);
+      // "A wild Pebblin appeared!" says what this fight is; "the battle
+      // begins" said nothing the screen did not.
+      let me = this.battle?.combatants?.find(c => c.id === this.battle.youId),
+        foe = this.battle?.combatants?.find(c => me && c.side !== me.side && c.kind !== "trainer"),
+        sp = foe && SPECIES[foe.species];
+      this.ui.battleBanner(sp && foe.kind !== "boss" && !this.battle.combatants.some(c => c.side === foe.side && c.kind === "trainer") ? `${loc(sp)} פראי הופיע!` : "הקרב מתחיל!", 1400);
       // The sky is doing something to the numbers, so say so once. Without this
       // the only way to find out rain helps a water move is to notice it.
       let w = this.battle.weather;
