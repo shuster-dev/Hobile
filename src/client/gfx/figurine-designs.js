@@ -208,7 +208,7 @@ function blob(o) {
     parts.push(mir(E('finL', o.finC ?? a, [R * 1.02, y - R * 0.2, R * 0.05], [R * 0.3, R * 0.14, R * 0.2], 0.08, { rot: [0, 0, -0.6] })));
   }
   const eyes = { at: [R * (o.eyeX ?? 0.36), y + R * (o.eyeY ?? 0.12), R * 0.92], r: R * (o.eye ?? 0.22), iris: o.iris ?? 0x123456, tall: o.eyeTall ?? 1.2 };
-  return { size: o.size, plan: 'biped', lid: a, bones, parts, details: [], eyes, at: { y, R, top: [0, y + R * (o.tall ?? 0.94), 0] } };
+  return { size: o.size, plan: 'biped', hop: true, lid: a, bones, parts, details: [], eyes, at: { y, R, top: [0, y + R * (o.tall ?? 0.94), 0] } };
 }
 
 /**
@@ -459,15 +459,15 @@ export const FIGURINES = {
   vulcanth: make(vulc, {
     lookK: 0.6,
     parts: [
-      ...[[0.34, 0.16, 0.2], [0.12, 0.2, 0.26], [-0.1, 0.2, 0.26], [-0.32, 0.16, 0.2]].map(([z, w, h]) => E('body', 0x4A2418, [0, vulc.at.y + vulc.at.Hb * 0.92 + h * 0.2, z], [w, h * 0.55, 0.11], 0.025, { rot: [0.25, 0, 0] })),
-      ...[[0.3, 0.2], [0.02, 0.24], [-0.24, 0.2]].flatMap(([z, x]) => [1, -1].map((sx) => E('body', 0x4A2418, [sx * x, vulc.at.y + vulc.at.Hb * 0.72, z], [0.1, 0.09, 0.1], 0.03, { rot: [0.2, 0, sx * 0.6] }))),
-      mir(Bx('chest', 0x4A2418, [0.34, vulc.at.y + vulc.at.Hb * 0.7, vulc.at.zF * 0.8], [0.12, 0.16, 0.18], 0.08, 0.03, { rot: [0, 0, 0.55] })),
-      ...[0.23, 0.01, -0.21].map((z) => paint(0xFF7A1A, E('body', 0, [0, vulc.at.y + vulc.at.Hb * 1.02, z], [0.26, 0.2, 0.018]), 0.012, { glow: 1 })),
+      ...[[0.26, 0.64, 0.1], [0.3, 0.6, -0.14], [0.28, 0.52, 0.2]].flatMap(([x, y, z]) => [1, -1].map((sx) => paint(0xFF7A1A, E('body', 0, [sx * x, vulc.at.y + (y - 0.5) * 0.6, z], [0.015, 0.13, 0.05], 0, { rot: [0.5, 0, sx * 0.4] }), 0.01, { glow: 1 }))),
     ],
     details: [
       horn('head', 0x2A1812, add3(vulc.at.brow, [0, -0.1, 0.12]), add3(vulc.at.brow, [0, 0.2, 0.26]), 0.075, { c1: 0xFF9A3C, bend: [0, 0.03, 0.05] }),
       mir(horn('head', 0x2A1812, [0.2, vulc.at.hy + 0.2, vulc.at.hz - 0.06], [0.46, vulc.at.hy + 0.56, vulc.at.hz - 0.44], 0.09, { c1: 0xFF9A3C, bend: [0.1, 0.12, 0.08] })),
       ...collar('chest', [0, vulc.at.y + vulc.at.Hb * 1.2, vulc.at.zF + 0.16], [0, 0.7, 0.72], 0.26, 11, 0.42, 0.12),
+      ...[[0.3, 0.2], [0.08, 0.27], [-0.14, 0.25], [-0.34, 0.18]].map(([z, h]) => plate('body', 0x3A1E14,
+        [[-h * 0.55, 0], [h * 0.55, 0], [h * 0.42, h * 0.62], [0, h], [-h * 0.42, h * 0.62]], 0.05,
+        { o: [0, vulc.at.y + vulc.at.Hb * 0.86, z], x: [0, 0, 1], y: [0, 1, -0.25], z: [1, 0, 0] }, { c1: 0xFF7A2A, glow: 0.55 })),
       ...spineSpikes((t) => (t < 0.5 ? 'tail' : 'tail2'), 0x2A1812, [0, vulc.at.y + vulc.at.Hb * 0.62, -0.54], [0, vulc.at.y + 0.18, -0.92], 3, 0.2, 0.06, { c1: 0xFF9A3C }),
       flame(vulc.at.tailBone, vulc.at.tailTip, [0, 1, -0.5], 0.48, 0.16, FIRE),
       flame(vulc.at.tailBone, vulc.at.tailTip, [0.5, 1, -0.4], 0.3, 0.09, FIRE),
@@ -586,11 +586,11 @@ export const FIGURINES = {
     const wingSet = (sx) => {
       const w = sx > 0 ? 'wingL' : 'wingR', F = fore(sx), H = hind(sx);
       return [
-        plate(w, 0x3FA457, bugWing(1.05, 0.62), 0.035, F, { c1: 0xA8E27A, rampX: 1 }),
+        plate(w, 0x2F9A4A, bugWing(1.05, 0.62), 0.035, F, { c1: 0xC8F27A, rampX: 1 }),
         plate(w, 0x2F8A45, bugWing(0.7, 0.44), 0.03, H, { c1: 0x8FD06A, rampX: 1 }),
-        ball(w, 0xFFF3A8, onPlate(F, 0.62, 0.05, 0.03), 0.11, { sy: 0.25, glow: 0.8 }),
-        ball(w, 0x2F6A3A, onPlate(F, 0.62, 0.05, 0.035), 0.05, { sy: 0.25 }),
-        ball(w, 0xFFF3A8, onPlate(H, 0.42, 0.0, 0.03), 0.07, { sy: 0.25, glow: 0.8 }),
+        ball(w, 0xFFF3A8, onPlate(F, 0.62, 0.05, 0.05), 0.12, { sy: 0.22, glow: 0.8 }),
+        ball(w, 0x2F6A3A, onPlate(F, 0.62, 0.05, 0.065), 0.055, { sy: 0.22 }),
+        ball(w, 0xFFF3A8, onPlate(H, 0.42, 0.0, 0.05), 0.08, { sy: 0.22, glow: 0.8 }),
       ];
     };
     return {
@@ -986,7 +986,7 @@ export const FIGURINES = {
     const H = q.at.hp, r = q.at.hr;
     return make(q, {
       eyeStyle: 2, eyeGlow: 0.25, pose: 'ground',
-      parts: [E('head', 0x2A1E4A, [H[0], H[1] - r * 0.55, H[2] + r * 0.45], [r * 0.7, r * 0.32, r * 0.72], 0.05), paint(0x1A0F2E, E('head', 0, [H[0], H[1] - r * 0.32, H[2] + r * 0.95], [r * 0.5, r * 0.06, r * 0.2]), 0.015)],
+      parts: [E('head', 0x2A1E4A, [H[0], H[1] - r * 0.55, H[2] + r * 0.45], [r * 0.7, r * 0.32, r * 0.72], 0.05), paint(0x8FDBFF, E('head', 0, [H[0], H[1] - r * 0.32, H[2] + r * 0.95], [r * 0.5, r * 0.05, r * 0.2]), 0.012, { glow: 0.9 })],
       details: [
         horn('head', 0x1E1433, [H[0], H[1] + r * 0.8, H[2]], [H[0], H[1] + r * 1.8, H[2] - r * 0.4], 0.06, { c1: 0x8FDBFF }),
         ...[1, -1].map((sx) => horn('head', 0x1E1433, [H[0] + sx * r * 0.55, H[1] + r * 0.6, H[2] - r * 0.1], [H[0] + sx * r * 1.1, H[1] + r * 1.4, H[2] - r * 0.6], 0.05, { c1: 0x8FDBFF, bend: [sx * 0.05, 0.05, 0] })),
@@ -1064,7 +1064,7 @@ export const FIGURINES = {
   // that trail currents.
   leviathorn: (() => {
     const q = serpent({
-      size: 8.0, a: 0x1C5F9E, belly: 0xA8E6FF, segs: 9, head: 0.3, iris: 0x0E2F55, eye: 0.24, r: 0.24,
+      size: 8.0, a: 0x163F78, belly: 0x86CDEB, segs: 9, head: 0.32, iris: 0x0E2F55, eye: 0.24, r: 0.24,
       path: [[0, 1.2, 0.5], [0, 0.98, 0.34], [0.05, 0.7, 0.16], [0.08, 0.46, -0.12], [0.05, 0.36, -0.5], [-0.05, 0.42, -0.86], [-0.08, 0.64, -1.08], [-0.05, 0.9, -1.16]],
       radii: [0.23, 0.25, 0.24, 0.22, 0.19, 0.14, 0.09, 0.05],
     });
@@ -1075,6 +1075,7 @@ export const FIGURINES = {
         ...[1, -1].map((sx) => plate('head', 0x2F8FE0, finShape(0.34, 0.22), 0.03, { o: [H[0] + sx * r * 0.8, H[1] + 0.02, H[2] - 0.06], x: [sx * 0.5, 0.3, -0.9], y: [0, 1, 0], z: [1, 0, 0] }, { c1: 0xA8E6FF })),
         ...[1, -1].map((sx) => tube('head', 0xA8E6FF, [H[0] + sx * 0.14, H[1] - 0.1, H[2] + 0.24], [H[0] + sx * 0.56, H[1] - 0.4, H[2] - 0.08], 0.024, { taper: 0.2, bend: [sx * 0.06, -0.12, 0.14] })),
         crystal('head', 0xDFF6FF, [H[0], H[1] + r * 0.8, H[2]], [0, 1, -0.5], 0.36, 0.07, { c1: 0x8FDBFF, glow: 0.3 }),
+        ...[-0.5, 0, 0.5].map((a) => plate('head', 0x2F6FC0, finShape(0.34, 0.26), 0.03, { o: [H[0] + a * r * 0.5, H[1] + r * 0.6, H[2] - r * 0.3], x: [a * 0.4, 0.3, -1], y: [a * 0.3, 1, 0.2], z: [1, 0, 0] }, { c1: 0x86CDEB })),
         ...[2, 3, 4, 5, 6, 7].map((i) => { const f = spineAt(q, i); return crystal('seg' + i, 0xDFF6FF, add3(f.p, f.back.map((v) => v * 0.17)), add3(f.back, f.t.map((v) => -v * 0.5)), 0.32 - i * 0.025, 0.065, { c1: 0x8FDBFF, glow: 0.3 }); }),
         ...[1, -1].map((sx) => plate('seg2', 0x2F8FE0, leafShape(0.36, 0.12), 0.03, { o: add3(spineAt(q, 2).p, [sx * 0.2, 0, 0.02]), x: [sx, -0.35, 0.2], y: [0, 0.3, 1], z: [0, 1, 0] }, { c1: 0xA8E6FF, rampX: 1 })),
         plate('seg9', 0x2F8FE0, finShape(0.5, 0.42), 0.035, { o: q.at.tail, x: [0, 0.6, -0.8], y: [0, 0.8, 0.6], z: [1, 0, 0] }, { c1: 0xA8E6FF }),
@@ -1136,18 +1137,24 @@ export const FIGURINES = {
   // The storm's own bird: wings of gold that throw lightning, a crest of
   // thundercloud and a tail that trails bolts.
   stormcaller: (() => {
-    const q = bird({ size: 12.4, a: 0x3F5FB8, b: 0xFFD23D, body: 0.32, head: 0.24, belly: 0x8FA8E8, iris: 0xFFF6B0, eye: 0.26, beakC: 0xFFD23D, beakC1: 0xFFB020, legC: 0xFFD23D,
+    const q = bird({ size: 12.4, a: 0x3F5FB8, b: 0xFFD23D, body: 0.38, head: 0.26, belly: 0x8FA8E8, iris: 0xFFF6B0, eye: 0.26, beakC: 0xFFD23D, beakC1: 0xFFB020, legC: 0xFFD23D,
       wing: 1.25, wingH: 0.6, wingC: 0xFFD23D, wingC1: 0x3F5FB8, tailN: 5, tailL: 0.9, tailC: 0xFFD23D, tailC1: 0x3F5FB8, flies: true, blush: false });
     const c = q.at.crown;
     return make(q, {
       eyeStyle: 2, eyeGlow: 0.3, hover: 0.1,
       parts: [
-        ...[[0, 0.06, -0.02, 0.13], [0.12, 0.02, -0.08, 0.1], [-0.12, 0.02, -0.08, 0.1], [0, 0.1, -0.16, 0.1]].map(([x, y, z, r]) => S('head', 0xC9D3E8, [x, c[1] + y, c[2] + z], r, 0.06)),
+        ...[[0, 0.06, -0.04, 0.15], [0.14, 0.02, -0.1, 0.12], [-0.14, 0.02, -0.1, 0.12], [0, 0.1, -0.2, 0.12]].map(([x, y, z, r]) => S('head', 0xDDE4F2, [x, c[1] + y, c[2] + z], r, 0.06)),
       ],
       details: [
-        ...[1, -1].map((sx) => plate(sx > 0 ? 'wingL' : 'wingR', 0xFFF6B0, boltShape(0.34, 0.2), 0.03,
-          { o: [sx * 1.0, q.at.by + 0.25, -0.05], x: [sx * 0.3, -1, 0], y: [sx, 0.3, 0], z: [0, 0, 1] }, { c1: 0xFFFFFF, glow: 0.6 })),
+        // a bolt hanging from each wingtip, set on the wing's own plane
+        ...[1, -1].map((sx) => {
+          const W = { o: [sx * q.at.br * 0.62, q.at.by + q.at.br * 0.38, q.at.br * 0.12], x: [sx * 0.86, 0.5, -0.12], y: [0, 0.12, 1], z: [0, 1, -0.12] };
+          const tip = onPlate(W, 1.05, -0.02, 0);
+          return plate(sx > 0 ? 'wingL' : 'wingR', 0xFFF6B0, boltShape(0.36, 0.2), 0.03,
+            { o: tip, x: [0, -1, 0.2], y: [sx, 0, 0], z: [0, 0.2, 1] }, { c1: 0xFFFFFF, glow: 0.6 });
+        }),
         plate('tail', 0xFFF6B0, boltShape(0.4, 0.22), 0.03, { o: [0, q.at.by, -0.95], x: [0, -0.3, -1], y: [1, 0, 0], z: [0, 1, 0] }, { c1: 0xFFFFFF }),
+        plate('head', 0xFFD23D, boltShape(0.3, 0.18), 0.03, { o: [0, c[1] + 0.08, c[2] - 0.12], x: [0, 0.3, -1], y: [0, 1, 0.2], z: [1, 0, 0] }, { c1: 0xFFF6B0, glow: 0.5 }),
       ],
     });
   })(),

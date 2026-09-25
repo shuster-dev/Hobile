@@ -812,7 +812,9 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         let s = Array.isArray(n.material),
           o = (s ? n.material : [n.material]).map(a => {
             let l = a.clone();
-            return l.userData = {
+            // clone() leaves shader hooks behind: without these a figurine
+            // lost its eyes, its fire and its outline at the first flash
+            return a.hasOwnProperty("onBeforeCompile") && (l.onBeforeCompile = a.onBeforeCompile), a.hasOwnProperty("customProgramCacheKey") && (l.customProgramCacheKey = a.customProgramCacheKey), l.userData = {
               ...a.userData,
               shared: !1
             }, l;

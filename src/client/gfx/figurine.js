@@ -1243,6 +1243,15 @@ function animateFigurine(group, m, timeMs, moving, speed = 1) {
   const base = group.userData.baseY || 0;
   if (flies || m.def.floats || group.userData.floats) group.position.y = base + H * (m.def.hover ?? 0.16) + Math.sin(t * 1.6) * H * 0.045;
   else group.position.y = base;
+  // the little round ones hop now and then when they are standing about
+  if (m.def.hop && idle > 0.4) {
+    const hp = (t * 0.75) % 4.2;
+    if (hp < 0.5) {
+      const u = hp / 0.5;
+      group.position.y += Math.sin(u * Math.PI) * H * 0.14 * idle;
+      if (B.body) B.body.scale.y *= 1 + Math.sin(u * Math.PI * 2) * 0.07 * idle;
+    }
+  }
   m.holder.rotation.z = Math.sin(p) * 0.025 * k;
 
   // blink: a quick close and open every few seconds, now and then twice
