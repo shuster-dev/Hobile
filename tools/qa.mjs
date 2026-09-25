@@ -628,6 +628,37 @@ ok('the welcome line is sent once, not on every refresh', (() => {
 })());
 world.stop();
 
+// The ground: every element has its look, and every camp its paths out.
+section('ground');
+const wildZones = Object.values(G.ZONES).filter((z) => !z.urban);
+ok('every element has a ground to paint and a cap for its rocks',
+  wildZones.every((z) => Wv.GROUND[z.element] && z.element in Wv.ROCK_CAP),
+  wildZones.filter((z) => !Wv.GROUND[z.element] || !(z.element in Wv.ROCK_CAP)).map((z) => z.id).join(','));
+ok('a zone lays the same paths every time', wildZones.every((z) => {
+  const cs = P.propsFor(z).colliders, a = Wv.buildTrails(z, cs), b = Wv.buildTrails(z, cs);
+  return a && b && a.texture.image.data.every((v, i) => v === b.texture.image.data[i]);
+}));
+const trailMiss = [];
+for (const z of wildZones) {
+  const tr = Wv.buildTrails(z, P.propsFor(z).colliders), camp = z.landmarks.find((l) => l.kind === 'camp');
+  for (const t of z.landmarks) {
+    if (t.kind !== 'portal' && t.kind !== 'dungeon') continue;
+    if (Math.hypot(t.x - camp.x, t.z - camp.z) < (camp.r || 8) + 6) continue;
+    const ux = (t.x - camp.x), uz = (t.z - camp.z), l = Math.hypot(ux, uz);
+    // the path leaves the camp toward it, and arrives at it
+    const out = tr.at(camp.x + ux / l * (camp.r || 8) * 0.8, camp.z + uz / l * (camp.r || 8) * 0.8),
+      end = tr.at(t.x - ux / l * (t.r || 2.6), t.z - uz / l * (t.r || 2.6));
+    (out < 0.5 || end < 0.5) && trailMiss.push(`${z.id}:${t.kind}@${t.x},${t.z} ${out.toFixed(2)}/${end.toFixed(2)}`);
+  }
+}
+ok('a path runs from every camp to each portal and dungeon', trailMiss.length === 0, trailMiss.join(' '));
+const onPath = [];
+for (const z of wildZones) {
+  const tr = Wv.buildTrails(z, P.propsFor(z).colliders);
+  for (const c of P.propsFor(z).colliders) if (c.kind === 'tree' && tr.at(c.x, c.z) > 0.85) onPath.push(`${z.id}@${c.x.toFixed(0)},${c.z.toFixed(0)}`);
+}
+ok('the paths go round the trees, mostly', onPath.length <= wildZones.length * 2, onPath.join(' '));
+
 // capture freeze
 section('capture freeze');
 const doc4 = C.createPlayerDoc('u4', 'QA4', {}, 'cindcub');

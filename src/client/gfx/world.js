@@ -1,4 +1,4 @@
-import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, Vector3 } from 'three';
+import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
 import { QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
@@ -736,16 +736,8 @@ function buildRockProp(i, e, t, n, s, r) {
         }, r.water), t.add(xf2(new OctahedronGeometry(0.34, 0), l({
           y: 2.75
         })), r.aether);
-        for (let h = 0; h < 4; h++) {
-          let d = h / 4 * TAU_G + 0.4;
-          for (let u = 0; u < 3; u++) e.add(xf2(new CylinderGeometry(0.035, 0.02, 0.62, 5), l({
-            x: Math.cos(d) * (0.62 + u * 0.42),
-            z: Math.sin(d) * (0.62 + u * 0.42),
-            y: 2.18 - u * 0.52,
-            rx: Math.sin(d) * (0.5 + u * 0.25),
-            rz: -Math.cos(d) * (0.5 + u * 0.25)
-          })), r.waterBright);
-        }
+        // The water itself — the jets, and the surface they ripple — moves,
+        // so it is drawn apart from this: see buildFountainWater.
         break;
       }
     case "fence":
@@ -1090,6 +1082,112 @@ var A_ = `
     gl_FragColor = vec4(mix(uFar, uNear, vA) * s * vA * 1.1, 1.0);
   }
 `;
+
+/** The plaza fountain's water: four arcs of spray from the top bowl down into
+ *  the basin, and the basin's surface rippling out from the middle and from
+ *  where each arc lands. The stone is in the town's merged mesh; this is only
+ *  what moves. `f` is the fountain prop, `y` the ground under it. */
+function buildFountainWater(f, y, pal) {
+  let g = new Group(),
+    ANG = [0, 1, 2, 3].map(k => k / 4 * TAU_G + 0.4 - (f.rot || 0)),
+    surf = {
+      uTime: { value: 0 },
+      uC: { value: new Vector3(f.x, 0, f.z) }
+    },
+    water = new MeshStandardMaterial({
+      color: pal.water ?? 2786984,
+      roughness: 0.12,
+      metalness: 0.15,
+      envMapIntensity: 1.5
+    });
+  water.onBeforeCompile = s => {
+    Object.assign(s.uniforms, surf);
+    s.vertexShader = s.vertexShader.replace("#include <common>", `#include <common>
+      varying vec3 vFW;`).replace("#include <begin_vertex>", `#include <begin_vertex>
+      vFW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+    s.fragmentShader = s.fragmentShader.replace("#include <common>", `#include <common>
+      uniform float uTime; uniform vec3 uC; varying vec3 vFW;
+      float fCrest = 0.0;`).replace("#include <normal_fragment_begin>", `#include <normal_fragment_begin>
+      {
+        vec2 d = vFW.xz - uC.xz;
+        float r = length(d) + 1e-4, ph = r * 10.0 - uTime * 3.0;
+        vec3 wn = vec3(0.0, 1.0, 0.0);
+        wn.xz += d / r * cos(ph) * 0.16 * smoothstep(2.4, 0.2, r);
+        fCrest = pow(max(0.0, sin(ph)), 16.0) * smoothstep(2.3, 0.6, r);
+        ${ANG.map(a => `{
+          vec2 e = vFW.xz - uC.xz - vec2(${(Math.cos(a) * 2.02).toFixed(3)}, ${(Math.sin(a) * 2.02).toFixed(3)});
+          float q = length(e) + 1e-4, sw = smoothstep(0.85, 0.0, q);
+          wn.xz += e / q * cos(q * 17.0 - uTime * 7.0) * 0.14 * sw;
+          fCrest += pow(max(0.0, sin(q * 17.0 - uTime * 7.0)), 10.0) * sw * 0.8;
+        }`).join("\n")}
+        normal = normalize((viewMatrix * vec4(normalize(wn), 0.0)).xyz);
+      }`).replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+      totalEmissiveRadiance += vec3(0.55, 0.85, 1.0) * fCrest * 0.35;`);
+  }, water.customProgramCacheKey = () => "fountain-water";
+  // The basin was modelled as a solid drum, its top at 0.74 — the water inside
+  // it was painted underneath and nobody had ever seen it. So: the water at
+  // the brim, and a lip of stone round it.
+  for (let [r, h] of [[2.46, 0.752], [0.69, 2.315]]) {
+    let m = new Mesh(new CircleGeometry(r, 40), water);
+    m.rotation.x = -Math.PI / 2, m.position.set(f.x, y + h, f.z), m.renderOrder = 1, g.add(m);
+  }
+  let lip = new Mesh(new TorusGeometry(2.56, 0.13, 8, 48), mat(tintHex(pal.stone ?? 14273974, 16777215, 0.12), {
+    roughness: 0.85
+  }));
+  lip.rotation.x = Math.PI / 2, lip.position.set(f.x, y + 0.77, f.z), lip.castShadow = lip.receiveShadow = !0, g.add(lip);
+  // The spray: every drop a point on a parabola from the lip of the top bowl
+  // to the basin, starting at its own moment so each arc is a steady stream.
+  let N = 46,
+    pos = new Float32Array(ANG.length * N * 3),
+    seed = new Float32Array(ANG.length * N),
+    dir = new Float32Array(ANG.length * N * 3);
+  ANG.forEach((a, k) => {
+    for (let i = 0; i < N; i++) {
+      let j = k * N + i,
+        w = a + (Math.sin(j * 12.9898) * 43758.5453 % 1) * 0.1;
+      seed[j] = i / N + (Math.sin(j * 78.233) * 12345.678 % 1) * 0.02, dir[j * 3] = Math.cos(w), dir[j * 3 + 1] = 0.94 + (Math.sin(j * 3.7) * 0.5 + 0.5) * 0.12, dir[j * 3 + 2] = Math.sin(w);
+    }
+  });
+  let geo = new BufferGeometry();
+  geo.setAttribute("position", new BufferAttribute(pos, 3)), geo.setAttribute("aSeed", new BufferAttribute(seed, 1)), geo.setAttribute("aDir", new BufferAttribute(dir, 3)), geo.boundingSphere = new Sphere(new Vector3(0, 1.5, 0), 3.5);
+  let spray = {
+      uTime: { value: 0 },
+      uSize: { value: 0.12 }
+    },
+    drops = new Points(geo, new ShaderMaterial({
+      uniforms: spray,
+      vertexShader: `
+        attribute float aSeed; attribute vec3 aDir;
+        uniform float uTime, uSize;
+        varying float vA;
+        void main() {
+          float t = fract(uTime * 1.25 + aSeed), T = t * 0.69 * aDir.y;
+          vec3 p = vec3(aDir.x * (0.66 + 2.0 * T), 2.3 + 1.1 * T - 4.9 * T * T, aDir.z * (0.66 + 2.0 * T));
+          p.xz += vec2(-aDir.z, aDir.x) * (fract(aSeed * 91.7) - 0.5) * 0.14 * (0.4 + t);
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_PointSize = uSize * (1.0 - 0.35 * t) * (620.0 / max(1.0, -mv.z));
+          gl_Position = projectionMatrix * mv;
+          vA = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.85, 1.0, t));
+        }`,
+      fragmentShader: `
+        varying float vA;
+        void main() {
+          vec2 d = gl_PointCoord - 0.5;
+          float r = dot(d, d);
+          if (r > 0.25) discard;
+          gl_FragColor = vec4(mix(vec3(0.62, 0.86, 1.0), vec3(1.0), smoothstep(0.25, 0.0, r)) * vA * 0.9, 1.0);
+        }`,
+      transparent: !0,
+      blending: AdditiveBlending,
+      depthWrite: !1
+    }));
+  return drops.position.set(f.x, y, f.z), drops.renderOrder = 2, drops.userData.noOutline = !0, g.add(drops), {
+    group: g,
+    tick(t) {
+      surf.uTime.value = t, spray.uTime.value = t;
+    }
+  };
+}
 
 function buildWaterPlane(i, e) {
   let t = new Group();
@@ -1449,6 +1547,7 @@ function buildCityGround(i, e, t, n) {
   let P = 0;
   return {
     group: s,
+    ground: p,
     water: b,
     rift: T,
     setNight(A) {
@@ -3375,7 +3474,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         skyColor: 12376319,
         groundColor: 4867126,
         shadowRadius: 26
-      }), this.viewMode = "third", this.camPitch = 0, this.interior = null, this._inside = null, this.camMin = 4.2, this.zoneGroup = new Group(), this.scene.add(this.zoneGroup), this.windMaterials = [], this.seasonTint = [], this._season = "summer", this.adapt = sizeRenderer(this.renderer), this.density = {
+      }), this.viewMode = "third", this.camPitch = 0, this.interior = null, this._inside = null, this.camMin = 4.2, this.zoneGroup = new Group(), this.scene.add(this.zoneGroup), this.windMaterials = [], this.groundU = [], this.seasonTint = [], this._season = "summer", this.adapt = sizeRenderer(this.renderer), this.density = {
         low: 0.45,
         medium: 0.75,
         high: 1
@@ -3408,13 +3507,18 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
         ...n.sky,
         sunDir: SUN_DIR
-      }), this.scene.add(this.sky), this.scene.environment && this.scene.environment.dispose?.(), this.scene.environment = QUALITY.tier === "low" ? null : makeEnvironment(this.renderer, this.sky), this.scene.fog = new Fog(n.fog, n.fogNear ?? 62, n.fogFar ?? 168), this.lights.hemi.color.set(n.sky.horizon), this.lights.hemi.groundColor.set(n.groundLight), this.lights.sun.color.set(n.sunLight), this.lights.rim.color.set(n.sky.top), this.palette = n, this.buildTerrain(n), this.buildEdge(n), this.buildDecals(n), this.buildFoliage(n), this.urban ? (this.city = buildCityGround(e, this.props, n, (s, r) => this.heightAt(s, r)), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs()) : (this.buildBuildings(n), this.buildLandmarks(n));
+      }), this.scene.add(this.sky), this.scene.environment && this.scene.environment.dispose?.(), this.scene.environment = QUALITY.tier === "low" ? null : makeEnvironment(this.renderer, this.sky), this.scene.fog = new Fog(n.fog, n.fogNear ?? 62, n.fogFar ?? 168), this.lights.hemi.color.set(n.sky.horizon), this.lights.hemi.groundColor.set(n.groundLight), this.lights.sun.color.set(n.sunLight), this.lights.rim.color.set(n.sky.top), this.palette = n, this.buildTerrain(n), this.buildEdge(n), this.buildDecals(n), this.buildFoliage(n), this.urban ? (this.city = buildCityGround(e, this.props, n, (s, r) => this.heightAt(s, r)), this.city.ground && this.groundU.push(groundDetail(this.city.ground.material, "verdant", {
+        city: {
+          pal: n,
+          plaza: e.landmarks.find(s => s.kind === "plaza")
+        }
+      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs()) : (this.buildBuildings(n), this.buildLandmarks(n));
     }
     buildTerrain(e) {
       if (this.urban) {
@@ -3457,7 +3561,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         metalness: 0,
         envMapIntensity: 0.28
       }));
-      x.receiveShadow = !0, this.zoneGroup.add(x);
+      this.trails?.texture.dispose(), this.trails = buildTrails(this.zone, this.colliders);
+      x.receiveShadow = !0, this.zoneGroup.add(x), this.groundU.push(groundDetail(x.material, this.zone.element, {
+        trail: this.trails,
+        path: e.path,
+        water: e.water ? -1.15 : null
+      }));
       let g = new Mesh(new TorusGeometry(t / 2 + 5, 7, 6, 72), mat(e.groundHigh, {
         roughness: 1,
         env: 0.4
@@ -3501,7 +3610,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         metalness: 0,
         envMapIntensity: 0.45
       }));
-      u.receiveShadow = !0, this.zoneGroup.add(u), this.water = null;
+      u.receiveShadow = !0, this.zoneGroup.add(u), this.water = null, this.groundU.push(groundDetail(u.material, "verdant"));
     }
     buildEdge(e) {
       let t = this.zone.size / 2,
@@ -3736,10 +3845,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           h = new InstancedMesh(l, mat(e.bark, {
             roughness: 0.95
           }), t.length),
-          d = new InstancedMesh(c, mat(e.leaf, {
+          d = new InstancedMesh(shadeFoliage(c), withVertexColors(mat(e.leaf, {
             roughness: 0.88,
             env: 0.6
-          }), t.length);
+          })), t.length);
         h.castShadow = !0, d.castShadow = !0, t.forEach((u, f) => {
           n.position.set(u.x, this.heightAt(u.x, u.z), u.z), n.rotation.set(0, u.rot, 0), n.scale.setScalar(0.85 + u.s * 0.35), n.updateMatrix(), h.setMatrixAt(f, n.matrix), d.setMatrixAt(f, n.matrix);
         }), this.zoneGroup.add(h, d), this.watchCanopy(d, t, 1.9, 5.6),
@@ -3829,7 +3938,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             p = this.heightAt(h.x, h.z),
             lo = p + a.top * 0.42,
             hi = p + a.top + 1.2,
-            x = u && (f > lo && f < hi || ff > lo && ff < hi),
+            // And the one right in front of the lens, off to the side of the
+            // sightline: from a high camera it is not in the way of the
+            // player, but it is a green wall across the bottom third of the
+            // screen — which is what the street tree by the fountain was.
+            hx = h.x - e.x,
+            hz = h.z - e.z,
+            close = hx * n + hz * s > 0 && hx * hx + hz * hz < (a.radius + 2.4) ** 2 && e.y < hi + 4,
+            x = close || u && (f > lo && f < hi || ff > lo && ff < hi),
             g = a.hidden.has(c);
           if (x === g) continue;
           let m = c * 16;
@@ -3849,7 +3965,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     }
     buildFoliage(e) {
       if (this.urban) {
-        this.buildStreetTrees(e);
+        // The town's lawns get the meadow's grass and beds of flowers too.
+        this.buildStreetTrees(e), this.buildMeadow(e), this.applySeason();
         return;
       }
       let t = this.props,
@@ -3861,14 +3978,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         l = new Object3D(),
         c = new CylinderGeometry(0.16, 0.3, 2.6, 7);
       c.translate(0, 1.3, 0);
-      let h = P(e.flora),
+      let h = shadeFoliage(P(e.flora)),
         d = mat(e.bark, {
           roughness: 0.92
         }),
-        u = mat(e.leaf, {
+        u = withVertexColors(mat(e.leaf, {
           roughness: 0.85,
           env: 0.7
-        }),
+        })),
         f = new InstancedMesh(c, d, s.length),
         p = new InstancedMesh(h, u, s.length);
       f.castShadow = !0, f.receiveShadow = !0, p.castShadow = !0, s.forEach((A, k) => {
@@ -3882,11 +3999,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           let A = new DodecahedronGeometry(1, 1);
           return offsetGeometry(A, 0.16), A;
         })(),
-        m = mat(e.rock, {
+        m = withVertexColors(mat(e.rock, {
           roughness: 0.9,
           flat: !0
-        }),
-        v = new InstancedMesh(g, m, Math.max(1, r.length));
+        })),
+        v = new InstancedMesh(shadeRock(g, m.color, ROCK_CAP[this.zone.element]), m, Math.max(1, r.length));
       v.castShadow = !0, v.receiveShadow = !0;
       let E = x === "shard" ? new InstancedMesh(new OctahedronGeometry(0.2, 0), glowMat(11457791, 0.75), Math.max(1, r.length)) : null;
       r.forEach((A, k) => {
@@ -3894,11 +4011,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           O = x === "strata" || x === "shard";
         l.position.set(A.x, L + (O ? 0 : A.s * 0.35), A.z), l.rotation.set(O ? A.tiltX * 0.25 : A.tiltX, A.rot, O ? A.tiltZ * 0.25 : A.tiltZ), O ? l.scale.set(A.s, A.s * (1.5 + A.tiltX), A.s) : l.scale.set(A.s, A.s * 0.75, A.s * 0.9), l.updateMatrix(), v.setMatrixAt(k, l.matrix), E && (l.position.y = L + A.s * (1.5 + A.tiltX) * 2.55, l.scale.setScalar(A.s * 0.9), l.updateMatrix(), E.setMatrixAt(k, l.matrix));
       }), this.zoneGroup.add(v), E && (E.userData.noOutline = !0, this.zoneGroup.add(E));
-      let _ = blobGeo(0.6, 0.42, 0.6, 2.3, 12),
+      let _ = shadeFoliage(blobGeo(0.6, 0.42, 0.6, 2.3, 12), 0.66, 1.14),
         S = this.windMaterial(mat(mixHex(e.leaf, 662032, 0.25), {
           roughness: 0.9
         }), 0.06),
         b = new InstancedMesh(_, S, Math.max(1, o.length));
+      S.vertexColors = !0;
       b.castShadow = !0, o.forEach((A, k) => {
         let L = heightAt(this.zone.id, A.x, A.z);
         l.position.set(A.x, L + 0.22 * A.s, A.z), l.rotation.set(0, A.rot, 0), l.scale.setScalar(A.s), l.updateMatrix(), b.setMatrixAt(k, l.matrix);
@@ -3986,9 +4104,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let z = this.zone,
         M = MEADOW[z.element] || MEADOW.verdant,
         seed = hash(z.id),
+        city = this.urban,
+        plaza = city && z.landmarks.find(k => k.kind === "plaza"),
         // Out to the trees at the rim: the camera sees past where you can walk.
-        lim = z.size / 2 - 3.5,
-        tone = this._tone,
+        // In town, out to where the houses stop.
+        lim = city ? SIDEWALK - 3 : z.size / 2 - 3.5,
+        H = (x, y) => city ? this.heightAt(x, y) : heightAt(z.id, x, y),
+        yardCol = new Color(e.yard ?? e.grass),
+        tone = city ? (x, y, out) => out.copy(yardCol).multiplyScalar(0.94 + fbm(x * 0.3, y * 0.3, seed + 3, 1) * 0.24) : this._tone,
+        // The lawns inside each block: clear of the pavement, the plaza and
+        // the harbour.
+        yard = (x, y, pad) => y > EDGE_Y + 4 && Math.min(gridOffset(x), gridOffset(y)) > LAMP_SPACING + 0.35 + pad && !(plaza && Math.hypot(x - plaza.x, y - plaza.z) < plaza.r + 2.5),
         col = new Color(),
         ss = (a, b, x) => {
           let k = MathUtils.clamp((x - a) / (b - a), 0, 1);
@@ -4039,8 +4165,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           }
           return !1;
         },
-        open = (x, y, pad, sand) => x * x + y * y < lim * lim && sandy(x, y) <= sand && !blocked(x, y, pad),
-        wet = y => !!e.water && y < -0.85,
+        open = (x, y, pad, sand) => x * x + y * y < lim * lim && (city ? yard(x, y, pad) : sandy(x, y) <= sand && !(this.trails?.at(x, y) > 0.3)) && !blocked(x, y, pad),
+        wet = y => !city && !!e.water && y < -0.85,
         o = new Object3D();
 
       // Grass: one tuft per cell of a jittered grid, kept or not by how lush
@@ -4054,8 +4180,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           let x = gx + R() * step,
             y = gz + R() * step,
             lush = lushAt(x, y);
-          if (R() > 0.14 + 0.86 * lush || !open(x, y, 0.25, 0.22)) continue;
-          let h = heightAt(z.id, x, y);
+          if (R() > (city ? 0.55 : 0.14) + 0.86 * lush || !open(x, y, 0.25, 0.22)) continue;
+          let h = H(x, y);
           wet(h) || tufts.push({ x, z: y, y: h, lush, rot: R() * Math.PI * 2, s: 0.6 + lush * 0.35 + R() * 0.25, tall: 0.8 + R() * 0.3, k: 0.93 + R() * 0.12 });
         }
       if (tufts.length) {
@@ -4090,16 +4216,18 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           beds.push({ x: k.x + Math.cos(a) * d, z: k.z + Math.sin(a) * d, r: 1.4 + F() * 1.2 });
         }
       }
-      let want = beds.length + Math.round(z.size * z.size / 260 * M.flowers);
+      let want = beds.length + Math.round(z.size * z.size / 260 * M.flowers * (city ? 0.8 : 1));
       for (let tries = 0; beds.length < want && tries < want * 10; tries++) {
         let x = (F() * 2 - 1) * lim,
           y = (F() * 2 - 1) * lim;
-        F() < 0.25 + 0.75 * lushAt(x, y) && x * x + y * y < lim * lim && beds.push({ x, z: y, r: 1 + F() * 1.4 });
+        // In town a bed is planted, not seeded: only where there is a lawn to
+        // dig it in, and edged a little way in from the pavement.
+        (city ? open(x, y, 0.6) : F() < 0.25 + 0.75 * lushAt(x, y)) && x * x + y * y < lim * lim && beds.push({ x, z: y, r: 1 + F() * 1.4 });
       }
       let flowers = [],
         bloom = (x, y, c) => {
           if (!open(x, y, 0.35, 0.08)) return;
-          let h = heightAt(z.id, x, y);
+          let h = H(x, y);
           wet(h - 0.05) || flowers.push({ x, z: y, y: h, c, s: 0.15 + F() * 0.06, rot: F() * Math.PI * 2, tx: (F() - 0.5) * 0.6, tz: (F() - 0.5) * 0.6 });
         };
       for (let b of beds) {
@@ -4600,7 +4728,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           r.position.set(n.x, s + 6.4, n.z), t.add(r), this.plazaLight = r;
         }
       }
-      this.zoneGroup.add(t);
+      let f = this.props.props?.find(p => p.kind === "fountain");
+      f && (this.fountain = buildFountainWater(f, this.heightAt(f.x, f.z), e), t.add(this.fountain.group)), this.zoneGroup.add(t);
     }
     buildNpcs() {
       let e = new Group();
@@ -4693,16 +4822,36 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let e = this._overlay;
       if (e) {
         this._plates = this._plates || new Map();
+        let shown = [];
         for (let t of this.npcs.values()) {
           let n = this._plates.get(t.id);
           n || (n = document.createElement("div"), n.className = "nameplate npc", n.style.borderColor = "rgba(47, 230, 208, 0.42)", this._plates.set(t.id, n)), n.isConnected || e.appendChild(n);
           // ! has something for you, ? is waiting for what you owe it, … is
           // the errand you are on. The mark is how a town tells you where to go.
           let mk = this.npcMarks?.[t.id] || "";
-          n._mk !== mk && (n._mk = mk, n.innerHTML = `${mk ? `<span class="mark m${mk === "!" ? "new" : mk === "?" ? "ready" : "busy"}">${mk}</span>` : ""}${(t.def.he || t.def.name || "").replace(/[<>&]/g, "")}`);
-          let s = this.npcScreenPos(t.id),
-            r = t.holder.visible && s.visible && s.dist < 42;
-          n.style.display = r ? "block" : "none", r && (n.style.left = `${s.x}px`, n.style.top = `${s.y}px`, n.style.opacity = String(Math.max(0.35, 1 - s.dist / 46)));
+          n._mk !== mk && (n._mk = mk, n._w = 0, n.innerHTML = `${mk ? `<span class="mark m${mk === "!" ? "new" : mk === "?" ? "ready" : "busy"}">${mk}</span>` : ""}${(t.def.he || t.def.name || "").replace(/[<>&]/g, "")}`);
+          let s = this.npcScreenPos(t.id);
+          t.holder.visible && s.visible && s.dist < 42 ? shown.push({ n, s, mk }) : n.style.display = "none";
+        }
+        // Nearest first, and a label that would land on one already placed is
+        // lifted clear of it — a crowd at the market was one unreadable
+        // stack. One that still cannot fit is left out, unless it carries a
+        // mark: those are how the town tells you where to go.
+        shown.sort((a, b) => a.s.dist - b.s.dist);
+        let placed = [],
+          H = 24,
+          hit = (x, y, w) => placed.find(p => Math.abs(p.x - x) < (p.w + w) / 2 + 4 && Math.abs(p.y - y) < H);
+        for (let { n, s, mk } of shown) {
+          n.style.display = "block";
+          let w = n._w || (n._w = n.offsetWidth || 90),
+            x = s.x,
+            y = s.y;
+          for (let k = 0, p; k < 3 && (p = hit(x, y, w)); k++) y = p.y - H - 2;
+          if (hit(x, y, w) && !mk) {
+            n.style.display = "none";
+            continue;
+          }
+          placed.push({ x, y, w }), n.style.left = `${x}px`, n.style.top = `${y}px`, n.style.opacity = String(Math.max(0.35, 1 - s.dist / 46));
         }
       }
     }
@@ -5042,6 +5191,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     update(e, t) {
       this.time += e, this.adapt(e);
       for (let n of this.windMaterials) n.userData.shader && (n.userData.shader.uniforms.uTime.value = this.time);
+      for (let n of this.groundU) n.uGTime.value = this.time, n.uNight.value = this.night || 0;
+      this.fountain?.tick(this.time);
       if (this.water && (this.water.position.y = -1.15 + Math.sin(this.time * 0.7) * 0.05), this._inside) {
         let n = this._inside;
         n.room.tick(this.time);
@@ -5662,8 +5813,19 @@ function rotateLocal(i, e) {
 }
 
 function offsetGeometry(i, e) {
-  let t = i.attributes.position;
-  for (let n = 0; n < t.count; n++) t.setXYZ(n, t.getX(n) * (1 + (Math.random() - 0.5) * e), t.getY(n) * (1 + (Math.random() - 0.5) * e), t.getZ(n) * (1 + (Math.random() - 0.5) * e));
+  // One offset per corner, not per copy of it: the polyhedra here are not
+  // indexed, so each face has its own copy of a shared corner, and moving the
+  // copies apart opened a crack along every edge of every rock.
+  let t = i.attributes.position,
+    at = new Map();
+  for (let n = 0; n < t.count; n++) {
+    let x = t.getX(n),
+      y = t.getY(n),
+      z = t.getZ(n),
+      k = `${x.toFixed(4)},${y.toFixed(4)},${z.toFixed(4)}`,
+      o = at.get(k);
+    o || at.set(k, o = [1 + (Math.random() - 0.5) * e, 1 + (Math.random() - 0.5) * e, 1 + (Math.random() - 0.5) * e]), t.setXYZ(n, x * o[0], y * o[1], z * o[2]);
+  }
   i.computeVertexNormals();
 }
 
@@ -5774,6 +5936,66 @@ function thinMaterial(o) {
   }, m.customProgramCacheKey = () => "thin", m;
 }
 
+/** Paint a canopy's own light into it: cool and dark underneath, warm where
+ *  the sun reaches the top. A cel ramp alone gives a tree two flat greens; the
+ *  gradient under it is what makes a crown read as a ball of leaves. The
+ *  colours multiply the leaf colour, so the seasons still tint it. */
+function shadeFoliage(g, lo = 0.6, hi = 1.16) {
+  g.computeBoundingBox();
+  let b = g.boundingBox,
+    p = g.attributes.position,
+    n = g.attributes.normal,
+    c = new Float32Array(p.count * 3),
+    y0 = b.min.y,
+    dy = Math.max(1e-3, b.max.y - y0);
+  for (let i = 0; i < p.count; i++) {
+    let t = MathUtils.clamp((p.getY(i) - y0) / dy * 0.72 + (n ? n.getY(i) : 0) * 0.28 + 0.08, 0, 1),
+      v = lo + (hi - lo) * t,
+      j = 1 + fbm(p.getX(i) * 1.6, p.getZ(i) * 1.6 + p.getY(i), 77, 1) * 0.1;
+    c[i * 3] = v * j * (0.9 + 0.14 * t), c[i * 3 + 1] = v * j, c[i * 3 + 2] = v * j * (1.1 - 0.2 * t);
+  }
+  return g.setAttribute("color", new BufferAttribute(c, 3)), g;
+}
+
+/** The same for stone: darker at the foot, lighter on top, and a cap of moss,
+ *  lichen or snow on the faces that look at the sky. `base` is the colour the
+ *  material draws the rock in, which the cap has to be divided by. */
+function shadeRock(g, base, cap) {
+  // Face by face: a facet is mossy or it is not. Blending per vertex left
+  // every facet on the cap's edge half green, and the rock read as a net.
+  g.index && (g = g.toNonIndexed()), g.computeBoundingBox();
+  let b = g.boundingBox,
+    p = g.attributes.position,
+    c = new Float32Array(p.count * 3),
+    y0 = b.min.y,
+    dy = Math.max(1e-3, b.max.y - y0),
+    k = cap == null ? null : new Color(cap),
+    A = new Vector3(),
+    B = new Vector3(),
+    C = new Vector3();
+  for (let i = 0; i + 2 < p.count; i += 3) {
+    A.fromBufferAttribute(p, i), B.fromBufferAttribute(p, i + 1), C.fromBufferAttribute(p, i + 2);
+    let ft = ((A.y + B.y + C.y) / 3 - y0) / dy,
+      up = B.sub(A).cross(C.sub(A)).normalize().y,
+      m = k && up > 0.72 && ft > 0.42 ? 1 : 0;
+    for (let j = i; j < i + 3; j++) {
+      let v = 0.66 + 0.46 * MathUtils.clamp((p.getY(j) - y0) / dy * 0.75 + up * 0.25, 0, 1),
+        f = ch => m ? v * 0.25 + 0.8 * k[ch] / Math.max(0.02, base[ch]) : v;
+      c[j * 3] = f("r"), c[j * 3 + 1] = f("g"), c[j * 3 + 2] = f("b");
+    }
+  }
+  return g.setAttribute("color", new BufferAttribute(c, 3)), g;
+}
+
+/** A private copy of a shared (cached) material that draws vertex colours. */
+function withVertexColors(m) {
+  let c = m.clone();
+  return c.vertexColors = !0, c.userData = { ...c.userData, shared: !1 }, c;
+}
+
+// What grows on a rock's top in each place.
+var ROCK_CAP = { verdant: 0x74B34C, aqua: 0x56AE92, umbra: 0x8C7BD0, frost: 0xF6FBFF, volt: 0x86A874, terra: null, ember: null };
+
 /** Point every normal straight up — see `upGeometry`. */
 function upNormals(g) {
   let n = g.attributes.normal;
@@ -5871,6 +6093,297 @@ function groundTone(zone, pal, step) {
       k = MathUtils.clamp((y + 2.2) / 4.4, 0, 1);
     return out.copy(lo).lerp(hi, MathUtils.clamp(k * k * (3 - 2 * k) * 0.72 + slope * 0.34 + fbm(x * 0.045, z * 0.045, seed + 31, 2) * 0.5 + fbm(x * 0.42, z * 0.42, seed + 57, 2) * 0.14, 0, 1));
   };
+}
+
+// What the ground shader paints between the terrain's vertices, element by
+// element. The vertices are two metres apart and carry the shape of the land —
+// height, slope, the sand round a camp — so on its own a zone was one colour to
+// the horizon. `a` and `b` are two kinds of ground cover laid over it in
+// patches (moss and dry grass; basalt and ash; ice and fresh snow), `s1`/`s2`
+// the specks scattered through it (daisies, pebbles, cinders, glowing spores),
+// `sp` how many, and `accent` the one thing each place has that no other does.
+var GROUND = {
+  verdant: { a: 0x478F37, b: 0xC6DD74, amt: 0.55, s1: 0xFFFFF2, s2: 0xFFE25A, sp: 0.2, accent: 0 },
+  aqua: { a: 0x2A7A70, b: 0xE6D9A6, amt: 0.5, s1: 0xFFF3E4, s2: 0xFFB4C6, sp: 0.12, accent: 6 },
+  umbra: { a: 0x2E2454, b: 0x9580D0, amt: 0.55, s1: 0x7FE8FF, s2: 0xFF7AD9, sp: 0.16, accent: 3 },
+  volt: { a: 0x505B69, b: 0x8DAE78, amt: 0.55, s1: 0xD6F4FF, s2: 0x9DB0BC, sp: 0.14, accent: 4, glow: 0x8FE3FF },
+  frost: { a: 0x98BEE6, b: 0xFFFFFF, amt: 0.5, s1: 0x8A94A8, s2: 0xE8F4FF, sp: 0.08, accent: 2, glow: 0xFFFFFF },
+  terra: { a: 0xAA6A44, b: 0xF6E0B2, amt: 0.55, s1: 0x86664E, s2: 0xFFF3DC, sp: 0.16, accent: 5 },
+  ember: { a: 0x4A302B, b: 0xF2B474, amt: 0.62, s1: 0x3A2622, s2: 0xFFC46A, sp: 0.16, accent: 1, glow: 0xFF6A1F }
+};
+
+var GROUND_GLSL = `
+  uniform vec3 uGA, uGB, uS1, uS2, uGlow, uPath;
+  uniform float uGAmt, uSp, uNight, uGTime, uTrailSize, uWaterY;
+  #ifdef GROUND_TRAIL
+    uniform sampler2D uTrail;
+  #endif
+  varying vec3 vGW, vGN;
+  float gH(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+  float gN(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(gH(i), gH(i + vec2(1.0, 0.0)), f.x), mix(gH(i + vec2(0.0, 1.0)), gH(i + vec2(1.0, 1.0)), f.x), f.y);
+  }
+  // 1 on the stone, 0 in the joint, antialiased by the screen: a joint
+  // narrower than a pixel fades out instead of crawling.
+  float gJoint(float e, float w) { float a = fwidth(e) + 1e-4; return smoothstep(w - a, w + a, e); }
+  #ifdef GROUND_CITY
+    uniform vec3 uFlag, uFlag2, uFlagDark, uGrout, uPave, uPave2, uAsph, uAsph2, uYard, uDirt, uPlaza;
+    float gIs(vec3 c, vec3 k) { return step(distance(c, k), 0.004); }
+  #endif
+`;
+
+// The ordinary ground: patches, mottling, grain and specks, then the accent.
+var GROUND_WILD = `
+  {
+    float pa = smoothstep(0.42, 0.66, gN(w * 0.07) * 0.62 + gN(w * 0.21 + 5.0) * 0.38);
+    float pb = smoothstep(0.48, 0.72, gN(w * 0.05 + 31.0) * 0.6 + gN(w * 0.27 + 17.0) * 0.4);
+    c = mix(c, uGA, pa * uGAmt);
+    c = mix(c, uGB, pb * uGAmt * 0.85);
+    c *= 0.9 + 0.2 * gN(w * 0.8 + 3.0);
+    c *= 1.0 + (gN(w * 5.5) - 0.5) * 0.14 * near;
+    float onT = 0.0;
+    #ifdef GROUND_TRAIL
+      // the worn path out to the portals: bare earth with a ragged edge and
+      // a darker lip where the grass starts again
+      float tr = texture(uTrail, w / uTrailSize + 0.5).r + (gN(w * 1.3 + 7.0) - 0.5) * 0.34;
+      onT = smoothstep(0.46, 0.56, tr);
+      c *= 1.0 - 0.12 * (smoothstep(0.3, 0.46, tr) - onT);
+      c = mix(c, uPath * (0.86 + 0.22 * gN(w * 2.2 + 1.0)), onT * 0.92);
+    #endif
+    #ifdef GROUND_WATER
+      // Wet sand and a line of foam where the water laps. Measured across the
+      // ground, not up it: on a flat beach a few centimetres of height is
+      // metres of sand, and a band set in height painted whole flats white.
+      float slope = sqrt(max(0.0, 1.0 - vGN.y * vGN.y)) / max(0.08, vGN.y);
+      float dyw = (vGW.y - (uWaterY + 0.05 * sin(uGTime * 0.7))) / max(0.02, slope);
+      float lap = 0.12 * sin(uGTime * 1.3 + w.x * 0.35 + w.y * 0.2);
+      float foam = (1.0 - gJoint(abs(dyw - 0.18 - lap), 0.12)) * step(-0.5, dyw);
+      c *= 1.0 - 0.28 * (1.0 - smoothstep(0.0, 1.6, dyw));
+      c = mix(c, vec3(0.93, 0.97, 1.0), foam * 0.75);
+    #endif
+    vec2 cell = floor(w * 0.9);
+    float h1 = gH(cell), h2 = gH(cell + 19.1), h3 = gH(cell + 7.7), h4 = gH(cell + 3.3);
+    vec2 ctr = (cell + 0.25 + vec2(h1, h2) * 0.5) / 0.9;
+    float rad = 0.05 + h3 * 0.06;
+    float sp = step(h4, uSp) * (1.0 - gJoint(length(w - ctr), rad)) * near * (1.0 - onT * 0.7);
+    vec3 sc = mix(uS1, uS2, step(0.5, h2));
+    c = mix(c, sc * (0.9 + 0.2 * h1), sp);
+    #if GROUND_ACCENT == 1
+      // lava in the cracks of the basalt: dark by day, glowing after dusk
+      float cn = gN(w * 0.34 + 9.0) * 0.72 + gN(w * 1.2) * 0.28;
+      float line = (1.0 - gJoint(abs(cn - 0.5), 0.009)) * smoothstep(0.55, 0.9, pa) * (1.0 - onT);
+      c = mix(c, vec3(0.05, 0.03, 0.03), line * 0.9);
+      gGlow += uGlow * line * (0.28 + 1.9 * uNight) * (0.8 + 0.2 * sin(uGTime * 1.7 + w.x * 0.6 + w.y * 0.4));
+      gGlow += uS2 * sp * step(0.5, h2) * (0.3 + 0.9 * uNight);
+    #elif GROUND_ACCENT == 2
+      // snow that catches the sun in points as you walk
+      vec2 gc = floor(w * 2.6);
+      float gh = gH(gc + 41.0);
+      vec2 gp = (gc + 0.5 + (vec2(gH(gc + 3.0), gH(gc + 8.0)) - 0.5) * 0.7) / 2.6;
+      float tw = pow(max(0.0, sin(uGTime * 2.2 + gh * 60.0 + (w.x + w.y) * 0.3)), 10.0);
+      gGlow += uGlow * step(0.86, gh) * (1.0 - gJoint(length(w - gp), 0.03)) * tw * near * 1.6;
+    #elif GROUND_ACCENT == 3
+      // spores that light the grove after dark
+      gGlow += sc * sp * (0.3 + 1.4 * uNight) * (0.7 + 0.3 * sin(uGTime * 1.3 + h1 * 6.283));
+    #elif GROUND_ACCENT == 4
+      // quartz in the slate, charged
+      gGlow += uGlow * sp * step(0.5, h2) * (0.35 + 1.0 * uNight) * (0.75 + 0.25 * sin(uGTime * 3.1 + h3 * 6.283));
+    #elif GROUND_ACCENT == 5
+      // the wind's ripples in the sand
+      float rp = sin(dot(w, vec2(0.8, 0.6)) * 6.5 + gN(w * 0.3) * 9.0);
+      c *= 1.0 + rp * 0.06 * near * (1.0 - pa);
+    #elif GROUND_ACCENT == 6
+      // wet sand shines darker where the tide has just been
+      float wet = smoothstep(0.55, 0.8, gN(w * 0.12 + 50.0));
+      c *= 1.0 - wet * 0.12 * pb;
+    #endif
+  }
+`;
+
+// The town's ground: the quads were laid in the palette's colours, so each
+// fragment can tell from its colour whether it is plaza, pavement, road or
+// lawn, and draw the stones that surface is made of. Every surface is worked
+// out and one is chosen, rather than branching: the joints are antialiased
+// with screen derivatives, and a derivative taken inside a branch that the
+// pixel next door did not take is undefined — sparkles along every kerb.
+var GROUND_CITY = `
+  {
+    vec3 vc = vColor.rgb, c0 = c;
+    float plaza = gIs(vc, uFlag) + gIs(vc, uFlag2) + gIs(vc, uFlagDark);
+    float pave = gIs(vc, uPave) + gIs(vc, uPave2);
+    float road = gIs(vc, uAsph) + gIs(vc, uAsph2);
+    vec3 yd = uDirt - uYard;
+    float yt = clamp(dot(vc - uYard, yd) / max(1e-5, dot(yd, yd)), 0.0, 1.0);
+    float lawn = step(distance(vc, uYard + yd * yt), 0.004);
+    // Rings of setts round the fountain, each ring turned a little
+    vec2 q = w - uPlaza.xy;
+    float r = length(q), RW = 0.58;
+    float ri = floor(r / RW), fr = fract(r / RW);
+    float circ = 6.2831853 * (ri + 0.5) * RW;
+    float ns = max(6.0, floor(circ / 0.74));
+    float an = fract(atan(q.y, q.x) / 6.2831853 + gH(vec2(ri, 1.0)));
+    float si = floor(an * ns), fs = fract(an * ns);
+    float e1 = min(min(fr, 1.0 - fr) * RW, min(fs, 1.0 - fs) * circ / ns);
+    vec3 st1 = mix(uFlag, uFlag2, gH(vec2(ri, si) + 3.0));
+    st1 = mix(st1, uFlagDark, step(0.9, gH(vec2(si, ri) + 11.0)) * 0.7);
+    st1 *= 0.9 + 0.14 * smoothstep(0.0, 0.16, e1);
+    vec3 cPlaza = mix(uGrout, st1, gJoint(e1, 0.028)) * (1.0 + (gN(w * 7.0) - 0.5) * 0.08 * near);
+    // Square slabs along the streets
+    vec2 t2 = w / 0.82, id2 = floor(t2), f2 = fract(t2);
+    float e2 = min(min(f2.x, 1.0 - f2.x), min(f2.y, 1.0 - f2.y)) * 0.82;
+    vec3 st2 = c0 * (0.94 + 0.1 * gH(id2 + 5.0)) * (0.93 + 0.09 * smoothstep(0.0, 0.1, e2));
+    vec3 cPave = mix(st2 * 0.8, st2, gJoint(e2, 0.022));
+    // Grit in the asphalt
+    vec3 cRoad = c0 * (0.94 + 0.12 * gN(w * 0.5 + 2.0)) * (1.0 + (gH(floor(w * 16.0)) - 0.5) * 0.12 * near);
+    // And the lawns, like any meadow
+    ${GROUND_WILD}
+    vec3 cLawn = c;
+    c = plaza > 0.5 ? cPlaza : pave > 0.5 ? cPave : road > 0.5 ? cRoad : lawn > 0.5 ? cLawn : c0;
+  }
+`;
+
+/** Worn paths from the camp out to each portal and the dungeon's mouth, as a
+ *  mask over the zone: the ground shader paints it as bare earth, and the
+ *  meadow keeps its grass off it. A path bends whichever way crosses the
+ *  fewest trees and rocks, and wanders a little on the way. Seeded by the
+ *  zone, so everyone walks the same paths. */
+function buildTrails(zone, colliders) {
+  let camp = zone.landmarks.find(l => l.kind === "camp");
+  if (!camp) return null;
+  let size = zone.size,
+    N = 256,
+    px = size / N,
+    data = new Uint8Array(N * N),
+    seed = hash(zone.id) + 4242,
+    solid = colliders.filter(c => c.kind !== "edge"),
+    cr = camp.r || 8,
+    stamp = (x0, z0, x1, z1) => {
+      let OUT = 2.3,
+        IN = 0.35,
+        vx = x1 - x0,
+        vz = z1 - z0,
+        ll = vx * vx + vz * vz || 1e-6,
+        i0 = Math.max(0, Math.floor((Math.min(x0, x1) - OUT) / px + N / 2)),
+        i1 = Math.min(N - 1, Math.ceil((Math.max(x0, x1) + OUT) / px + N / 2)),
+        j0 = Math.max(0, Math.floor((Math.min(z0, z1) - OUT) / px + N / 2)),
+        j1 = Math.min(N - 1, Math.ceil((Math.max(z0, z1) + OUT) / px + N / 2));
+      for (let j = j0; j <= j1; j++)
+        for (let i = i0; i <= i1; i++) {
+          let x = (i + 0.5 - N / 2) * px,
+            z = (j + 0.5 - N / 2) * px,
+            t = MathUtils.clamp(((x - x0) * vx + (z - z0) * vz) / ll, 0, 1),
+            d = Math.hypot(x - x0 - vx * t, z - z0 - vz * t);
+          if (d >= OUT) continue;
+          let k = MathUtils.clamp((OUT - d) / (OUT - IN), 0, 1),
+            v = Math.round(k * k * (3 - 2 * k) * 255);
+          v > data[j * N + i] && (data[j * N + i] = v);
+        }
+    };
+  for (let t of zone.landmarks) {
+    if (t === camp || t.kind !== "portal" && t.kind !== "dungeon") continue;
+    let dx = t.x - camp.x,
+      dz = t.z - camp.z,
+      len = Math.hypot(dx, dz);
+    if (len < cr + 6) continue;
+    let ux = dx / len,
+      uz = dz / len,
+      ax = camp.x + ux * cr * 0.8,
+      az = camp.z + uz * cr * 0.8,
+      bx = t.x - ux * (t.r || 2.6),
+      bz = t.z - uz * (t.r || 2.6),
+      curve = k => {
+        let pts = [],
+          cx = (ax + bx) / 2 - uz * len * k,
+          cz = (az + bz) / 2 + ux * len * k;
+        for (let i = 0; i <= 32; i++) {
+          let s = i / 32,
+            q = 1 - s,
+            wob = fbm(s * 3.1 + t.x * 0.05, t.z * 0.05, seed, 2) * 3.2 * Math.sin(s * Math.PI);
+          pts.push([q * q * ax + 2 * q * s * cx + s * s * bx - uz * wob, q * q * az + 2 * q * s * cz + s * s * bz + ux * wob]);
+        }
+        return pts;
+      },
+      cost = pts => {
+        let n = 0;
+        for (let c of solid) {
+          let r = (c.r ?? Math.hypot(c.hw || 0, c.hd || 0)) + 1.4;
+          pts.some(p => (p[0] - c.x) ** 2 + (p[1] - c.z) ** 2 < r * r) && n++;
+        }
+        return n;
+      },
+      best = null,
+      bc = 1 / 0;
+    for (let k of [0, 0.14, -0.14, 0.26, -0.26, 0.38, -0.38]) {
+      let pts = curve(k),
+        cc = cost(pts) + Math.abs(k) * 3;
+      cc < bc && (bc = cc, best = pts);
+    }
+    for (let i = 0; i < best.length - 1; i++) stamp(best[i][0], best[i][1], best[i + 1][0], best[i + 1][1]);
+  }
+  let texture = new DataTexture(data, N, N, RedFormat, UnsignedByteType);
+  return texture.magFilter = texture.minFilter = LinearFilter, texture.needsUpdate = !0, {
+    size,
+    texture,
+    at(x, z) {
+      let i = Math.floor(x / px + N / 2),
+        j = Math.floor(z / px + N / 2);
+      return i < 0 || j < 0 || i >= N || j >= N ? 0 : data[j * N + i] / 255;
+    }
+  };
+}
+
+/** Give a ground material its detail (see GROUND). Returns the uniforms the
+ *  frame updates — time for what flickers, night for what glows. Options:
+ *  `city` (the palette and the plaza, for the town's paving), `trail` (a
+ *  mask from buildTrails) with the `path` colour to paint it, and `water`,
+ *  the level a shore gets its foam at. */
+function groundDetail(m, kind, o = {}) {
+  let g = GROUND[kind] || GROUND.verdant,
+    { city, trail, water } = o,
+    u = {
+      uGA: { value: new Color(g.a) },
+      uGB: { value: new Color(g.b) },
+      uGAmt: { value: g.amt },
+      uS1: { value: new Color(g.s1) },
+      uS2: { value: new Color(g.s2) },
+      uSp: { value: g.sp },
+      uGlow: { value: new Color(g.glow ?? 0) },
+      uPath: { value: new Color(o.path ?? 0xE6CE96) },
+      uTrailSize: { value: trail?.size ?? 1 },
+      uWaterY: { value: water ?? -99 },
+      uNight: { value: 0 },
+      uGTime: { value: 0 }
+    };
+  trail && (u.uTrail = { value: trail.texture });
+  if (city) {
+    let { pal: p, plaza: z } = city;
+    for (let [k, v] of [["uFlag", p.flag], ["uFlag2", p.flag2], ["uFlagDark", p.flagDark], ["uGrout", mixHex(p.flagDark, p.joint, 0.5)], ["uPave", p.pave], ["uPave2", p.pave2], ["uAsph", p.asphalt], ["uAsph2", p.asphalt2], ["uYard", p.yard], ["uDirt", p.dirt]]) u[k] = { value: new Color(v) };
+    u.uPlaza = { value: new Vector3(z?.x ?? 0, z?.z ?? 0, z?.r ?? 0) };
+  }
+  let flags = (city ? "#define GROUND_CITY 1\n" : "") + (trail ? "#define GROUND_TRAIL 1\n" : "") + (water != null ? "#define GROUND_WATER 1\n" : ""),
+    key = `ground|${g.accent | 0}|${city ? 1 : 0}|${trail ? 1 : 0}|${water != null ? 1 : 0}`,
+    body = city ? GROUND_CITY : GROUND_WILD;
+  return m.onBeforeCompile = s => {
+    Object.assign(s.uniforms, u);
+    s.vertexShader = s.vertexShader.replace("#include <common>", `#include <common>
+      varying vec3 vGW, vGN;`).replace("#include <begin_vertex>", `#include <begin_vertex>
+      vGW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      vGN = normalize(mat3(modelMatrix) * objectNormal);`);
+    s.fragmentShader = `#define GROUND_ACCENT ${g.accent | 0}
+${flags}` + s.fragmentShader.replace("#include <common>", `#include <common>
+      ${GROUND_GLSL}`).replace("#include <color_fragment>", `#include <color_fragment>
+      vec3 gGlow = vec3(0.0);
+      {
+        vec2 w = vGW.xz;
+        float near = 1.0 - smoothstep(16.0, 44.0, length(vGW - cameraPosition));
+        vec3 c = diffuseColor.rgb;
+        ${body}
+        diffuseColor.rgb = c;
+      }`).replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+      totalEmissiveRadiance += gGlow;`);
+  }, m.customProgramCacheKey = () => key, m.needsUpdate = !0, u;
 }
 
 function mergePlain(i) {
@@ -6001,4 +6514,4 @@ function disposeTree(i) {
   });
 }
 
-export { MEADOW, FLOWER_H, flowerBase, flowerHead, meadowTuft, thinMaterial, $_, A_, B_, C_, DOOR_W, INTERIORS, SEASON_LOOK, WEATHER_LOOK, O_, PartBuilder, R_, SUN_DIR, SUN_STRENGTH, U_, V_, WALL_H, W_, WorldView, X_, boxHit, buildAmbientMotes, buildBuildingBlock, buildBush, buildCityGround, buildDust, buildEdgeWall, buildFogWall, buildGroundMesh, buildInterior, buildLamp, buildNpcBody, buildReed, buildRimRange, buildRockProp, buildRug, buildTerrainMesh, buildTreeProp, buildWainscot, buildWaterPlane, buildingIndex, circleHit, collectColliders, disposeTree, eb, eo, interiorOf, jitter, mergePlain, mergeProps, npcNear, offsetGeometry, propRadius, q_, rngFromFloat, rotateLocal, tintHex, vertexColorMat, zoneTheme };
+export { GROUND, ROCK_CAP, buildTrails, MEADOW, FLOWER_H, flowerBase, flowerHead, meadowTuft, thinMaterial, $_, A_, B_, C_, DOOR_W, INTERIORS, SEASON_LOOK, WEATHER_LOOK, O_, PartBuilder, R_, SUN_DIR, SUN_STRENGTH, U_, V_, WALL_H, W_, WorldView, X_, boxHit, buildAmbientMotes, buildBuildingBlock, buildBush, buildCityGround, buildDust, buildEdgeWall, buildFogWall, buildGroundMesh, buildInterior, buildLamp, buildNpcBody, buildReed, buildRimRange, buildRockProp, buildRug, buildTerrainMesh, buildTreeProp, buildWainscot, buildWaterPlane, buildingIndex, circleHit, collectColliders, disposeTree, eb, eo, interiorOf, jitter, mergePlain, mergeProps, npcNear, offsetGeometry, propRadius, q_, rngFromFloat, rotateLocal, tintHex, vertexColorMat, zoneTheme };

@@ -30,6 +30,7 @@ const ok = (label, cond, detail = '') => {
   else { fail++; console.log(`  FAIL ${label}${detail ? ' :: ' + detail : ''}`); }
 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const settle = (p) => p.waitForFunction(() => !(globalThis.__hobileModelsLoading?.() > 0), null, { timeout: 30000 }).catch(() => {});
 const until = async (fn, ms = 20000) => {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (await fn()) return true; await wait(150); }
@@ -111,6 +112,9 @@ await wait(400);
 await page.evaluate(() => window.__hobile.net.send('travel', { zone: 'verdant_meadow' }));
 await page.waitForFunction(() => window.__hobile?.world?.zone?.id === 'verdant_meadow', null, { timeout: 30000 });
 await wait(1500);
+// Let the models that zone asked for finish decoding: a reload in the middle
+// makes the loader log each unfinished texture as an error on the way out.
+await settle(page);
 await page.reload({ waitUntil: 'load' });
 await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await inWorld(page);
@@ -150,6 +154,7 @@ const loggedIn = await page2.evaluate(async ([u, p]) => {
 }, [USER, PASS]);
 ok('the claimed account can be logged into', loggedIn.ok, loggedIn.err);
 if (!loggedIn.ok) { console.log(`\n${pass} passed, ${fail + 2} failed`); await browser.close(); server?.kill(); process.exit(1); }
+await settle(page2);
 await page2.reload({ waitUntil: 'load' });
 await page2.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
 await inWorld(page2);

@@ -147,19 +147,27 @@ export const AVATAR_CREDIT =
 
 const loader = new GLTFLoader();
 const cache = new Map();          // file -> Promise<gltf|null>
+let pending = 0;
+
+// How many models are still on their way. A page reloaded while a model's
+// textures are decoding has the loader report every one of them as a failure
+// on its way out; the tests wait for this to reach zero before they reload.
+globalThis.__hobileModelsLoading = () => pending;
 
 function fetchModel(file) {
   if (cache.has(file)) return cache.get(file);
   // An artifact is one page on a host that serves no model files, so that build
   // carries them in the document. Everywhere else they sit beside it.
   const url = INLINE?.[file] || globalThis.HOBILE_MODELS?.[file] || BASE + file;
+  pending++;
   const p = new Promise((resolve, reject) => loader.load(url, resolve, undefined, reject))
     .catch((err) => {
       // A model that will not load is not something the player should ever see
       // as a failure: the procedural body is already on screen and stays there.
       console.warn('[models] could not load', file, err?.message || err);
       return null;
-    });
+    })
+    .finally(() => { pending--; });
   cache.set(file, p);
   return p;
 }
