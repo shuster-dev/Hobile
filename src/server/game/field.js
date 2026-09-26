@@ -28,7 +28,7 @@
 //        from the game, never at a trainer with nothing left standing, and
 //        never before trainer level 3 — the first fights are yours to pick.
 import { resolveCollision } from '../../shared/props.js';
-import { FIELD_FROM_LEVEL, isNight, stanceOfLead, temperOf, WEAK_GAP } from '../../shared/temper.js';
+import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf, WEAK_GAP } from '../../shared/temper.js';
 import { activeCreature } from './combat.js';
 
 export { isNight, temperOf };
@@ -105,10 +105,11 @@ export function inSafeGround(zone, x, z, margin = 0) {
   return zone.landmarks.some((l) => SAFE_KINDS.has(l.kind) && l.r && Math.hypot(l.x - x, l.z - z) < l.r + margin);
 }
 
-/** How a fierce wild takes this trainer: 'kin', 'unarmed', 'flee' or
- *  'fight' (shared/temper.js), judged by the creature at their side. */
-export function stanceToward(species, level, doc) {
-  return stanceOfLead(species, level, activeCreature(doc));
+/** How a fierce wild takes this trainer: 'kin', 'unarmed', 'flee', 'spare'
+ *  or 'fight' (shared/temper.js), judged by the creature at their side and
+ *  by how much of a mismatch this zone allows. */
+export function stanceToward(species, level, doc, zoneId = null) {
+  return stanceOfLead(species, level, activeCreature(doc), ambushAbove(zoneId));
 }
 
 /** The first reason this player cannot be noticed right now, or '' if they
@@ -227,8 +228,8 @@ export function tickField(world, now, dtMs) {
     for (const entry of people) {
       const dist = Math.hypot(entry.p.x - w.x, entry.p.z - w.z);
       if (dist > FIELD.noticeR || dist >= bestD) continue;
-      const stance = stanceToward(w.species, w.level, entry.doc);
-      if (stance === 'kin' || stance === 'unarmed') continue;
+      const stance = stanceToward(w.species, w.level, entry.doc, world.zone.id);
+      if (stance === 'kin' || stance === 'unarmed' || stance === 'spare') continue;
       if (stance === 'flee' && dist > FIELD.fleeR) continue;
       // One pursuer at a time: a second one waits its turn — as long as the
       // first really is still on this player (it may have been fought, caught

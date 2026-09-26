@@ -1,5 +1,5 @@
 import { Combat, Combatant, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
-import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
+import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
 import { engageWild, handleWorldMessage, speakTo, visitCheck } from './world-messages.js';
@@ -464,11 +464,15 @@ var StoreBase = class {
         benched: !!this.anchor,
         gearBonus: gear
       }));
+      // How hard it fights depends on where it lives (WILD_TIERS).
+      let tier = WILD_TIERS[t] || {};
       this.foe = this.sim.add(new Combatant({
         side: "b",
         kind: "wild",
         name: SPECIES[n.species].name,
-        creature: makeCreature(n.species, n.level)
+        creature: makeCreature(n.species, n.level),
+        scale: tier.scale,
+        ai: tier.ai
       }));
     }
     /**

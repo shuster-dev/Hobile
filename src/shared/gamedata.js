@@ -1547,7 +1547,10 @@ var MOVES = {
       he: "כדור אתר",
       kind: "sphere",
       rate: 1,
-      price: 200,
+      // Two early wins, not four: at 200 a first catch cost six to eight
+      // fights of gold (tools/balance.mjs). The workshop still makes five for
+      // about the price of two.
+      price: 100,
       icon: "🔵"
     },
     sphere_great: {
@@ -1574,7 +1577,7 @@ var MOVES = {
       he: "משחה",
       kind: "heal",
       amount: 60,
-      price: 150,
+      price: 100,
       icon: "🧪"
     },
     potion_m: {
@@ -2147,6 +2150,24 @@ var MOVES = {
     }
   },
   HOME_ZONE = "aetherport",
+  // How hard a zone's wilds fight. `scale` multiplies a wild's stats in the
+  // fight (one that is caught is an ordinary creature of its level); `ai` is
+  // how it picks its moves and how quickly (AI_TIERS in server/game/combat.js).
+  // The port and the meadow are where a new trainer learns with one creature;
+  // the last three zones are for teams. Measured with tools/balance.mjs and
+  // held by tools/qa.mjs. `ambushAbove`: a fierce wild more levels than this
+  // above your companion leaves you alone here (server/game/field.js) — in
+  // the first zones an ambush should be a fight you can win.
+  WILD_TIERS = {
+    aetherport: { scale: 0.78, ai: "novice", ambushAbove: 1 },
+    verdant_meadow: { scale: 0.85, ai: "novice", ambushAbove: 1 },
+    emberfall_canyon: { scale: 0.9, ai: "standard", ambushAbove: 3 },
+    stonewake_mesa: { scale: 0.95, ai: "standard", ambushAbove: 3 },
+    tidal_hollow: { scale: 0.97, ai: "standard", ambushAbove: 3 },
+    stormreach_heights: { scale: 1.1, ai: "veteran" },
+    frostpeak_ridge: { scale: 1.1, ai: "veteran" },
+    umbral_grove: { scale: 1.15, ai: "veteran" }
+  },
   DUNGEONS = {
     undercity_cistern: {
       id: "undercity_cistern",
@@ -3141,4 +3162,4 @@ for (let z of Object.values(ZONES)) if (z.capturable) Object.assign(QUESTS, zone
 Object.assign(QUESTS, NPC_QUESTS);
 Object.assign(ITEMS, MATERIALS);
 
-export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

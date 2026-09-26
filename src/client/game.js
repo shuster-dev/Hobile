@@ -11,7 +11,7 @@ import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, S
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
 import { weatherAt } from '../shared/weather.js';
-import { FIELD_FROM_LEVEL, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
+import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
 
 var WANT_LOGIN = "hobile.wantLogin";
 
@@ -1216,7 +1216,7 @@ var Game = class {
         if (!l) continue;
         // ⚔: this one would come for you — fierce, not of your companion's
         // element, not so much weaker that it would run. Town never has it.
-        let hostile = !ZONES[this.zone?.id]?.urban && (this.profile?.level || 1) >= FIELD_FROM_LEVEL && temperOf(l.species, night) === "fierce" && stanceOfLead(l.species, l.level, lead) === "fight";
+        let hostile = !ZONES[this.zone?.id]?.urban && (this.profile?.level || 1) >= FIELD_FROM_LEVEL && temperOf(l.species, night) === "fierce" && stanceOfLead(l.species, l.level, lead, ambushAbove(this.zone?.id)) === "fight";
         n.push({
           key: s,
           kind: "wild",

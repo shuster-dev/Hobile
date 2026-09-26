@@ -48,7 +48,8 @@ miss the other.
 
 | command | what it covers |
 |---|---|
-| `npm run qa` | data integrity, the capture curve (5 / 51 / 99), zone boundaries, the battle-v2 contract |
+| `npm run qa` | data integrity, the capture curve (5 / 51 / 99), zone boundaries, the battle-v2 contract, progression, and the balance targets below |
+| `node tools/balance.mjs` | thousands of real fights on a fake clock, two bots (sharp and casual) against every zone's own wilds: win rate and fight length per case. `WILD_TIERS` in `gamedata.js` is what it tunes |
 | `npm run test:server` | boots the server, connects two clients, checks replication, the movement clamp, chat, the battle handoff, persistence |
 | `npm run test:browser` | drives a real browser: character creation, entering the world, zero console errors, the render budget |
 | `npm run test:session` | the whole promise: first click with no form, reload lands in the same zone, claim a username, log in from a browser that has never seen the first one |

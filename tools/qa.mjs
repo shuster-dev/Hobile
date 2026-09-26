@@ -1050,5 +1050,74 @@ section('GM tools');
   ok('every change was logged', logged.length === gev.filter(([k, v]) => k === 'gm' && v.kind === 'done').length, `${logged.length}`);
 }
 
+// ---------------------------------------------------------------- progression
+// XP is counted from level 1. Creatures were made with 0 at any level, so the
+// first level-up of a level-5 starter cost levels 1-5 again: eleven wins, not
+// four; a level-20 catch needed forty.
+section('progression');
+{
+  const need = (l) => PROGRESSION.xpToLevel(l);
+  const c5 = C.makeCreature('cindcub', 5);
+  ok('a creature starts at the start of its level', c5.xp === need(5), `${c5.xp} vs ${need(5)}`);
+  C.grantXpTo(c5, need(6) - need(5));
+  ok('and one level of XP is one level', c5.level === 6, String(c5.level));
+  const c1 = C.makeCreature('sparkit', 1);
+  ok('a level-1 creature starts at nothing', c1.xp === 0);
+  const old = C.createPlayerDoc('u10', 'QA10', {}, 'puddlet');
+  const a = C.makeCreature('duskmaw', 20), b = C.makeCreature('sparkit', 12), done = C.makeCreature('pebblin', 7);
+  Object.assign(a, { xp: 0 }); Object.assign(b, { xp: 900 });
+  done.xp = need(8) - 5;
+  for (const c of [a, b, done]) old.creatures[c.uid] = c;
+  C.normalizeDoc(old);
+  ok('a save from before gets what its level implies', a.xp === need(20), `${a.xp} vs ${need(20)}`);
+  ok('keeping what it earned on top', b.xp === Math.min(need(12) + 900, need(13) - 1), `${b.xp}`);
+  ok('but one point short of the next level, so the level-up happens in a fight', b.level === 12 && b.xp < need(13));
+  ok('one already past its level is left alone', done.xp === need(8) - 5);
+  const snap = JSON.stringify(old.creatures);
+  C.normalizeDoc(old);
+  ok('and doing it twice changes nothing', JSON.stringify(old.creatures) === snap);
+}
+
+// ---------------------------------------------------------------- balance
+// Measured with the same bots as tools/balance.mjs, seeded, against targets:
+// the first two zones are for learning with one creature, the last three are
+// no longer a formality, and a team is still the way through them.
+section('balance');
+{
+  const BAL = await import('./balance.mjs');
+  const T = await import('../src/shared/temper.js');
+  const run = (c, bot = 'sharp', n = 60) => BAL.measure({ ...c, bot, n, seed: bot === 'sharp' ? 7 : 8 });
+  const byLabel = Object.fromEntries(BAL.CASES.map((c) => [c.label, c]));
+  for (const s of ['cindcub', 'puddlet', 'sproutle']) {
+    const port = byLabel[`${s} 5 · port`];
+    const sharp = run(port), casual = run(port, 'casual');
+    ok(`${s}: the port is a place to learn (sharp ${Math.round(sharp.win * 100)}%, casual ${Math.round(casual.win * 100)}%)`,
+      sharp.win >= 0.95 && casual.win >= 0.9);
+    const meadow = run(byLabel[`${s} 5 · meadow`]);
+    ok(`${s}: the meadow asks something of a lone starter (${Math.round(meadow.win * 100)}%)`, meadow.win >= 0.78 && meadow.win <= 0.98);
+    ok(`${s}: and three levels later it is theirs`, run(byLabel[`${s} 8 · meadow`]).win >= 0.95);
+  }
+  // A late zone, alone: the lead it favours, one it ignores and one it
+  // punishes, averaged. It should ask something of one creature — no longer a
+  // formality of four-second fights — and a team should still carry it.
+  // 120 fights a case: at these rates 60 wander eight points either way.
+  for (const zone of ['stormreach', 'frostpeak', 'umbral']) {
+    const singles = BAL.CASES.filter((c) => c.late === zone).map((c) => run(c, 'sharp', 120));
+    const win = singles.reduce((a, r) => a + r.win, 0) / singles.length;
+    const secs = singles.reduce((a, r) => a + r.seconds, 0) / singles.length;
+    ok(`${zone}: one creature is tested (${Math.round(win * 100)}% over ${singles.length} leads, ${secs.toFixed(1)}s)`,
+      win >= 0.55 && win <= 0.9 && secs >= 6);
+    const team = BAL.CASES.find((c) => c.team === zone);
+    ok(`${zone}: a team carries it`, run(team, 'sharp', 120).win >= 0.9);
+  }
+  ok('a wild fights softer in the port and harder in the grove',
+    G.WILD_TIERS.aetherport.scale < 1 && G.WILD_TIERS.umbral_grove.scale > 1 && Object.keys(ZONES).every((z) => G.WILD_TIERS[z]));
+  ok('in a zone for learning, one far stronger does not jump you',
+    T.stanceOfLead('cindcub', 8, { species: 'sproutle', level: 5, hp: 10 }, T.ambushAbove('verdant_meadow')) === 'spare'
+    && T.stanceOfLead('cindcub', 6, { species: 'sproutle', level: 5, hp: 10 }, T.ambushAbove('verdant_meadow')) === 'fight'
+    && T.ambushAbove('umbral_grove') === Infinity);
+  ok('a first catch costs a couple of fights, not six', ITEMS.sphere_basic.price <= 100 && ITEMS.potion_s.price <= 100);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

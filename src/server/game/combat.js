@@ -35,11 +35,12 @@ var Combatant = class {
           spa: Math.floor((r.spa + num(t.spa)) * (1 + num(n.spa))),
           spd: Math.floor((r.spd + num(t.spd)) * (1 + num(n.spd))),
           spe: Math.floor((r.spe + num(t.spe)) * (1 + num(n.spe)))
-        }, this.kind === "boss" && (this.stats.hp = Math.floor(this.stats.hp * num(e.hpScale, 6))), this.maxHp = this.stats.hp, this.hp = this.kind === "creature" ? Math.max(0, Math.min(this.maxHp, num(s.hp, this.maxHp))) : this.maxHp, this.types = SPECIES[this.species].types;
+        }, this.kind === "boss" && (this.stats.hp = Math.floor(this.stats.hp * num(e.hpScale, 6))), this.kind !== "creature" && num(e.scale, 1) !== 1 && scaleStats(this.stats, num(e.scale, 1)), this.maxHp = this.stats.hp, this.hp = this.kind === "creature" ? Math.max(0, Math.min(this.maxHp, num(s.hp, this.maxHp))) : this.maxHp, this.types = SPECIES[this.species].types;
         let o = Array.isArray(s.skills) && s.skills.length ? s.skills : SPECIES[this.species].learn.map(([, a]) => a);
         this.skills = o.filter(a => typeof a == "string" && Object.prototype.hasOwnProperty.call(MOVES, a)).slice(0, 4);
       }
-      this.stamina = PROGRESSION.staminaMax, this.cooldowns = {}, this.effects = [], this.aiDelay = this.kind === "boss" ? 900 : 1400, this.aiNext = Date.now() + this.aiDelay, this.damageDealt = 0;
+      this.ai = AI_TIERS[e.ai] || AI_TIERS.standard;
+      this.stamina = PROGRESSION.staminaMax, this.cooldowns = {}, this.effects = [], this.aiDelay = this.kind === "boss" ? 900 : this.ai.first, this.aiNext = Date.now() + this.aiDelay, this.damageDealt = 0;
     }
     get alive() {
       return this.hp > 0;
@@ -93,6 +94,15 @@ var Combatant = class {
     }
   },
   WEATHER_BOOST = 1.2,
+  // How a wild fights, by the tier of the zone it lives in (WILD_TIERS in
+  // shared/gamedata.js). A novice tries whatever is ready and takes its time;
+  // a veteran reads the matchup and presses. Bosses keep their own pace.
+  // Tuned with tools/balance.mjs.
+  AI_TIERS = {
+    novice: { first: 2100, gap: 1900, jitter: 900, pick: "any" },
+    standard: { first: 1400, gap: 1300, jitter: 700, pick: "best" },
+    veteran: { first: 1100, gap: 1000, jitter: 450, pick: "best" }
+  },
   Combat = class {
     constructor(e = {}) {
       this.mode = e.mode || "pve", this.onEvent = e.onEvent || (() => {}), this.rand = typeof e.rand == "function" ? e.rand : Math.random, this.weather = e.weather || null, this.combatants = new Map(), this.startedAt = Date.now(), this.finished = !1, this.result = null, this.contribution = new Map(), this.pendingThrow = null, this.pendingSwitch = new Map(), this.switchReady = new Map();
@@ -585,15 +595,17 @@ var Combatant = class {
         return;
       }
       let o = r[0],
-        a = -1;
-      for (let c of r) {
+        a = -1,
+        tier = e.kind === "boss" ? null : e.ai;
+      if (tier?.pick === "any") o = r[Math.floor(Math.random() * r.length)];
+      else for (let c of r) {
         let h = c.type ? typeMultiplier(c.type, s.types) : 1,
           d = (c.power || 30) * h * (c.kind === "status" ? 0.4 : 1) * (0.85 + Math.random() * 0.3);
         d > a && (a = d, o = c);
       }
       this.useSkill(e.id, o.id, s.id);
-      let l = e.kind === "boss" ? 800 : 1300;
-      e.aiNext = t + l + Math.random() * 700;
+      let l = tier ? tier.gap : 800;
+      e.aiNext = t + l + Math.random() * (tier ? tier.jitter : 700);
     }
     checkEnd() {
       if (this.finished) return;
@@ -620,6 +632,11 @@ var Combatant = class {
       };
     }
   };
+
+/** A wild's stats in a zone that fights softer or harder than its level. */
+function scaleStats(stats, s) {
+  for (const k of ["hp", "atk", "def", "spa", "spd"]) stats[k] = Math.max(1, Math.round(stats[k] * s));
+}
 
 function creaturePower(i, e) {
   let t = i && Object.prototype.hasOwnProperty.call(SPECIES, i.species) ? SPECIES[i.species] : null;
@@ -650,7 +667,11 @@ function makeCreature(i, e, t = {}) {
     species: i,
     nickname: t.nickname || null,
     level: e,
-    xp: 0,
+    // At the start of its level, not at zero: XP is counted from level 1, so a
+    // level-5 creature made with 0 had to earn levels 1 to 5 again before its
+    // first level-up — eleven wins for a starter instead of four, forty for a
+    // level-20 catch instead of five.
+    xp: e > 1 ? PROGRESSION.xpToLevel(e) : 0,
     iv: n,
     star: 1,
     hp: s.hp,
@@ -912,6 +933,15 @@ function dexView(doc) {
 
 function normalizeDoc(i) {
   ensureQuests(i);
+  // Creatures made before that fix are still short of their own level. Give
+  // each what its level already implies, keep what it earned on top, and stop
+  // one point short of the next level, so a level-up still happens in a fight
+  // and says so, rather than silently here.
+  for (const c of Object.values(i.creatures || {})) {
+    if (!c || !(c.level > 1)) continue;
+    const base = PROGRESSION.xpToLevel(c.level), xp = Number(c.xp) || 0;
+    if (xp < base) c.xp = Math.min(base + Math.max(0, xp), PROGRESSION.xpToLevel(c.level + 1) - 1);
+  }
   // Saves that predate the dex get one built from what they already hold, so
   // an existing player does not find their collection empty.
   if (!i.dex) {
