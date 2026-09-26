@@ -6,7 +6,7 @@ import { CreatorStage, portraits } from './gfx/stage.js';
 import { WorldView } from './gfx/world.js';
 import { CameraRig, Joystick, Keyboard } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
-import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
+import { $, Ib, SOCIAL, UI, kb, loc, wp, zb } from './ui.js';
 import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
@@ -346,7 +346,32 @@ var Game = class {
       s && this.world.setViewMode(s);
     } catch {}
     this.ui.showScreen(null), this.ui.setMode("world"), this.ui.setLoading(!1), audio.playMusic(e), t && audio.sfx("portal"), this.wantFaces(this.profile?.team);
+    // The next fight should open at once: put up the stage this zone fights
+    // on and compile its shaders while the player is still walking — on every
+    // arrival, since each zone has its own ground (BattleView.prewarm).
+    clearTimeout(this._warmTimer), this._warmTimer = setTimeout(() => this.prewarmBattle(), 2500);
     return !0;
+  }
+  prewarmBattle() {
+    // Gone again already (a fight, a door): the next arrival asks again.
+    if (this.mode !== "world") return;
+    let zd = ZONES[this.zone?.id] || {},
+      team = (this.profile?.team || []).map(c => c?.species),
+      wilds = [...(this.worldState()?.wilds?.values?.() || [])].map(w => w.species),
+      zone = this.zone?.id,
+      // For the tests: how long the latest warm took, once it has finished.
+      token = this._warmToken = {};
+    globalThis.__hobileBattleWarm = null, this.battleView.prewarm({
+      element: zd.element || "verdant",
+      stage: zd.urban ? "stadium" : "clearing",
+      palette: this.world.palette,
+      zone: zd.id,
+      appearance: this.profile?.appearance,
+      // Everyone who can stand in this zone's fights: the whole team (the
+      // bench is on the field too), then what lives here.
+      species: [...team, ...wilds, ...(zd.spawns || []).map(s => s[0])].filter(Boolean),
+      idle: () => this.mode === "world" && this.zone?.id === zone
+    }).then(ms => { this._warmToken === token && (globalThis.__hobileBattleWarm = Math.round(ms)); });
   }
   /** Portraits of the team, for the battle screen's team pills: a creature you
    *  can swap to should look like itself, not like a coloured dot. Drawn once
@@ -491,7 +516,9 @@ var Game = class {
       let w = this.battle.weather;
       if (w?.boost && ELEMENTS[w.boost]) {
         let el = ELEMENTS[w.boost];
-        setTimeout(() => this.ui.battleBanner(`${el.icon} ${w.he} · מהלכי ${el.he} מתחזקים`, 1600), 1100);
+        // After the opening line, not over it: "X attacked you!" was being
+        // replaced by the forecast a third of a second before it could be read.
+        setTimeout(() => this.ui.battleBanner(`${el.icon} ${w.he} · מהלכי ${el.he} מתחזקים`, 1600), 1550);
       }
     }), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
       this.battle.inventory = t;
@@ -891,7 +918,9 @@ var Game = class {
     // pointing at.
     let r = this.nearestLandmark(n),
       o = this.nearestWild(n),
-      a = this.nearestPlayer(n),
+      // Standing by another player offered a duel the server always refuses
+      // (see SOCIAL); the button looks past them instead.
+      a = SOCIAL ? this.nearestPlayer(n) : null,
       l = [];
     r && r.d < (r.r ? r.r + 1 : 9) && l.push({
       d: r.d,

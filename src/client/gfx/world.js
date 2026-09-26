@@ -3505,6 +3505,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.interior && this.exitInterior({
         move: !1
       });
+      // The zone already standing is kept. A zone is static data, and the way
+      // back from every fight rejoins the zone you left: rebuilding it there
+      // threw away every mesh and material and compiled the world's shaders
+      // again in the first frame back — the pause after each battle (over
+      // five seconds in the software-GL test browser). The plates go, as they
+      // would: whoever they named may not be here any more.
+      if (this.zone?.id === e.id && this.zoneGroup.children.length) return this.clearPlates(), !1;
       let t = ZONES[e.id];
       this.zone = t ? {
         ...t,

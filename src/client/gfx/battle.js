@@ -35,6 +35,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   ip = [1.75, 1.15],
   sp = 0.78,
   TRAINER_ID = "__trainer",
+  // Point lights the fight keeps in its scene at all times (see lightFor).
+  POOL_LIGHTS = 3,
   nt = new Vector3(),
   nr = new Vector3(),
   ir = new Box3(),
@@ -47,7 +49,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     }
     return q.closePath(), q;
   })(),
-  STAR_MAT = new MeshBasicMaterial({ color: 0xffd84a, side: DoubleSide, depthWrite: !1, transparent: !0 }),
+  // One for every star; `shared` keeps fadeTree off it.
+  STAR_MAT = Object.assign(new MeshBasicMaterial({ color: 0xffd84a, side: DoubleSide, depthWrite: !1, transparent: !0 }), { userData: { shared: !0 } }),
   dizzyStars = () => {
     let g = new Group();
     for (let k = 0; k < 3; k++) {
@@ -79,7 +82,92 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       }), this.lightBase = {
         sun: this.lights.sun.intensity,
         hemi: this.lights.hemi.intensity
-      }, this.arena = new Group(), this.scene.add(this.arena), this.adapt = sizeRenderer(this.renderer), this.vignette = hb(), this.camera.add(this.vignette), this.scene.add(this.camera), this.resize(), window.addEventListener("resize", () => this.resize());
+      }, this.pool = [];
+      for (let k = 0; k < (QUALITY.tier === "low" ? 1 : POOL_LIGHTS); k++) {
+        let l = new PointLight(16777215, 0, 7, 2);
+        l.userData = {
+          owner: null,
+          stage: !1,
+          at: 0
+        }, this.scene.add(l), this.pool.push(l);
+      }
+      this.arena = new Group(), this.scene.add(this.arena), this.adapt = sizeRenderer(this.renderer), this.vignette = hb(), this.camera.add(this.vignette), this.scene.add(this.camera), this.resize(), window.addEventListener("resize", () => this.resize());
+    }
+    /**
+     * A point light for an effect, from the pool.
+     *
+     * Every point light in the scene is a term in every lit shader, so each
+     * time their number changed — a projectile's glow, a hit's flash, the
+     * sphere's light, a glowing creature walking on, the dungeon's lamp —
+     * every material on screen compiled its shader again, in the middle of the
+     * fight. The pool is always in the scene and only its brightness changes.
+     * An effect takes a free light, else the one taken longest ago; `owns`
+     * says whether it still has it. Glowing creatures get what is left over
+     * (stepGlow). Null when there is none to give.
+     */
+    lightFor(owner, color, intensity, distance = 7) {
+      let free = null,
+        oldest = null;
+      for (let l of this.pool) {
+        let u = l.userData;
+        if (u.stage) continue;
+        if (!u.owner) {
+          free = l;
+          break;
+        }
+        (!oldest || u.at < oldest.userData.at) && (oldest = l);
+      }
+      let l = free || oldest;
+      return l ? (l.userData.owner = owner, l.userData.at = this.time, l.color.set(color), l.intensity = intensity, l.distance = distance, l.decay = 2, l) : null;
+    }
+    owns(owner, l) {
+      return !!l && l.userData.owner === owner;
+    }
+    freeLight(owner, l) {
+      this.owns(owner, l) && (l.userData.owner = null, l.intensity = 0);
+    }
+    /** The dungeon's lamp: a pool light held by the stage until it comes down. */
+    stageLight(color, intensity, distance) {
+      let l = this.pool[0];
+      return l ? (l.userData.owner = null, l.userData.stage = !0, l.color.set(color), l.intensity = intensity, l.distance = distance, l.decay = 2, l) : null;
+    }
+    /** Lights the effects are not using go to the glowing creatures, the ones
+     *  fighting before the bench. */
+    stepGlow() {
+      let lights = this._glowLights || (this._glowLights = []),
+        glowing = this._glowing || (this._glowing = []);
+      lights.length = 0, glowing.length = 0;
+      for (let l of this.pool) l.userData.owner || l.userData.stage || lights.push(l);
+      if (!lights.length) return;
+      for (let a of this.actors.values()) a.glow && !a.hidden && !a.downed && a.holder.visible && a.holder.scale.x > 0.2 && glowing.push(a);
+      glowing.length > 1 && glowing.sort((x, y) => (x.benched ? 1 : 0) - (y.benched ? 1 : 0));
+      for (let k = 0; k < lights.length; k++) {
+        let l = lights[k],
+          a = glowing[k];
+        if (!a) {
+          l.intensity = 0;
+          continue;
+        }
+        let g = a.glow;
+        g.at.getWorldPosition(l.position), l.color.setHex(g.color), l.intensity = g.intensity, l.distance = g.distance, l.decay = g.decay;
+      }
+    }
+    /**
+     * Keep every shader this renderer has compiled for the rest of the session.
+     *
+     * three.js counts the materials using each program and deletes a program
+     * as soon as the last of them is disposed; the next material that needs it
+     * compiles it again from scratch. A fight disposes its effects as they
+     * finish, its actors as they leave, its stage when another goes up — so the
+     * same few shaders were compiled over and over, and the frame that paid was
+     * the one where something happened. One extra reference on each program
+     * holds them all; a session builds a few dozen.
+     */
+    pinPrograms() {
+      let list = this.renderer.info.programs;
+      if (!list) return;
+      let pinned = this._pinned || (this._pinned = new WeakSet());
+      for (let p of list) pinned.has(p) || (pinned.add(p), p.usedTimes++);
     }
     resize() {
       let e = this.canvas.clientWidth || window.innerWidth,
@@ -89,18 +177,126 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let n = Math.tan(this.camera.fov * Math.PI / 360);
       this.vignette.scale.set(n * this.camera.aspect * 1.5, n * 1.5, 1);
     }
+    /**
+     * Get the next fight ready before it starts: put up the stage it will
+     * stand on, and compile every shader it will draw.
+     *
+     * This view has its own renderer, so nothing the world compiled carries
+     * over, and a fight used to compile its whole cast of shaders in the frame
+     * it opened on — the stage, the trainer, the creatures — then each effect
+     * at its first use. In the software-GL test browser that opening frame
+     * took over five seconds; a phone is far quicker, and still stopped.
+     *
+     * Called a few seconds after each arrival in a zone, while the player is
+     * walking. The stage goes up first, the one this zone fights on, so the
+     * fight finds it standing. Then a cast that is never shown, a piece at a
+     * time with a pause between (no one long frame in the world): each species
+     * the team and the zone can bring, a creature fading as a fainted one does,
+     * the trainer, one of each effect. compileAsync compiles each against the
+     * fight's own scene, so the programs are built for the lights, fog and sky
+     * they will meet, in parallel where the browser can. Programs are kept for
+     * the session (pinPrograms), so each is compiled once and a later zone only
+     * pays for what it adds. `idle` is asked before each step: once a fight has
+     * begun, this stops touching the view. Resolves to the milliseconds spent,
+     * or 0 when there was nothing new to compile.
+     */
+    prewarm(opt = {}) {
+      let run = () => this.warmFor(opt);
+      return this._warm = (this._warm || Promise.resolve()).then(run, run);
+    }
+    async warmFor({ element = "verdant", stage = "clearing", palette = null, zone = "", appearance = null, species = [], idle = () => !0 } = {}) {
+      if (!idle()) return 0;
+      let t0 = performance.now(),
+        R = this.renderer,
+        count = () => R.info.programs?.length || 0,
+        before = count(),
+        pause = () => new Promise((r) => setTimeout(r, 40)),
+        compile = async (scene) => {
+          idle() && (await (R.compileAsync ? R.compileAsync(scene, this.camera, this.scene) : R.compile(scene, this.camera, this.scene)), this.pinPrograms());
+        };
+      try {
+        this.setTheme(element, !1, { stage, palette, element, zone });
+        await compile(this.scene);
+        let done = this._rehearsed || (this._rehearsed = new Set()),
+          cast = [];
+        for (let [key, build] of this.rehearsal(species, appearance)) {
+          if (done.has(key)) continue;
+          if (await pause(), !idle()) break;
+          done.add(key);
+          let scene = new Scene(),
+            piece = build(scene);
+          piece && (scene.add(piece), piece.userData.wait && await piece.userData.wait(), await compile(scene), cast.push(piece));
+        }
+        // Then one real frame, never seen (this canvas is hidden in the world):
+        // the shadow pass builds its depth shaders, which compile() does not
+        // reach, and each program's first use — reading back its uniforms —
+        // happens now instead of as the fight opens. After a pause, so that a
+        // browser compiling in the background has finished and nothing waits.
+        if (count() > before && (await new Promise((r) => setTimeout(r, 1200)), idle())) {
+          let hold = new Group();
+          for (let p of cast) hold.add(p);
+          this.scene.add(hold), R.render(this.scene, this.camera), this.scene.remove(hold), this.pinPrograms();
+          // The effects' own buffers went up to the GPU with that frame; the
+          // creatures' and the trainer's are shared with the fight to come.
+          for (let p of cast) p.userData.fx && fadeTree(p);
+        }
+      } catch (err) {
+        console.warn("[battle] prewarm", err?.message || err);
+      }
+      return count() > before ? performance.now() - t0 : 0;
+    }
+    /** The pieces prewarm compiles, keyed so each is done once a session. The
+     *  lights a glowing creature carries are taken out, as spawnActor does. */
+    rehearsal(species, appearance) {
+      let ids = [...new Set(species || [])].filter((x) => SPECIES[x]),
+        list = ids.map((id) => [`sp:${id}`, () => (c => (takeGlow(c), c))(buildCreature(id))]);
+      ids.length && list.push(["fainted", () => {
+        let c = buildCreature(ids[0]),
+          rec = {
+            group: c,
+            mats: null
+          };
+        return takeGlow(c), this.fade(rec, 0.6), c;
+      }]);
+      appearance && list.push([`trainer:${appearance.body || ""}`, (cast) => {
+        let g = buildAvatar(appearance);
+        // The trainer's model arrives a moment after the body is built, and
+        // only if it has somewhere to stand: add it, then wait for it.
+        return cast.add(g), g.userData.wait = async () => {
+          for (let k = 0; k < 60 && !g.userData.model; k++) {
+            if (k > 2 && !(globalThis.__hobileModelsLoading?.() > 0)) break;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }, g;
+      }]);
+      list.push(["fx", () => fxRehearsal()]);
+      return list;
+    }
+    /** The stage stays up; only the challenger's colour moves on it (the
+     *  stadium's seats, boards and banners). */
+    tintStage(s) {
+      let m = this.arena.children[0]?.userData?.accent;
+      m && m.color.copy(mat(s, {
+        roughness: 0.6
+      }).color);
+    }
     setTheme(e = "verdant", t = !1, ctx = {}) {
       let s = (ELEMENTS[e] || ELEMENTS.verdant).color;
       this.accent = s;
       let stage = t ? "" : ctx.stage || "",
-        r = `${e}|${t ? 1 : 0}|${stage}|${ctx.element || ""}|${ctx.zone || ""}`;
-      if (this.themeKey === r && this.arena.children.length) return;
+        // The foe's colour only tints the stadium's seats and a pit's rings, so
+        // it is not part of what a field stage is: the next fight in the same
+        // meadow stands on the stage the last one did (or the one prewarm put
+        // up), and a fight's second battleInit, which knows the foe, rebuilds
+        // nothing.
+        r = t || !stage ? `pit|${t ? 1 : 0}|${e}` : `${stage}|${ctx.element || ""}|${ctx.zone || ""}`;
+      if (this.themeKey === r && this.arena.children.length) return this.tintStage(s);
       this.themeKey = r, this.ringHostile = null;
       for (let y = this.arena.children.length - 1; y >= 0; y--) {
         let M = this.arena.children[y];
         this.arena.remove(M), fadeTree(M);
       }
-      this.sky && (this.scene.remove(this.sky), fadeTree(this.sky));
+      for (let l of this.pool) l.userData.stage && (l.userData.stage = !1, l.intensity = 0);
       let o = t ? {
         top: 1183010,
         horizon: 2891591,
@@ -115,10 +311,20 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         ground: 10277498,
         sun: 16767400
       };
-      this.sky = makeSky({
-        ...o,
-        sunDir: np
-      }), this.scene.add(this.sky), this.scene.environment && this.scene.environment.dispose(), this.scene.environment = makeEnvironment(this.renderer, this.sky), this.scene.fog = new FogExp2(t ? 1446446 : 13627391, t ? 0.011 : 0.0075), this.lights.sun.intensity = t ? 1.9 : 2.25, this.lights.hemi.color.set(o.horizon), this.lightBase.sun = this.lights.sun.intensity, this.lightBase.hemi = this.lights.hemi.intensity;
+      // The sky, and the environment map lit from it, are the same for every
+      // fight of a kind: made once and kept, not rebuilt for each fight — the
+      // environment is a dozen render passes, and its shaders and the sky's
+      // were compiled afresh every time.
+      let kind = t ? "pit" : "open",
+        sk = (this._skies || (this._skies = {}))[kind];
+      sk || (sk = this._skies[kind] = {
+        sky: makeSky({
+          ...o,
+          sunDir: np
+        })
+      }, sk.env = makeEnvironment(this.renderer, sk.sky));
+      this.sky !== sk.sky && (this.sky && this.scene.remove(this.sky), this.scene.add(sk.sky), this.sky = sk.sky);
+      this.scene.environment = sk.env, this.scene.fog = new FogExp2(t ? 1446446 : 13627391, t ? 0.011 : 0.0075), this.lights.sun.intensity = t ? 1.9 : 2.25, this.lights.hemi.color.set(o.horizon), this.lightBase.sun = this.lights.sun.intensity, this.lightBase.hemi = this.lights.hemi.intensity;
       // A wild fight in the field, or a town fight in the stadium; the rune pit
       // below is only for dungeons now.
       if (stage) {
@@ -204,8 +410,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           castShadow: !1
         });
       this.arena.add(v);
-      let E = new PointLight(s, 6, 30, 2);
-      E.position.set(0, 6.5, 0), this.arena.add(E), this.lamp = E;
+      let E = this.stageLight(s, 6, 30);
+      E && E.position.set(0, 6.5, 0), this.lamp = E;
       let _ = QUALITY.tier === "low" ? 40 : 120,
         S = new BufferGeometry(),
         b = new Float32Array(_ * 3);
@@ -324,6 +530,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         s = n ? buildAvatar(this.appearance || {}) : buildCreature(e.species, {
           hi: !0
         });
+      let glow = n ? null : takeGlow(s);
       s.userData.phase = lb(e.id), ir.setFromObject(s);
       let r = Number.isFinite(ir.max.y) ? Math.max(0.6, ir.max.y) : 1.6,
         o = Math.max(0.45, Math.max(ir.max.x - ir.min.x, ir.max.z - ir.min.z) * 0.5),
@@ -356,7 +563,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         hidden: !1,
         shadowOn: !0,
         mats: null,
-        flashMats: null
+        flashMats: null,
+        glow
       };
       return this.actors.set(e.id, l), n && e.side === "a" && this.claimTrainer(l), l;
     }
@@ -596,8 +804,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       l.add(new Mesh(_b(), fxMat(16772300, 0.36))), l.add(new Mesh(bb(), fxMat(n, 0.34)));
       let c = new Mesh(flashGeo(), fxMat(n, 0.3, 0.4));
       c.scale.setScalar(0.65), l.add(c), l.position.copy(o), this.scene.add(l);
-      let h = new PointLight(n, 2, 6, 2);
-      l.add(h), this.shardBurst(o, n, s, 0.45), this.effects.push({
+      let fx = {
         kind: "projectile",
         orb: l,
         flare: c,
@@ -610,20 +817,23 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         color: n,
         prof: s,
         prev: o.clone()
-      });
+      };
+      // The orb lights the ground it flies over: a pool light that follows it.
+      (fx.light = this.lightFor(fx, n, 2, 6)) && fx.light.position.copy(o), this.shardBurst(o, n, s, 0.45), this.effects.push(fx);
     }
     impact(e, t, n, s, r) {
       let o = e.holder.position.clone().add(new Vector3(0, 1, 0));
-      if (this.flash(e, r > 1 ? 16769658 : 16747146), this.knock(e), this.shardBurst(o, t, n, s ? 1.4 : 1), this.shockRing(o, t, n, s), this.coreFlash(o, t, s), s && (this.groundShock(o, t, n), this.streakBurst(o, t, n, 1.4)), QUALITY.tier !== "low" || s) {
-        let a = new PointLight(t, s ? 3.4 : 2.2, 7, 2);
-        a.position.copy(o), this.scene.add(a), this.effects.push({
-          kind: "flashLight",
-          light: a,
-          t: 0,
-          life: 0.22,
-          peak: s ? 3.4 : 2.2
-        });
-      }
+      (this.flash(e, r > 1 ? 16769658 : 16747146), this.knock(e), this.shardBurst(o, t, n, s ? 1.4 : 1), this.shockRing(o, t, n, s), this.coreFlash(o, t, s), s && (this.groundShock(o, t, n), this.streakBurst(o, t, n, 1.4)), QUALITY.tier !== "low" || s) && this.flashLight(o, t, s ? 3.4 : 2.2, 7, 0.22);
+    }
+    /** A burst of light that dies away, from the pool (see lightFor). */
+    flashLight(at, color, peak, distance, life) {
+      let fx = {
+        kind: "flashLight",
+        t: 0,
+        life,
+        peak
+      };
+      (fx.light = this.lightFor(fx, color, peak, distance)) && (fx.light.position.copy(at), this.effects.push(fx));
     }
     shockRing(e, t, n, s) {
       let r = new Mesh(ringGeo(), fxMat(t, s ? 0.55 : 0.42));
@@ -859,7 +1069,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let n = this.trainer ? nt.copy(this.trainer.holder.position).add(nr.set(-0.35, 1.25, 0)).clone() : new Vector3(2.1, 1.6, 6.6),
         s = t.holder.position.clone().add(nr.set(0, 1.05, 0)),
         r = buildSphereProp(e.sphere);
-      r.position.copy(n), this.scene.add(r), audio.sfx("throw"), r.add(new PointLight(16766602, 3, 7, 2)), this.frozenUntil = Number.isFinite(e.until) ? e.until : Date.now() + 2400;
+      r.position.copy(n), this.scene.add(r), audio.sfx("throw"), this.frozenUntil = Number.isFinite(e.until) ? e.until : Date.now() + 2400;
       let o = Math.max(1.5, Math.min(3.2, (this.frozenUntil - Date.now()) / 1e3 - 0.25)),
         a = {
           kind: "sphere",
@@ -883,8 +1093,10 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         kind: "throwPose",
         t: 0
       });
-      let l = new PointLight(16773324, 6, 9, 2);
-      l.position.copy(s).add(nr.set(0, 1.2, 0)), this.scene.add(l), a.spot = l;
+      // Two pool lights: one the ball carries, one over it (stepSphere keeps
+      // both on it). The ball's is taken first, so a flash that needs a light
+      // takes that one and the brighter spot stays.
+      (a.glowLight = this.lightFor(r, 16766602, 3, 7)) && a.glowLight.position.copy(n), (a.spot = this.lightFor(a, 16773324, 6, 9)) && a.spot.position.copy(s).add(nr.set(0, 1.2, 0));
     }
     resolveCapture(e) {
       this.sphereFx || this.beginCapture({
@@ -902,7 +1114,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     update(e, t) {
       this.adapt(e), e = Math.min(0.06, Math.max(0, e || 0)), this.time += e;
       let n = !!this.sphereFx || Date.now() < this.frozenUntil;
-      this.stepStage(e, t, n), this.stepEffects(e), this.stepCamera(e), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera);
+      this.stepStage(e, t, n), this.stepEffects(e), this.stepCamera(e), this.stepGlow(), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera), this.pinPrograms();
     }
     stepStage(e, t, n) {
       for (let r of this.actors.keys()) {
@@ -1005,7 +1217,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
             e.mesh.scale.set(1, 1 + e.t * 0.6, 1), e.mesh.material.opacity = Math.max(0, 0.5 - e.t * 0.75), e.disc.scale.setScalar(1 + e.t * 1.6), e.disc.material.opacity = Math.max(0, 0.8 - e.t * 1.2), e.t > 0.7 && (this.dropFx(e.mesh), this.dropFx(e.disc), n = !0);
             break;
           case "flashLight":
-            e.light.intensity = Math.max(0, (e.peak ?? 6) * (1 - e.t / e.life)), e.t > e.life && (this.scene.remove(e.light), n = !0);
+            this.owns(e, e.light) ? (e.light.intensity = Math.max(0, (e.peak ?? 6) * (1 - e.t / e.life)), e.t > e.life && (this.freeLight(e, e.light), n = !0)) : n = !0;
             break;
           case "unflash":
             if (e.t > 0.14) {
@@ -1030,7 +1242,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
             {
               let s = Math.min(1, e.t / e.dur),
                 r = nt.copy(e.from).lerp(e.to, s);
-              if (r.y += Math.sin(s * Math.PI) * e.lift, r.distanceToSquared(e.prev) > 1e-5 && e.orb.lookAt(e.prev), e.orb.position.copy(r), e.prev.copy(r), e.flare.lookAt(this.camera.position), e.flare.scale.setScalar(0.55 + Math.sin(s * Math.PI) * 0.35), s >= 1) {
+              if (r.y += Math.sin(s * Math.PI) * e.lift, r.distanceToSquared(e.prev) > 1e-5 && e.orb.lookAt(e.prev), e.orb.position.copy(r), e.prev.copy(r), this.owns(e, e.light) && e.light.position.copy(r), e.flare.lookAt(this.camera.position), e.flare.scale.setScalar(0.55 + Math.sin(s * Math.PI) * 0.35), s >= 1) {
+                this.freeLight(e, e.light);
                 for (let o of e.orb.children) o.material && !o.material.userData.shared && o.material.dispose();
                 if (this.scene.remove(e.orb), e.aoe) {
                   let o = new Mesh(ringGeo(), fxMat(e.color, 0.4));
@@ -1170,7 +1383,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let n = e.ball,
         s = e.stretch;
       if (e.lastStep = Date.now(), e.lastStep - e.bornAt > 3e4) return this.finishSphere(e);
-      switch (e.spot && e.spot.position.set(n.position.x, n.position.y + 1.15, n.position.z), e.phase) {
+      switch (this.owns(e, e.spot) && e.spot.position.set(n.position.x, n.position.y + 1.15, n.position.z), this.owns(n, e.glowLight) && e.glowLight.position.copy(n.position), e.phase) {
         case "fly":
           {
             let r = Math.min(1, e.t / (0.46 * s));
@@ -1256,14 +1469,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
                 peak: 0.45,
                 ease: 3
               });
-              let o = new PointLight(16771496, 7, 11, 2);
-              o.position.copy(n.position), this.scene.add(o), this.effects.push({
-                kind: "flashLight",
-                light: o,
-                t: 0,
-                life: 0.8,
-                peak: 7
-              }), this.shake = Math.max(this.shake, 0.3);
+              this.flashLight(n.position, 16771496, 7, 11, 0.8), this.shake = Math.max(this.shake, 0.3);
             }
             if (n.scale.setScalar(1 + Math.sin(e.t * 14) * 0.06), e.t > 1.2) return this.finishSphere(e);
             break;
@@ -1287,7 +1493,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       return !1;
     }
     finishSphere(e) {
-      return e.target && e.locked && (e.target.lock--, e.locked = !1), e.beam && (this.dropFx(e.beam), e.beam = null), e.spot && (this.scene.remove(e.spot), e.spot = null), this.scene.remove(e.ball), fadeTree(e.ball), this.sphereFx === e && (this.sphereFx = null), this.frozenUntil = 0, !0;
+      return e.target && e.locked && (e.target.lock--, e.locked = !1), e.beam && (this.dropFx(e.beam), e.beam = null), this.freeLight(e, e.spot), this.freeLight(e.ball, e.glowLight), e.spot = e.glowLight = null, this.scene.remove(e.ball), fadeTree(e.ball), this.sphereFx === e && (this.sphereFx = null), this.frozenUntil = 0, !0;
     }
     project(e) {
       let t = e.clone().project(this.camera);
@@ -1530,8 +1736,13 @@ function buildStadium(accent = 3106512) {
     line = mat(16777215, {
       roughness: 0.6
     }),
-    seatA = mat(accent, {
+    // The challenger's colour is this stadium's own material, not the shared
+    // one, so the next fight can repaint it instead of building the stadium
+    // again (BattleView.tintStage).
+    seatA = Object.assign(mat(accent, {
       roughness: 0.6
+    }).clone(), {
+      userData: {}
     }),
     seatB = mat(16052714, {
       roughness: 0.7
@@ -1669,7 +1880,7 @@ function buildStadium(accent = 3106512) {
     m = mergeByMaterial(parts, {
       castShadow: !0
     });
-  return m.receiveShadow = !0, g.add(m), g;
+  return m.receiveShadow = !0, g.add(m), g.userData.accent = seatA, g;
 }
 
 function buildSphereProp(i) {
@@ -1692,6 +1903,60 @@ function buildSphereProp(i) {
   l.rotation.x = Math.PI / 2;
   let c = new Mesh(Tb(t), glowMat(16777215, 0.95));
   return o.castShadow = !0, a.castShadow = !0, e.add(o, a, l, c), e.userData.top = o, e.userData.bottom = a, e.userData.core = c, e;
+}
+
+/**
+ * A glowing creature brings its own point light. In a fight that would change
+ * how many lights the scene has, and with it every shader (see lightFor), so
+ * the light comes out and an empty marker takes its place; the pool lights the
+ * marker instead (stepGlow). Returns how it glowed, or null.
+ */
+function takeGlow(root) {
+  let found = [],
+    glow = null;
+  root.traverse((o) => {
+    o.isPointLight && found.push(o);
+  });
+  for (let p of found) {
+    let at = new Object3D();
+    at.position.copy(p.position), p.parent.add(at), p.parent.remove(p), glow || (glow = {
+      at,
+      color: p.color.getHex(),
+      intensity: p.intensity,
+      distance: p.distance,
+      decay: p.decay
+    });
+  }
+  return glow;
+}
+
+/**
+ * One of everything the effects draw, on the geometry they draw it with (a
+ * shader depends on which attributes a mesh has as well as on its material),
+ * for prewarm to compile. The sweep's material is never disposed: a custom
+ * shader keeps its compiled program only while some material still uses its
+ * source, and this one always does.
+ */
+var SWEEP_KEEP = null;
+
+function fxRehearsal() {
+  SWEEP_KEEP || (SWEEP_KEEP = lp(16777215, 0.5), SWEEP_KEEP.userData.shared = !0);
+  let g = new Group(),
+    add = (geo, m) => g.add(new Mesh(geo, m)),
+    fx = () => fxMat(16777215, 0.4, 0.2);
+  add(ringGeo(), fx()), add(_b(), fx()), add(Mb(), glowMat(16777215, 0.5)), add(wb(), glowMat(16777215, 0.8)), add(new ShapeGeometry(STAR_SHAPE), STAR_MAT), add(xb(12, 0), SWEEP_KEEP);
+  let shards = new InstancedMesh(vb(), fx(), 2);
+  shards.setColorAt(0, fb.setScalar(1)), shards.setColorAt(1, fb), g.add(shards);
+  let pts = new BufferGeometry();
+  pts.setAttribute("position", new BufferAttribute(new Float32Array(3), 3)), g.add(new Points(pts, new PointsMaterial({
+    color: 16777215,
+    size: 0.13,
+    transparent: !0,
+    opacity: 0.85,
+    blending: AdditiveBlending,
+    depthWrite: !1
+  })));
+  return g.add(buildSphereProp("sphere_basic"), softShadowTexture(1, 0.4)), g.userData.fx = !0, g;
 }
 
 function slotPosition(i, e) {
@@ -2216,4 +2481,4 @@ function Tb(i) {
 // fx defaults (were bundle bootstrap side effects)
 for (let k of Object.keys(ELEMENT_FX)) ELEMENT_FX[k] = { ...FX_DEFAULT, ...ELEMENT_FX[k] };
 
-export { ARENA_R, BattleView, ELEMENT_FX, Eb, FX_DEFAULT, Mb, SIDES, SIDE_DIR, SIDE_Z, SLOT_POS, SPHERE_COLORS, Sb, TRAINER_ID, Tb, Xd, _b, angleDelta, ap, audio, bb, beamGeo, brighten, buildSphereProp, cachedGeo, cb, cp, dashGeo, db, fadeTree, fb, flashGeo, fxFor, fxMat, gb, hb, ip, ir, latheFx, lb, lp, makeGeo, mb, np, nr, nt, pb, pp, ringGeo, rp, shellGeo, slotPosition, sp, speciesColor, ub, vb, wb, xb, xp, yb };
+export { ARENA_R, BattleView, ELEMENT_FX, Eb, FX_DEFAULT, Mb, SIDES, SIDE_DIR, SIDE_Z, SLOT_POS, SPHERE_COLORS, Sb, TRAINER_ID, Tb, Xd, _b, angleDelta, ap, audio, bb, beamGeo, brighten, buildSphereProp, cachedGeo, cb, cp, dashGeo, db, fadeTree, fb, flashGeo, fxFor, fxMat, gb, hb, ip, ir, latheFx, lb, lp, makeGeo, mb, np, nr, nt, pb, pp, ringGeo, rp, shellGeo, slotPosition, sp, speciesColor, takeGlow, ub, vb, wb, xb, xp, yb };

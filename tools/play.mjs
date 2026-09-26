@@ -12,6 +12,7 @@ import { chromium } from 'playwright';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import * as G from '../src/shared/gamedata.js';
 
 const PORT = 2653;
 let pass = 0, fail = 0;
@@ -110,6 +111,14 @@ const approach = () => page.evaluate(async () => {
   return { dist: +Math.hypot(live.x - sp.x, live.z - sp.z).toFixed(1), id: t.id, species: t.species };
 });
 
+// The fight is got ready while you walk (BattleView.prewarm, a few seconds
+// after arriving). Let it finish, as it would for anyone who walks a little
+// before their first fight — what is held below is that the fight then opens
+// without a freeze.
+const warmed = await page.waitForFunction(() => globalThis.__hobileBattleWarm != null, null, { timeout: 90000 })
+  .then(() => true).catch(() => false);
+ok('the first fight is got ready while the player walks', warmed);
+
 let hunt = null, reached = null, entered = false;
 for (let attempt = 0; attempt < 3 && !entered; attempt++) {
   const h = await approach();
@@ -122,9 +131,19 @@ for (let attempt = 0; attempt < 3 && !entered; attempt++) {
   hunt = h;
   if (h.err) { await wait(1500); continue; }
   reached = h;
-  await page.evaluate(() => { window.__hobile.engagePending = 0; window.__hobile.doAction('action'); });
-  // The first battle compiles its shaders, which in a software-GL browser is
-  // seconds of blocked main thread; a phone's GPU does it in a blink.
+  await page.evaluate(() => {
+    // Every frame from the button press until the fight has been up a while.
+    const gaps = window.__gaps = [];
+    let last = performance.now(), until = Infinity;
+    const tick = () => {
+      const n = performance.now();
+      gaps.push(n - last), last = n;
+      window.__hobile.mode === 'battle' && until === Infinity && (until = n + 2500);
+      n < until && requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    window.__hobile.engagePending = 0; window.__hobile.doAction('action');
+  });
   entered = await page.waitForFunction(() => window.__hobile?.mode === 'battle', null, { timeout: 30000 })
     .then(() => true).catch(() => false);
 }
@@ -147,6 +166,24 @@ if (entered) {
   });
   ok('the battle knows the whole team, not just the active creature', bt.team >= 1 && !!bt.you, JSON.stringify(bt));
   ok('both sides are on the field', bt.combatants >= 2, String(bt.combatants));
+  // It used to open on a frame of five seconds or more in this browser, every
+  // shader compiled at once; after the prewarm nothing is left to compile. A
+  // software-GL frame of the arena is a few hundred milliseconds by itself.
+  const longest = await page.evaluate(() => Math.round(Math.max(0, ...(window.__gaps || []))));
+  ok(`the first fight opens without a freeze (longest frame ${longest} ms)`, longest < 2500);
+  // Each move says what it will do to this foe: ▲ does double, ▼ half, ✕ nothing.
+  const marks = await page.evaluate(() => {
+    const g = window.__hobile, me = g.battle.combatants.find((c) => c.id === g.battle.youId),
+      foe = g.battle.combatants.find((c) => me && c.side !== me.side && c.kind !== 'trainer' && !c.benched);
+    return { foe: foe?.species, moves: [...document.querySelectorAll('#battle-skills .sk')].map((b) => ({
+      skill: b.dataset.skill, cls: b.querySelector('.eff')?.className || null, mark: b.querySelector('.eff')?.textContent ?? null })) };
+  });
+  const expect = (skill) => {
+    const m = G.MOVES[skill], mult = m?.type && m.kind !== 'status' ? G.typeMultiplier(m.type, G.SPECIES[marks.foe]?.types || []) : 1;
+    return mult > 1 ? '▲' : mult === 0 ? '✕' : mult < 1 ? '▼' : '';
+  };
+  ok('every move is marked for what it does to this foe',
+    marks.moves.length > 0 && marks.moves.every((m) => m.cls !== null && m.mark === expect(m.skill)), JSON.stringify(marks));
 
   // The home dock says `capturable: false`, so a sphere thrown here must be
   // refused and must cost nothing. Do it first, while the creature is fresh.

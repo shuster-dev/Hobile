@@ -1119,5 +1119,102 @@ section('balance');
   ok('a first catch costs a couple of fights, not six', ITEMS.sphere_basic.price <= 100 && ITEMS.potion_s.price <= 100);
 }
 
+// ---------------------------------------------------------------- the first fight
+// The first battle used to freeze for seconds as it opened, and the frame
+// after a hit hitched again: every change in the number of point lights
+// recompiled every lit shader, every disposed material took its program with
+// it, and each fight rebuilt its stage (twice, for the second battleInit).
+// A real GPU is needed to time that (the browser probes do); what can be held
+// here is the bookkeeping that prevents it.
+section('the first fight');
+{
+  const B = await import('../src/client/gfx/battle.js');
+  const THREE = await import('three');
+  const battleSrc = fs.readFileSync('src/client/gfx/battle.js', 'utf8');
+  ok('the fight makes its point lights once, as a pool, and nowhere else',
+    (battleSrc.match(/new PointLight\(/g) || []).length === 1 && /this\.pool\.push\(l\)/.test(battleSrc));
+  const bv = Object.create(B.BattleView.prototype);
+  Object.assign(bv, {
+    arena: new THREE.Group(), scene: new THREE.Scene(), pool: [], time: 0, actors: new Map(),
+    lights: { sun: { intensity: 1 }, hemi: { intensity: 1, color: new THREE.Color() } }, lightBase: {},
+    // no WebGL here: the sky and its environment map stand in, as made once
+    _skies: { open: { sky: new THREE.Object3D(), env: null }, pit: { sky: new THREE.Object3D(), env: null } },
+  });
+  for (let k = 0; k < 3; k++) {
+    const l = new THREE.PointLight(0xffffff, 0);
+    l.userData = { owner: null, stage: false, at: 0 };
+    bv.pool.push(l), bv.scene.add(l);
+  }
+  const lightsIn = (o) => { let n = 0; o.traverse((x) => { x.isPointLight && n++; }); return n; };
+  const meadow = { stage: 'clearing', palette: {}, element: 'verdant', zone: 'verdant_meadow' };
+  bv.setTheme('verdant', false, meadow);
+  const field = bv.arena.children[0];
+  bv.setTheme('ember', false, meadow);
+  ok('the next fight in the same meadow stands on the same stage, whatever the foe',
+    bv.arena.children.length === 1 && bv.arena.children[0] === field);
+  const town = { stage: 'stadium', palette: {}, element: 'verdant', zone: 'aetherport' };
+  bv.setTheme('verdant', false, town);
+  const stadium = bv.arena.children[0], seat = stadium.userData.accent, before = seat?.color.getHex();
+  bv.setTheme('volt', false, town);
+  ok('the stadium is repainted in the challenger\'s colour, not built again',
+    bv.arena.children[0] === stadium && seat && seat.color.getHex() !== before && !seat.userData.shared);
+  bv.setTheme('aqua', true);
+  ok('a dungeon\'s lamp is a pool light, and the scene keeps its three',
+    bv.lamp === bv.pool[0] && bv.pool[0].userData.stage && bv.pool[0].intensity > 0 && lightsIn(bv.scene) === 3);
+  bv.setTheme('verdant', false, meadow);
+  ok('and it goes back to the pool when the stage comes down', !bv.pool[0].userData.stage && bv.pool[0].intensity === 0 && !bv.lamp);
+  const [a, b, c, d] = [{}, {}, {}, {}];
+  const la = bv.lightFor(a, 0xff0000, 2), lb = bv.lightFor(b, 0x00ff00, 2), lc = bv.lightFor(c, 0x0000ff, 2);
+  bv.time = 1;
+  const ld = bv.lightFor(d, 0xffffff, 3);
+  ok('three effects get three lights; a fourth takes the one held longest',
+    new Set([la, lb, lc]).size === 3 && ld === la && bv.owns(d, la) && !bv.owns(a, la));
+  bv.freeLight(a, la);
+  ok('an effect whose light was taken leaves it alone', la.intensity === 3 && bv.owns(d, la));
+  for (const [o, l] of [[b, lb], [c, lc], [d, ld]]) bv.freeLight(o, l);
+  ok('and a light given back goes dark', bv.pool.every((l) => l.intensity === 0 && !l.userData.owner));
+  // A glowing creature's own light comes out on spawn; the pool lights it.
+  const body = new THREE.Group(), lamp = new THREE.PointLight(0x88ccff, 2.2, 5, 2);
+  lamp.position.set(0, 1.2, 0), body.add(lamp);
+  const glow = B.takeGlow(body), holder = new THREE.Group();
+  holder.add(body), holder.position.set(2, 0, -1), holder.updateMatrixWorld(true);
+  bv.actors.set('g', { glow, holder, hidden: false, downed: false, benched: false });
+  bv.stepGlow();
+  const lit = bv.pool.find((l) => l.intensity > 0);
+  ok('a glowing creature brings no light of its own into the fight', lightsIn(body) === 0 && glow && glow.intensity === 2.2);
+  ok('the pool lights it where its light was',
+    lit && lit.color.getHex() === 0x88ccff && lit.position.distanceTo(new THREE.Vector3(2, 1.2, -1)) < 1e-6);
+  const fx = {}, taken = bv.lightFor(fx, 0xffffff, 1);
+  bv.stepGlow();
+  ok('an effect that needs a light outranks the glow, which moves to a free one',
+    bv.owns(fx, taken) && bv.pool.filter((l) => !l.userData.owner && l.intensity > 0).length === 1);
+  // Programs: one reference held on each, once.
+  const progs = [{ usedTimes: 1 }, { usedTimes: 2 }];
+  bv.renderer = { info: { programs: progs } };
+  bv.pinPrograms(), bv.pinPrograms();
+  ok('every program the fight compiles is held for the session, once', progs[0].usedTimes === 2 && progs[1].usedTimes === 3);
+  ok('and it is held from the frame that built it', /this\.renderer\.render\(this\.scene, this\.camera\), this\.pinPrograms\(\)/.test(battleSrc));
+  // The way back: the zone you left is still standing.
+  const W = await import('../src/client/gfx/world.js');
+  const wv = Object.create(W.WorldView.prototype), kept = new THREE.Group();
+  let plates = 0;
+  Object.assign(wv, { zone: { id: 'verdant_meadow' }, zoneGroup: new THREE.Group(), interior: null, clearPlates: () => { plates++; } });
+  wv.zoneGroup.add(kept);
+  wv.loadZone({ id: 'verdant_meadow' });
+  ok('coming back from a fight keeps the zone that is standing', wv.zoneGroup.children[0] === kept && plates === 1);
+  // What the server cannot do yet is not offered.
+  const U = await import('../src/client/ui.js');
+  const opened = (id) => {
+    const u = Object.create(U.UI.prototype);
+    Object.assign(u, { openPanelId: null, closeDialogue() {}, panelHost: { classList: { add() {} } }, renderPanel() {}, hooks: {} });
+    u.openPanel(id);
+    return u.openPanelId;
+  };
+  ok('friends, party and guild stay shut until the server has them',
+    U.SOCIAL === false && ['friends', 'party', 'guild'].every((id) => opened(id) === null) && opened('bag') === 'bag');
+  const gameSrc = fs.readFileSync('src/client/game.js', 'utf8');
+  ok('and standing next to a player offers no duel', /a = SOCIAL \? this\.nearestPlayer\(n\) : null/.test(gameSrc));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
