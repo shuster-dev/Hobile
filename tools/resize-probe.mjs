@@ -8,6 +8,7 @@ const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium_head
 const p = await b.newPage({ viewport:{width:430,height:880}, deviceScaleFactor:2 });
 await p.goto('http://127.0.0.1:2619/solo.html', { waitUntil:'load' });
 await p.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
+await p.waitForSelector('#btn-next', { timeout: 25000 }); await p.click('#btn-next');
 await p.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await p.click('#pick-starter .starter'); await p.fill('#in-charname','QA'); await p.click('#btn-create');
 await p.waitForFunction(() => window.__hobile?.mode === 'world', null, { timeout: 30000 });

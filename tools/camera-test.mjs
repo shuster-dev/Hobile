@@ -47,6 +47,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
 await page.waitForSelector('#btn-play:not([disabled])', { timeout: 30000 });
 await page.click('#btn-play');
+await page.waitForSelector('#btn-next', { timeout: 25000 }); await page.click('#btn-next');
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'Lens');

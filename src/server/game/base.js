@@ -177,7 +177,9 @@ var StoreBase = class {
         body: e.appearance.body,
         skin: e.appearance.skin,
         hair: e.appearance.hair,
-        outfit: e.appearance.outfit
+        outfit: e.appearance.outfit,
+        kind: e.appearance.kind,
+        look: e.appearance.look
       });
       for (let n = 0; n < WILD_COUNT; n++) this.spawnWild();
       this.scheduleBoss(), this.timer = setInterval(() => this.tick(), TICK_MS), setTimeout(() => this.welcome(), 60);

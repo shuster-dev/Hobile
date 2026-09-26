@@ -52,11 +52,21 @@ await page.waitForSelector('#btn-play:not([disabled])', { timeout: 30000 });
 await wait(3000);
 await snap('0-title');
 await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
+await page.waitForSelector('#btn-next', { timeout: 25000 });
+// The cards' portraits are drawn one a frame, after the stage's figure.
+await page.waitForFunction(() => document.querySelectorAll('#pick-kind .cc-kind img').length >= 7, null, { timeout: 30000 }).catch(() => {});
+await wait(2400);
+await snap('1-create');
+// Another kind: the stage, the name and the colour follow it.
+await page.click('#pick-kind .cc-kind[data-kind="mage"]');
+await wait(2600);
+await snap('1a-create-mage');
+await page.click('#pick-kind .cc-kind[data-kind="catcher"]');
+await page.click('#btn-next');
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
-// The stage's figures and the starter portraits load their models first.
 await page.waitForSelector('#pick-starter .portrait', { timeout: 12000 }).catch(() => {});
 await wait(2200);
-await snap('1-create');
+await snap('1b-partner');
 
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'מאיר');

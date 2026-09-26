@@ -155,6 +155,7 @@ export class WorldRoom extends Room {
       petSpecies: activeCreature(doc)?.species || '', hpRatio: hpRatio(doc),
       body: doc.appearance.body, skin: doc.appearance.skin,
       hair: doc.appearance.hair, outfit: doc.appearance.outfit,
+      kind: doc.appearance.kind, look: doc.appearance.look,
     });
     this.state.players.set(client.sessionId, p);
     this.docsBySession.set(client.sessionId, doc);

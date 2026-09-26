@@ -4645,10 +4645,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           }));
           if (o.position.set(n.x, s + 2.2, n.z), o.castShadow = !0, t.add(r, o), n.kind === "npc") {
             let a = buildAvatar({
-              body: "stocky",
+              kind: "mage",
+              look: "a",
               skin: "#e0ac7e",
-              hair: "#e8e8e8",
-              outfit: "scholar"
+              hairC: "#e8e8e8"
             });
             a.position.set(n.x + 0.9, s, n.z), a.rotation.y = Math.PI, a.userData.baseY = s, t.add(a), this.npcAvatar = a;
           }
@@ -4743,18 +4743,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     buildNpcs() {
       let e = new Group();
       for (let t of Object.values(NPCS)) {
+        // Dressed as the kind of adventurer each of them is, in their own hair.
         let n = buildAvatar({
-            body: t.body,
-            skin: t.skin,
-            hair: t.hair,
-            outfit: t.outfit
-          }),
-          s = AVATAR.outfits.find(l => l.id === t.outfit) || AVATAR.outfits[0],
-          r = buildNpcBody(t.outfit, {
-            coat: new Color(s.a).getHex(),
-            trouser: new Color(s.b).getHex()
-          });
-        r && n.add(r);
+          kind: t.kind,
+          look: t.look,
+          skin: t.skin,
+          hairC: t.hair,
+          scale: t.scale
+        });
         let o = new Group();
         o.add(n, softShadowTexture(0.6, 0.3));
         let a = new Mesh(new OctahedronGeometry(0.3, 0), glowMat(3139280, 0.55));
@@ -4974,13 +4970,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         };
       });
       let f = npcNear(e, n),
-        p = buildAvatar(f),
-        x = AVATAR.outfits.find(T => T.id === f.outfit) || AVATAR.outfits[0],
-        g = buildNpcBody(f.outfit, {
-          coat: new Color(x.a).getHex(),
-          trouser: new Color(x.b).getHex()
-        });
-      g && p.add(g);
+        p = buildAvatar({ ...f, hairC: f.hair });
       let m = new Group();
       m.add(p, softShadowTexture(0.6, 0.26)), m.position.set(h.npc.x, 0, h.npc.z), m.rotation.y = h.npc.ry, h.group.add(m), u.keeper = {
         holder: m,
@@ -5767,7 +5757,10 @@ function npcNear(i, e) {
     body: t.body,
     skin: t.skin,
     hair: t.hair,
-    outfit: t.outfit
+    outfit: t.outfit,
+    kind: t.kind,
+    look: t.look,
+    scale: t.scale
   };
   let n = {
     clinic: {
@@ -5778,7 +5771,9 @@ function npcNear(i, e) {
       body: "slim",
       skin: "#d8a97f",
       hair: "#3a2f2a",
-      outfit: "tide"
+      outfit: "tide",
+      kind: "mage",
+      look: "b"
     },
     shop: {
       id: "trader",
@@ -5788,7 +5783,9 @@ function npcNear(i, e) {
       body: "stocky",
       skin: "#8a5a3c",
       hair: "#2b1b16",
-      outfit: "wanderer"
+      outfit: "wanderer",
+      kind: "pirate",
+      look: "a"
     },
     archive: {
       id: "clerk",
@@ -5798,7 +5795,9 @@ function npcNear(i, e) {
       body: "tall",
       skin: "#c98f63",
       hair: "#d8d4cc",
-      outfit: "scholar"
+      outfit: "scholar",
+      kind: "explorer",
+      look: "a"
     },
     workshop: {
       id: "smith",
@@ -5808,7 +5807,9 @@ function npcNear(i, e) {
       body: "stocky",
       skin: "#6f452c",
       hair: "#151515",
-      outfit: "ranger"
+      outfit: "ranger",
+      kind: "fire",
+      look: "a"
     }
   };
   return n[e] || n.shop;

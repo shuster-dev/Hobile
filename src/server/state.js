@@ -13,6 +13,7 @@ defineTypes(PlayerState, {
   guildTag: 'string', partyId: 'string',
   petSpecies: 'string', hpRatio: 'number',
   body: 'string', skin: 'string', hair: 'string', outfit: 'string',
+  kind: 'string', look: 'string',
 });
 
 // `alert` is what shows over its head — '!' it has seen someone and is coming,

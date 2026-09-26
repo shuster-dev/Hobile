@@ -1216,5 +1216,80 @@ section('the first fight');
   ok('and standing next to a player offers no duel', /a = SOCIAL \? this\.nearestPlayer\(n\) : null/.test(gameSrc));
 }
 
+// ---------------------------------------------------------------- people
+// The adventurers: seven kinds, two looks each, sculpted like the creatures,
+// and what a character is saved as.
+section('people');
+{
+  const Pe = await import('../src/client/gfx/people.js');
+  ok('the kinds the server knows are the kinds the client can draw',
+    JSON.stringify(G.AVATAR.kinds) === JSON.stringify(Pe.KIND_IDS), `${G.AVATAR.kinds} vs ${Pe.KIND_IDS}`);
+  const badMeta = Pe.KIND_IDS.filter((id) => {
+    const k = Pe.KINDS[id];
+    return !(k.he && k.en && k.line && /^#[0-9a-f]{6}$/i.test(k.accent) && k.hair?.length === 2);
+  });
+  ok('every kind has a name, a line, a colour and hair for both looks', badMeta.length === 0, badMeta.join(','));
+  const bad = [];
+  for (const kind of Pe.KIND_IDS) for (const look of G.AVATAR.looks) {
+    try {
+      const g = Pe.buildPerson({ kind, look, skin: G.AVATAR.skins[2] }, { hi: true });
+      const m = g.userData.model, geo = m.T.geoHi;
+      const tris = geo.index.count / 3, nb = m.T.names.length;
+      const col = geo.attributes.color?.array || [], si = geo.attributes.skinIndex.array, sw = geo.attributes.skinWeight.array;
+      let nan = 0, badBone = 0, badW = 0;
+      for (let i = 0; i < col.length; i++) if (!Number.isFinite(col[i])) nan++;
+      for (let i = 0; i < si.length; i++) if (si[i] >= nb) badBone++;
+      for (let i = 0; i < sw.length; i += 4) if (Math.abs(sw[i] + sw[i + 1] + sw[i + 2] + sw[i + 3] - 1) > 1e-3) badW++;
+      const why = [];
+      if (tris < 3000 || tris > 26000) why.push(`hi ${tris}`);
+      if (nan) why.push(`${nan} bad colours`);
+      if (badBone) why.push(`${badBone} bad bones`);
+      if (badW) why.push(`${badW} bad weights`);
+      if (!(g.userData.height > 1.25 && g.userData.height < 2.3)) why.push(`height ${g.userData.height}`);
+      if (geo.boundingBox.min.y < -0.03) why.push('below the ground');
+      if (g.userData.kind !== kind || !g.userData.rig?.person) why.push('rig');
+      if (why.length) bad.push(`${kind}/${look}: ${why.join(', ')}`);
+    } catch (e) { bad.push(`${kind}/${look}: ${e.message}`); }
+  }
+  ok('every kind and look bakes: in budget, sound colours, bones and weights, standing on the ground', bad.length === 0, bad.join(' | '));
+  // the creator's close-up: a finer mesh, swapped in once it is baked
+  const g = Pe.buildPerson({ kind: 'mage', look: 'a', skin: G.AVATAR.skins[1] }, { hi: true });
+  const m = g.userData.model, before = m.mesh.geometry.index.count;
+  await new Promise((r) => Fig.closeUp(m, 96, r));
+  ok('a figure seen up close gets a finer mesh', m.mesh.geometry === m.T.geoClose && m.mesh.geometry.index.count > before * 1.5,
+    `${before} -> ${m.mesh.geometry.index.count}`);
+  // one-off moves: every kind's own, and the fight's
+  const moveBad = [];
+  for (const id of Pe.KIND_IDS) {
+    const p = Pe.buildPerson({ kind: id, look: 'a' });
+    const C = await import('../src/client/gfx/creatures.js');
+    for (const mv of [Pe.KINDS[id].pose, 'throw', 'hit', 'cheer']) {
+      if (!Pe.personAct(p, mv, 0.5)) { moveBad.push(`${id}:${mv}`); continue; }
+      for (let t = 0; t < 40; t++) C.animateCreature(p, 1000 + t * 16, false);
+      const q = p.userData.model.bones.armR.quaternion;
+      if (![q.x, q.y, q.z, q.w].every(Number.isFinite)) moveBad.push(`${id}:${mv} NaN`);
+    }
+  }
+  ok('every kind can play its own move, a throw, a flinch and a cheer', moveBad.length === 0, moveBad.join(','));
+
+  // what a character is saved as
+  const L = G.avatarLook;
+  ok('a kind and a look are kept as chosen', L({ kind: 'pirate', look: 'b' }).kind === 'pirate' && L({ kind: 'pirate', look: 'b' }).look === 'b');
+  ok('a character from before kinds is dressed as the kind nearest its outfit',
+    L({ outfit: 'scholar', body: 'slim' }).kind === 'mage' && L({ outfit: 'scholar', body: 'slim' }).look === 'b');
+  ok('an unknown kind or a bad skin falls back', L({ kind: 'dragon', skin: 'red' }).kind === 'explorer' && /^#[0-9a-f]{6}$/i.test(L({ skin: 'red' }).skin));
+  const doc = C.createPlayerDoc('qa-p', 'QA', { kind: 'ranger', look: 'b', skin: G.AVATAR.skins[3] }, G.STARTERS[0]);
+  C.normalizeDoc(doc);
+  ok('a new character keeps its kind, look and skin', doc.appearance.kind === 'ranger' && doc.appearance.look === 'b' && doc.appearance.skin === G.AVATAR.skins[3]);
+  const old = C.createPlayerDoc('qa-o', 'QA', {}, G.STARTERS[0]);
+  old.appearance = { body: 'stocky', skin: '#e0ac7e', hair: '#2a1c14', outfit: 'tide' };
+  C.normalizeDoc(old);
+  ok('an old save loads as a kind', old.appearance.kind === 'pirate' && old.appearance.look === 'a');
+  const html = fs.readFileSync('src/client/index.html', 'utf8');
+  ok('the creator has its two steps and every control',
+    ['cc-step1', 'cc-step2', 'pick-kind', 'pick-look', 'pick-skin', 'pick-starter', 'in-charname', 'btn-next', 'btn-back', 'btn-create', 'creator-stage']
+      .every((id) => html.includes(`id="${id}"`)));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

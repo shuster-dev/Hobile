@@ -3061,8 +3061,18 @@ function starRank(i, e) {
 }
 
 var AVATAR = {
+  // The kinds of adventurer a player can be; src/client/gfx/people.js dresses
+  // them. A character is a kind, one of two looks, and a skin tone.
+  kinds: ["rogue", "pirate", "fire", "catcher", "ranger", "mage", "explorer"],
+  looks: ["a", "b"],
+  // Warmer than they look on a swatch: a figure is lit from the ground under
+  // it, and a meadow's green bounce turns a neutral tone grey.
+  skins: ["#fbd7bd", "#f2b98e", "#dc955f", "#b86d3a", "#8a4c26", "#5c3119"],
+  // Characters made before there were kinds: the kind nearest their outfit,
+  // and back the other way for anything that still reads an outfit.
+  legacyKind: { wanderer: "explorer", ranger: "ranger", scholar: "mage", nomad: "fire", shade: "rogue", tide: "pirate" },
+  kindOutfit: { explorer: "wanderer", ranger: "ranger", mage: "scholar", fire: "nomad", rogue: "shade", pirate: "tide", catcher: "wanderer" },
   bodies: ["slim", "stocky", "tall"],
-  skins: ["#f6d3b1", "#e0ac7e", "#c68642", "#8d5524", "#5a3821", "#f0dcc8"],
   hair: ["#2b1b16", "#6b3e1e", "#c9a227", "#d94f4f", "#3f7ad9", "#8b5cf6", "#e8e8e8", "#2fb27a"],
   outfits: [{
     id: "wanderer",
@@ -3162,4 +3172,22 @@ for (let z of Object.values(ZONES)) if (z.capturable) Object.assign(QUESTS, zone
 Object.assign(QUESTS, NPC_QUESTS);
 Object.assign(ITEMS, MATERIALS);
 
-export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+/**
+ * An appearance, made whole: a kind (from the outfit, for a character made
+ * before kinds), a look, a skin from the palette. Unknown values fall back;
+ * the old fields are kept, and filled, for anything that still reads them.
+ */
+function avatarLook(a = {}) {
+  let kind = AVATAR.kinds.includes(a.kind) ? a.kind : AVATAR.legacyKind[a.outfit] || "explorer",
+    look = AVATAR.looks.includes(a.look) ? a.look : a.body === "slim" ? "b" : "a";
+  return {
+    kind,
+    look,
+    skin: typeof a.skin == "string" && /^#[0-9a-f]{6}$/i.test(a.skin) ? a.skin : AVATAR.skins[1],
+    body: AVATAR.bodies.includes(a.body) ? a.body : look === "b" ? "slim" : "stocky",
+    hair: typeof a.hair == "string" && /^#[0-9a-f]{6}$/i.test(a.hair) ? a.hair : AVATAR.hair[0],
+    outfit: AVATAR.outfits.some(o => o.id === a.outfit) ? a.outfit : AVATAR.kindOutfit[kind] || AVATAR.outfits[0].id
+  };
+}
+
+export { ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

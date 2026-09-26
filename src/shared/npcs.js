@@ -1,6 +1,8 @@
 var NPCS = {
   maro: {
     id: "maro",
+    kind: "mage",
+    look: "a",
     name: "Elder Maro",
     he: "הזקן מארו",
     role: "guide",
@@ -38,6 +40,8 @@ var NPCS = {
   },
   tavi: {
     id: "tavi",
+    kind: "explorer",
+    look: "a",
     name: "Tavi",
     he: "טאבי",
     role: "shop",
@@ -70,6 +74,8 @@ var NPCS = {
   },
   ren: {
     id: "ren",
+    kind: "fire",
+    look: "a",
     name: "Ren",
     he: "רן",
     role: "smith",
@@ -102,6 +108,8 @@ var NPCS = {
   },
   sela: {
     id: "sela",
+    kind: "ranger",
+    look: "b",
     name: "Sela",
     he: "סלע",
     role: "warden",
@@ -134,6 +142,9 @@ var NPCS = {
   },
   bex: {
     id: "bex",
+    kind: "catcher",
+    look: "b",
+    scale: 0.82,
     name: "Bex",
     he: "בקס",
     role: "kid",

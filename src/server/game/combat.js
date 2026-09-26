@@ -1,5 +1,5 @@
 import { heldProgress, questState } from '../../shared/story.js';
-import { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
+import { ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
 var combatantSeq = 0,
   combatantId = () => `c${++combatantSeq}`,
@@ -702,12 +702,7 @@ function createPlayerDoc(i, e, t = {}, n = "sproutle") {
     x: 0,
     y: 0,
     z: 4,
-    appearance: {
-      body: t.body ?? AVATAR.bodies[0],
-      skin: t.skin ?? AVATAR.skins[0],
-      hair: t.hair ?? AVATAR.hair[0],
-      outfit: t.outfit ?? AVATAR.outfits[0].id
-    },
+    appearance: avatarLook(t || {}),
     team: [s.uid],
     box: [],
     creatures: {
@@ -933,6 +928,8 @@ function dexView(doc) {
 
 function normalizeDoc(i) {
   ensureQuests(i);
+  // Characters from before there were kinds get the one nearest their outfit.
+  i.appearance = avatarLook(i.appearance || {});
   // Creatures made before that fix are still short of their own level. Give
   // each what its level already implies, keep what it earned on top, and stop
   // one point short of the next level, so a level-up still happens in a fight

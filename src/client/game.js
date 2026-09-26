@@ -2,7 +2,8 @@ import { Vector3 } from 'three';
 import { vibrate } from './audio.js';
 import { device, initDevice, isFullscreen, toggleFullscreen } from './device.js';
 import { BattleView, audio } from './gfx/battle.js';
-import { CreatorStage, portraits } from './gfx/stage.js';
+import { CreatorStage, PortraitPainter, portraits } from './gfx/stage.js';
+import { KINDS } from './gfx/people.js';
 import { WorldView } from './gfx/world.js';
 import { CameraRig, Joystick, Keyboard } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
@@ -14,6 +15,13 @@ import { weatherAt } from '../shared/weather.js';
 import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
 
 var WANT_LOGIN = "hobile.wantLogin";
+
+// One line on each starter, for the creator's second step.
+var STARTER_LINES = {
+  cindcub: "גור אש נאמן. מתלהט מהר, ולא נסוג מאף קרב.",
+  puddlet: "רגוע כמו מים עומדים — עד שמישהו נוגע בחברים שלו.",
+  sproutle: "צומח עם כל ניצחון. סבלני, עמיד, ותמיד לצידך."
+};
 
 var Game = class {
   constructor(e) {
@@ -218,86 +226,176 @@ var Game = class {
       }
     };
   }
+  /**
+   * Character creation, in two steps on one stage: who you are (a kind of
+   * adventurer, one of two looks, a skin tone), then who comes with you (a
+   * starter) and your name. The stage and the portraits are decoration: if
+   * WebGL is short of contexts the form still works without them.
+   */
   showCreate() {
     this.ui.showScreen("create"), this.ui.setMode("none");
-    let e = {
-        body: AVATAR.bodies[0],
-        skin: AVATAR.skins[0],
-        hair: AVATAR.hair[0],
-        outfit: AVATAR.outfits[0].id,
-        starter: STARTERS[0]
+    let root = $("#screen-create"),
+      e = {
+        kind: "catcher",
+        look: "a",
+        skin: AVATAR.skins[1],
+        starter: STARTERS[0],
+        step: 1
       },
-      // The stage follows every pick the moment it is made.
-      show = () => this.creatorStage?.set({
-        body: e.body,
-        skin: e.skin,
-        hair: e.hair,
-        outfit: e.outfit
-      }, e.starter),
-      t = (o, a, l, c) => {
-        let h = $(o);
-        h.innerHTML = "";
-        for (let d of a) {
-          let u = document.createElement("button");
-          u.className = `chip ${e[l] === (d.id ?? d) ? "on" : ""}`, u.textContent = c(d), u.onclick = () => {
-            e[l] = d.id ?? d, t(o, a, l, c), show();
-          }, h.appendChild(u);
+      stage = null,
+      painter = null,
+      starterPics = {},
+      look = () => ({ kind: e.kind, look: e.look, skin: e.skin }),
+      K = () => KINDS[e.kind],
+      hero = (swap = !0) => {
+        let h = $("#cc-hero"), k = K();
+        if (e.step === 1) $("#cc-en").textContent = k.en, $("#cc-name").textContent = k.he, $("#cc-line").textContent = k.line;
+        else {
+          let sp = SPECIES[e.starter], el = ELEMENTS[sp.types[0]];
+          $("#cc-en").textContent = el.name, $("#cc-name").textContent = loc(sp), $("#cc-line").textContent = STARTER_LINES[e.starter] || "";
+        }
+        swap && (h.classList.remove("swap"), void h.offsetWidth, h.classList.add("swap"));
+      },
+      paint = () => {
+        let acc = e.step === 1 ? K().accent : ELEMENTS[SPECIES[e.starter].types[0]].ui || K().accent;
+        root.style.setProperty("--acc", acc), stage?.setHero(look()), stage?.setAccent(e.step === 1 ? null : acc);
+      },
+      kinds = () => {
+        let box = $("#pick-kind");
+        box.innerHTML = "";
+        for (let id of AVATAR.kinds) {
+          let k = KINDS[id], b = document.createElement("button");
+          b.type = "button", b.className = `cc-kind ${e.kind === id ? "on" : ""}`, b.dataset.kind = id, b.style.setProperty("--k", k.accent);
+          b.setAttribute("role", "radio"), b.setAttribute("aria-checked", String(e.kind === id)), b.setAttribute("aria-label", k.he);
+          b.innerHTML = `<span>${k.he}</span>`;
+          b.onclick = () => pickKind(id);
+          box.appendChild(b);
+          painter?.want({ kind: id, look: e.look, skin: AVATAR.skins[1] }, (url) => {
+            if (!b.isConnected || b.querySelector("img")) return;
+            let img = new Image();
+            img.alt = "", img.src = url, b.prepend(img);
+          });
         }
       },
-      n = (o, a, l) => {
-        let c = $(o);
-        c.innerHTML = "";
-        for (let h of a) {
-          let d = document.createElement("button");
-          d.className = `swatch ${e[l] === h ? "on" : ""}`, d.style.background = h, d.onclick = () => {
-            e[l] = h, n(o, a, l), show();
-          }, c.appendChild(d);
+      markKind = () => {
+        for (let b of document.querySelectorAll("#pick-kind .cc-kind")) {
+          let on = b.dataset.kind === e.kind;
+          b.classList.toggle("on", on), b.setAttribute("aria-checked", String(on));
+          on && b.scrollIntoView?.({ inline: "center", block: "nearest", behavior: "smooth" });
         }
-      };
-    t("#pick-body", AVATAR.bodies, "body", o => ({
-      slim: "רזה",
-      stocky: "מוצק",
-      tall: "גבוה"
-    })[o] || o), n("#pick-skin", AVATAR.skins, "skin"), n("#pick-hair", AVATAR.hair, "hair"), t("#pick-outfit", AVATAR.outfits, "outfit", o => loc(o));
-    let s = $("#pick-starter"),
-      pics = {},
-      r = () => {
-        s.innerHTML = "";
+      },
+      looks = () => {
+        let box = $("#pick-look");
+        box.innerHTML = "";
+        for (let id of AVATAR.looks) {
+          let b = document.createElement("button");
+          b.type = "button", b.className = `cc-look ${e.look === id ? "on" : ""}`, b.setAttribute("role", "radio"), b.setAttribute("aria-checked", String(e.look === id)), b.setAttribute("aria-label", id === "a" ? "מראה ראשון" : "מראה שני");
+          b.onclick = () => {
+            e.look !== id && (e.look = id, looks(), kinds(), paint());
+          };
+          box.appendChild(b);
+          painter?.want({ kind: e.kind, look: id, skin: e.skin }, (url) => {
+            if (!b.isConnected) return;
+            let img = new Image();
+            img.alt = "", img.src = url, b.replaceChildren(img);
+          });
+        }
+      },
+      skins = () => {
+        let box = $("#pick-skin");
+        box.innerHTML = "";
+        for (let c of AVATAR.skins) {
+          let b = document.createElement("button");
+          b.type = "button", b.className = `cc-skin ${e.skin === c ? "on" : ""}`, b.style.background = `radial-gradient(circle at 35% 30%,#fff5,transparent 55%),${c}`;
+          b.setAttribute("role", "radio"), b.setAttribute("aria-checked", String(e.skin === c)), b.setAttribute("aria-label", "גוון עור");
+          b.onclick = () => {
+            e.skin !== c && (e.skin = c, skins(), looks(), paint());
+          };
+          box.appendChild(b);
+        }
+      },
+      pickKind = (id) => {
+        e.kind !== id && (e.kind = id, markKind(), looks(), hero(), paint());
+      },
+      step = (n) => {
+        e.step = n;
+        let a = $("#cc-step1"), b = $("#cc-step2"), show = n === 1 ? a : b;
+        a.classList.toggle("hidden", n !== 1), b.classList.toggle("hidden", n !== 2);
+        show.classList.remove("in"), void show.offsetWidth, show.classList.add("in");
+        let dots = document.querySelectorAll("#screen-create .cc-steps i");
+        dots.forEach((d, i) => d.classList.toggle("on", i === n - 1));
+        $("#cc-title").textContent = n === 1 ? "בחירת דמות" : "בחירת שותף";
+        $("#cc-prev").classList.toggle("hidden", n !== 1), $("#cc-next").classList.toggle("hidden", n !== 1);
+        hero(), paint(), stage?.focus(n === 1 ? "hero" : "duo"), stage?.setPet(n === 1 ? null : e.starter);
+      },
+      starters = () => {
+        let box = $("#pick-starter");
+        box.innerHTML = "";
         for (let o of STARTERS) {
-          let a = SPECIES[o],
-            l = document.createElement("button");
-          l.className = `starter ${e.starter === o ? "on" : ""}`, l.innerHTML = `${pics[o] ? `<img class="portrait" alt="" src="${pics[o]}">` : ""}<div class="dot" style="background:#${a.model.a.toString(16).padStart(6, "0")}"></div>
-          <b>${loc(a)}</b><span>${ELEMENTS[a.types[0]].icon} ${loc(ELEMENTS[a.types[0]])}</span>`, l.onclick = () => {
-            e.starter = o, r(), show();
-          }, s.appendChild(l);
+          let a = SPECIES[o], el = ELEMENTS[a.types[0]], l = document.createElement("button");
+          l.type = "button", l.className = `starter ${e.starter === o ? "on" : ""}`, l.style.setProperty("--el", el.ui || "#6ea8ff");
+          l.setAttribute("role", "radio"), l.setAttribute("aria-checked", String(e.starter === o));
+          l.innerHTML = `${starterPics[o] ? `<img class="portrait" alt="" src="${starterPics[o]}">` : ""}<div class="dot" style="background:#${a.model.a.toString(16).padStart(6, "0")}"></div>
+          <b>${loc(a)}</b><span>${el.icon} ${loc(el)}</span>`, l.onclick = () => {
+            e.starter !== o && (e.starter = o, starters(), stage?.setPet(o), hero(), paint());
+          }, box.appendChild(l);
         }
       };
-    // The stage and the portraits are decoration: if WebGL is short of
-    // contexts or a model will not load, the form still works with circles.
     try {
-      this.creatorStage?.dispose(), this.creatorStage = new CreatorStage($("#creator-stage")), show();
+      this.creatorStage?.dispose(), this.creatorStage = stage = new CreatorStage($("#creator-stage"), {
+        reserve: () => $("#cc-hero").getBoundingClientRect().bottom - $("#creator-stage").getBoundingClientRect().top + 10
+      });
     } catch (o) {
-      this.creatorStage = null, $("#creator-stage")?.classList.add("hidden");
+      this.creatorStage = stage = null;
     }
+    try {
+      this.creatorPainter?.dispose(), this.creatorPainter = painter = new PortraitPainter();
+    } catch (o) {
+      this.creatorPainter = painter = null;
+    }
+    $("#creator-stage").classList.toggle("hidden", !stage);
+    kinds(), looks(), skins(), starters(), step(1), setTimeout(markKind, 60);
+    // the other look's cards, drawn while the player looks at this one
+    for (let id of AVATAR.kinds) painter?.want({ kind: id, look: "b", skin: AVATAR.skins[1] }, () => {});
+    let cycle = (d) => {
+      let i = AVATAR.kinds.indexOf(e.kind);
+      pickKind(AVATAR.kinds[(i + d + AVATAR.kinds.length) % AVATAR.kinds.length]);
+    };
+    $("#cc-next").onclick = () => cycle(1), $("#cc-prev").onclick = () => cycle(-1);
+    $("#btn-next").onclick = () => step(2), $("#btn-back").onclick = () => step(1);
     portraits(STARTERS).then(o => {
-      pics = o || {}, $("#screen-create:not(.hidden)") && r();
+      starterPics = o || {}, $("#screen-create:not(.hidden)") && starters();
     }).catch(() => {});
-    r(), $("#btn-create").onclick = async () => {
-      let o = $("#in-charname").value.trim();
+    let done = () => {
+      this.creatorStage?.dispose(), this.creatorStage = null, this.creatorPainter?.dispose(), this.creatorPainter = null;
+    };
+    $("#in-charname").onkeydown = (o) => {
+      o.key === "Enter" && (o.preventDefault(), $("#btn-create").click());
+    };
+    $("#btn-create").onclick = async () => {
+      let o = $("#in-charname").value.trim(), btn = $("#btn-create");
       $("#create-error").textContent = "";
+      if (btn.disabled) return;
+      if (o.length < 2) {
+        $("#create-error").textContent = Oc("invalid_name"), $("#in-charname").focus();
+        return;
+      }
+      btn.disabled = !0;
       try {
         await this.net.createCharacter({
           name: o,
           starter: e.starter,
           appearance: {
-            body: e.body,
+            kind: e.kind,
+            look: e.look,
             skin: e.skin,
-            hair: e.hair,
-            outfit: e.outfit
+            body: e.look === "b" ? "slim" : "stocky"
           }
-        }), this.creatorStage?.dispose(), this.creatorStage = null, this.ui.showScreen(null), await this.enterWorld();
+        }), done(), this.ui.showScreen(null), await this.enterWorld();
       } catch (a) {
         $("#create-error").textContent = Oc(a.code);
+      } finally {
+        btn.disabled = !1;
       }
     };
   }
@@ -1047,8 +1145,10 @@ var Game = class {
       r.add(u);
       let f = this.world.ensureActor(u, {
         kind: "player",
-        signature: `p:${d.body}:${d.skin}:${d.hair}:${d.outfit}`,
+        signature: `p:${d.kind}:${d.look}:${d.skin}:${d.outfit}`,
         appearance: {
+          kind: d.kind,
+          look: d.look,
           body: d.body,
           skin: d.skin,
           hair: d.hair,
@@ -1382,7 +1482,7 @@ function Oc(i) {
     weak_password: "סיסמה קצרה מדי (לפחות 6 תווים)",
     username_taken: "שם המשתמש תפוס",
     bad_credentials: "שם משתמש או סיסמה שגויים",
-    invalid_name: "שם דמות לא תקין",
+    invalid_name: "בחר שם של 2–16 תווים",
     name_taken: "שם הדמות תפוס",
     not_enough_gold: "אין מספיק זהב",
     already_in_guild: "אתה כבר בגילדה",

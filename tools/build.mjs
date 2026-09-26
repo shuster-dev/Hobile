@@ -24,7 +24,7 @@ fs.mkdirSync(outDir, { recursive: true });
  */
 function copyModels(dir) {
   const src = 'assets/models';
-  if (!fs.existsSync(src)) return 0;
+  if (!fs.existsSync(src)) return { count: 0, kb: 0 };
   const dest = path.join(dir, 'models');
   fs.mkdirSync(dest, { recursive: true });
   const files = fs.readdirSync(src).filter((f) => f.endsWith('.glb'));
