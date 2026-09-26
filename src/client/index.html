@@ -233,9 +233,48 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
   --e2:0 2px 4px rgba(34,44,84,.12),0 8px 20px rgba(34,44,84,.18);
   --inset-hair:inset 0 1px 0 rgba(255,255,255,.8);
   color:var(--text)}
+/* The panels, the chat and a conversation, in the same light. They stayed
+   navy as "a different room", but on a sunny world a dark slab rising over
+   half the screen read as a second app, and the HUD and the fight around it
+   were already warm white. The palette moves the same way: the tokens are
+   redefined inside, and the colours made for dark ground are darkened. */
+#panel-host,.dialogue{
+  --panel:rgba(255,252,246,.97);--panel-soft:rgba(255,252,246,.88);
+  --raise:rgba(255,255,255,.8);--raise-2:rgba(255,255,255,.96);--sunken:rgba(42,47,77,.07);
+  --stroke:rgba(42,47,77,.11);--stroke-strong:rgba(42,47,77,.2);
+  --text:#2a2f4d;--muted:#666d90;--faint:#8b91ae;--gold:#c27a06;
+  --e1:0 1px 2px rgba(34,44,84,.1),0 2px 6px rgba(34,44,84,.09);
+  --e2:0 2px 4px rgba(34,44,84,.12),0 8px 20px rgba(34,44,84,.16);
+  --e3:0 3px 8px rgba(34,44,84,.14),0 22px 54px rgba(34,44,84,.28);
+  --inset-hair:inset 0 1px 0 rgba(255,255,255,.9);
+  color:var(--text);color-scheme:light}
+#panel-host{background:rgba(26,32,62,.3)}
+.panel,.dialogue{background:linear-gradient(180deg,#fffdf9f8,#f4f0e8fb)}
+#panel-host .empty{background:rgba(42,47,77,.03)}
+#chat-panel .composer{background:rgba(42,47,77,.04)}
+#map-canvas{background:#eef2ef}
+.dialogue .who .face{background:linear-gradient(140deg,#fff,#ece6d8)}
+.dialogue .who b,.errand-kicker{color:#0e8f82}
+.errand-reward{background:rgba(215,135,10,.1);border-color:rgba(215,135,10,.32)}
+#panel-host .creature-card .badge,#panel-host .creature-card .lvl{background:rgba(255,255,255,.88);color:var(--text)}
+#panel-host .btn.danger{background:#e5484d14;border-color:#e5484d55;color:#c2372c}
+#panel-host .error-text,#panel-host .list-item .cost .c.short,#panel-host .list-item.lacking .mono{color:#c2372c}
+#panel-host .pill.good{background:#1fae6a1f;color:#138a52}
+#panel-host .pill.warm{color:#b9481f}
+#panel-host .ch-world{color:#a86400}
+#panel-host .ch-zone{color:#2563a8}
+#panel-host .ch-party{color:#15803d}
+#panel-host .ch-guild{color:#7e3fbf}
+#panel-host .ch-whisper{color:#b3367c}
 #battle-actions{background:linear-gradient(to top,rgba(255,250,240,.97) 58%,rgba(255,250,240,0))}
 #battle-hud .bar{background:rgba(42,47,77,.12);box-shadow:inset 0 1px 2px rgba(42,47,77,.18)}
 #battle-hud .sk .cd{background:rgba(42,47,77,.4)}
+/* How this move lands on the foe in front of you: ▲ hard, ▼ weak, ✕ nothing. */
+.sk .eff{position:absolute!important;top:3px;inset-inline-start:5px;font-size:12px;font-weight:900;line-height:1;z-index:1}
+.sk .eff.up{color:#12a150;text-shadow:0 0 6px rgba(18,161,80,.35)}
+.sk .eff.down{color:#c0503f}
+.sk .eff.none{color:#8a8fa8}
+.sk:has(.eff.up){border-color:#6fd8a0;box-shadow:var(--e1),inset 0 0 0 1px rgba(18,161,80,.25)}
 #battle-hud .combat-row.foe{border-color:#ffc0ab}
 #battle-banner{color:#fff;text-shadow:0 3px 0 rgba(42,47,77,.55),0 6px 22px rgba(42,47,77,.45)}
 .tm .face{width:36px;height:36px;margin:-8px -2px -8px -4px;object-fit:contain;filter:drop-shadow(0 2px 2px rgba(42,47,77,.3))}

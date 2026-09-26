@@ -2,7 +2,20 @@ import { audio } from './gfx/battle.js';
 import { zoneMinimap } from './input.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
-import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf } from '../shared/gamedata.js';
+import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf, typeMultiplier } from '../shared/gamedata.js';
+
+/**
+ * Friends, parties, guilds, duels and the chat channels beyond this zone's.
+ *
+ * The screens for all of it exist, and none of it works on the server yet: a
+ * friend request or a party invite came back "solo only", a duel "needs a real
+ * player", a guild had no members and lived in one room, and world or whisper
+ * chat reached nobody but the sender. Offering buttons that only ever say no
+ * is worse than not offering them, so they are hidden behind this one switch,
+ * code and screens intact, until the social layer is built for real.
+ */
+export const SOCIAL = !1;
+const SOCIAL_PANELS = new Set(["friends", "party", "guild"]);
 
 var $ = i => document.querySelector(i),
   el = (i, e, t) => {
@@ -373,7 +386,7 @@ var UI = class {
     let t = el("canvas");
     t.id = "map-canvas", e.appendChild(t);
     let n = el("div", "map-legend");
-    n.innerHTML = [["#2fe6d0", "מעבר"], ["#c084fc", "מבוך"], ["#ffc861", "חנות"], ["#7dd3fc", "דמות"], ["#ff7a59", "יצור בר"], ["#8ab4ff", "שחקן"]].map(([s, r]) => `<span><i style="background:${s}"></i>${r}</span>`).join(""), e.appendChild(n);
+    n.innerHTML = [["#2fe6d0", "מעבר"], ["#c084fc", "מבוך"], ["#ffc861", "חנות"], ["#7dd3fc", "דמות"], ["#ff6a45", "יצור בר"], ["#4d86f0", "שחקן"]].map(([s, r]) => `<span><i style="background:${s}"></i>${r}</span>`).join(""), e.appendChild(n);
     let s = el("div", "map-hint");
     s.textContent = "צפון למעלה · הנקודה הלבנה היא אתה", e.appendChild(s);
     this.travelList(e);
@@ -396,8 +409,9 @@ var UI = class {
       l = s / 2,
       c = (l - 10) / a,
       h = (x, g) => [l + x * c, l + g * c];
-    // The ground, in the zone's own colour, so two zones do not look alike.
-    o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.fillStyle = rgba(t.ground ?? 3553336, 0.5), o.fill(), o.strokeStyle = "rgba(158,172,226,.4)", o.lineWidth = 1.5, o.stroke();
+    // The ground, in the zone's own colour washed light, as on the radar — the
+    // panel it sits in is warm white now — so two zones do not look alike.
+    o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.fillStyle = pastel(t.ground ?? 6531422, 0.5), o.fill(), o.strokeStyle = "rgba(42,47,77,.28)", o.lineWidth = 1.5, o.stroke();
     o.save(), o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.clip();
     // Pins first, then labels, so a label can never be painted under a disc
     // drawn after it.
@@ -406,8 +420,8 @@ var UI = class {
       let [g, m] = h(x.x, x.z),
         v = MAP_PIN[x.kind] || MAP_PIN._,
         E = x.r ? Math.max(5, x.r * c) : 0;
-      E && (o.beginPath(), o.arc(g, m, E, 0, Math.PI * 2), o.fillStyle = rgba(v, 0.16), o.fill(), o.strokeStyle = rgba(v, 0.5), o.lineWidth = 1, o.stroke()),
-      o.beginPath(), o.arc(g, m, x.r ? 4.5 : 3.5, 0, Math.PI * 2), o.fillStyle = v, o.fill(),
+      E && (o.beginPath(), o.arc(g, m, E, 0, Math.PI * 2), o.fillStyle = rgba(v, 0.2), o.fill(), o.strokeStyle = rgba(v, 0.6), o.lineWidth = 1, o.stroke()),
+      o.beginPath(), o.arc(g, m, x.r ? 4.5 : 3.5, 0, Math.PI * 2), o.fillStyle = v, o.fill(), o.strokeStyle = "rgba(42,47,77,.55)", o.lineWidth = 1.5, o.stroke(),
       pins.push({
         x: g,
         y: m,
@@ -436,20 +450,20 @@ var UI = class {
         if (!fits(box)) continue;
         // A pill, not a shadow. A shadow keeps a name readable over dark
         // ground and loses it over a lit disc, and half the pins are discs.
-        taken.push(box), o.fillStyle = "rgba(11,14,30,.72)";
-        o.beginPath(), o.roundRect ? o.roundRect(b.x - w / 2, y - 9, w, 13, 4) : o.rect(b.x - w / 2, y - 9, w, 13), o.fill();
-        o.fillStyle = "rgba(238,241,250,.96)", o.fillText(b.text, b.x, y);
+        taken.push(box), o.fillStyle = "rgba(255,255,255,.92)", o.strokeStyle = "rgba(42,47,77,.16)", o.lineWidth = 1;
+        o.beginPath(), o.roundRect ? o.roundRect(b.x - w / 2, y - 9, w, 13, 4) : o.rect(b.x - w / 2, y - 9, w, 13), o.fill(), o.stroke();
+        o.fillStyle = "#2a2f4d", o.fillText(b.text, b.x, y);
         break;
       }
     }
     let d = n.state;
     d?.wilds?.forEach(x => {
       let [g, m] = h(x.x, x.z);
-      o.fillStyle = "rgba(255,122,89,.85)", o.fillRect(g - 1.6, m - 1.6, 3.2, 3.2);
+      o.fillStyle = x.alert === "!" ? "#e0202a" : "#ff6a45", o.strokeStyle = "#fff", o.lineWidth = 1, o.beginPath(), o.arc(g, m, x.alert === "!" ? 3.4 : 2.6, 0, Math.PI * 2), o.fill(), o.stroke();
     }), d?.players?.forEach((x, g) => {
       if (g === n.me) return;
       let [m, v] = h(x.x, x.z);
-      o.fillStyle = x.partyId && x.partyId === this.party?.id ? "#3fd98b" : "#8ab4ff", o.beginPath(), o.arc(m, v, 3, 0, Math.PI * 2), o.fill();
+      o.fillStyle = x.partyId && x.partyId === this.party?.id ? "#22b86c" : "#4d86f0", o.strokeStyle = "#fff", o.lineWidth = 1.2, o.beginPath(), o.arc(m, v, 3.2, 0, Math.PI * 2), o.fill(), o.stroke();
     }), d?.boss?.active && (() => {
       let [x, g] = h(d.boss.x, d.boss.z);
       o.fillStyle = "#ff5f56", o.beginPath(), o.arc(x, g, 5.5, 0, Math.PI * 2), o.fill();
@@ -457,7 +471,7 @@ var UI = class {
     let u = n.world.selfPosition(),
       [f, p] = h(u.x, u.z);
     drawYou(o, f, p, n.world.camYaw || 0, 11), o.restore();
-    o.fillStyle = "rgba(238,241,250,.65)", o.font = "700 12px system-ui", o.textAlign = "center", o.fillText("N", l, 14);
+    o.font = "800 12px system-ui", o.textAlign = "center", o.lineWidth = 3, o.strokeStyle = "rgba(255,255,255,.9)", o.strokeText("N", l, 14), o.fillStyle = "#2a2f4d", o.fillText("N", l, 14);
   }
 
   /** Where you can go from here. Shared by the menu and the map. */
@@ -521,6 +535,7 @@ var UI = class {
     this.openPanelId === e ? this.closePanel() : this.openPanel(e);
   }
   openPanel(e) {
+    if (!SOCIAL && SOCIAL_PANELS.has(e)) return;
     this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), this.renderPanel(e);
   }
   closePanel() {
@@ -790,6 +805,7 @@ var UI = class {
   panelMenu(e) {
     let t = el("div", "grid2"),
       n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+    SOCIAL || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
     for (let [c, h] of n) {
@@ -1342,8 +1358,12 @@ var UI = class {
     let t = el("div", "log");
     for (let l of this.chatLog.slice(-120)) t.appendChild(el("div", `ch-${l.ch}`, this.chatLine(l)));
     e.appendChild(t);
-    let n = el("div", "tabs");
-    for (let l of ["zone", "world", "party", "guild", "whisper"]) {
+    let n = el("div", "tabs"),
+      channels = SOCIAL ? ["zone", "world", "party", "guild", "whisper"] : ["zone"];
+    // One channel needs no tabs; and a channel it no longer offers is not the
+    // one it sends on.
+    channels.includes(this.chatChannel) || (this.chatChannel = "zone"), channels.length < 2 && n.classList.add("hidden");
+    for (let l of channels) {
       let c = el("button", this.chatChannel === l ? "on" : "", {
         zone: "אזור",
         world: "עולמי",
@@ -1450,7 +1470,26 @@ var UI = class {
     }
     c && fill(row(`trainer:${c.id}`, `combat-row self ${h ? "shielded" : "exposed"}`, ss), Ze(c.name), rangeLabel(c.hp, c.maxHp, "/"), c.hp / Math.max(1, c.maxHp) * 100, null, `<span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span>`);
     for (let [k, f] of rows) keep.has(k) || (f.remove(), rows.delete(k));
-    (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = o.filter(l)[0] || null, this.renderTeamBar(r);
+    (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this._effFor = null, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = o.filter(l)[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
+  }
+  /** ▲ on a move that hits this foe hard, ▼ on one it shrugs off. Ten
+   *  elements is more than anyone keeps in their head mid-fight, and the
+   *  "super effective" banner only says so after the move is spent. Redrawn
+   *  only when the foe (or its species) changes. */
+  markEffectiveness(foe) {
+    let types = foe && SPECIES[foe.species]?.types,
+      key = foe ? `${foe.id}:${foe.species}:${this._battleSkillsFor}` : "";
+    if (this._effFor === key) return;
+    this._effFor = key;
+    for (let b of document.querySelectorAll("#battle-skills .sk")) {
+      let m = MOVES[b.dataset.skill],
+        e = b.querySelector(".eff"),
+        mult = types && m?.type && m.kind !== "status" ? typeMultiplier(m.type, types) : 1;
+      if (!e) continue;
+      e.className = `eff ${mult > 1 ? "up" : mult < 1 ? mult === 0 ? "none" : "down" : ""}`, e.textContent = mult > 1 ? "▲" : mult === 0 ? "✕" : mult < 1 ? "▼" : "";
+      let name = loc(m) || b.dataset.skill;
+      b.setAttribute("aria-label", mult > 1 ? `${name} — יעיל במיוחד` : mult === 0 ? `${name} — לא משפיע` : mult < 1 ? `${name} — לא יעיל` : name);
+    }
   }
   buildBattleButtons(e, t) {
     let n = $("#battle-skills");
@@ -1459,6 +1498,7 @@ var UI = class {
       let a = MOVES[o],
         l = el("button", "sk");
       l.dataset.skill = o, l.setAttribute("aria-label", loc(a) || o), l.innerHTML = `<span class="cd" style="transform:scaleY(0)"></span>
+        <span class="eff" aria-hidden="true"></span>
         <span class="ico">${ELEMENTS[a?.type]?.icon || "✦"}</span>
         <span>${Ze(loc(a))}</span>
         <span class="mono" style="opacity:.7">${a?.power ? ltr(a.power) : ""}</span>`, l.onclick = () => this.hooks.useSkill?.(o), n.appendChild(l);
