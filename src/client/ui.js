@@ -72,6 +72,7 @@ var STRINGS = {
     cannot_afford: "חסרים חומרים או זהב",
     no_creature: "היצור לא נמצא",
     already_training: "היצור כבר נמצא באימון",
+    last_fighter: "זה היצור היחיד שלך שיכול להילחם — תפוס עוד אחד לפני שאתה שולח אותו לאימון בחווה",
     no_free_pod: "אין תא אימון פנוי — שדרג את תא האימון",
     max_star: "היצור כבר בדרגת הכוכבים הגבוהה ביותר",
     no_slot: "התא הזה כבר ריק",
@@ -1013,7 +1014,7 @@ var UI = class {
     let t = this.profile;
     if (!t) return;
     let n = [...(t.team || []), ...(t.box || [])];
-    if (!n.length) {
+    if (!n.length && !t.away?.length) {
       e.appendChild(emptyState("🐾", "אין לך עדיין יצורים", "לכידה בקרב מוסיפה יצור לצוות"));
       return;
     }
@@ -1042,6 +1043,29 @@ var UI = class {
         f.stopPropagation(), this.hooks.setLead?.(s.uid);
       }, l.appendChild(u), e.appendChild(l);
     });
+    // the ones at the farm, in a pod until their training is done
+    let away = t.away || [];
+    if (away.length) {
+      e.appendChild(section("בחווה — באימון", `${away.length}`));
+      for (let s of away) {
+        let o = SPECIES[s.species];
+        if (!o) continue;
+        let left = (s.training?.readyAt || 0) - Date.now(),
+          l = el("div", `list-item tappable ${left <= 0 ? "ready" : ""}`);
+        l.setAttribute("role", "button"), l.tabIndex = 0;
+        l.innerHTML = `
+          <div class="thumb" style="background:${oo(o.model.a)}"></div>
+          <div class="grow">
+            <b>${Ze(loc(o))} <span class="pill">${lvlLabel(s.level)}</span> <span class="stars">${starLabel(s.star || 1)}</span> → <span class="stars">${starLabel(s.training?.star || 2)}</span></b>
+            <span>${left <= 0 ? "מוכן! לך לחווה להוציא אותו" : "בתא אימון בחווה — "}${left > 0 ? `<span class="mono" dir="ltr" data-countdown="${s.training.readyAt}">${formatClock(left)}</span>` : ""}</span>
+          </div>
+          <span class="pill">🧪 בחווה</span>`;
+        let h = zoneMinimap(s.species);
+        h && (l.querySelector(".thumb").innerHTML = `<img src="${h}" alt="" />`);
+        l.onclick = () => this.hooks.openCard?.(s.uid), e.appendChild(l);
+      }
+      this.startCountdowns();
+    }
   }
   panelBase(e) {
     let t = this.base;
@@ -1168,7 +1192,7 @@ var UI = class {
     }
     if (r.appendChild(h), e.appendChild(r), t.training) {
       let x = el("div", "list-item");
-      x.innerHTML = `<div class="grow"><b>באימון → <span class="stars">${starLabel(t.training.star)}</span></b>
+      x.innerHTML = `<div class="grow"><b>🧪 בתא אימון בחווה → <span class="stars">${starLabel(t.training.star)}</span></b>
         <span class="mono" dir="ltr" data-countdown="${t.training.readyAt}">${formatClock(t.training.readyAt - Date.now())}</span></div>`, e.appendChild(x), this.startCountdowns();
       return;
     }
@@ -1191,7 +1215,7 @@ var UI = class {
       <span class="mono">${ltr(`${(this.profile?.gold || 0).toLocaleString("en-US")} / ${t.next.gold.toLocaleString("en-US")}`)}</span></div>
       ${d ? "<span class=\"pill good\">✓</span>" : ""}`, e.appendChild(u);
     let f = el("div", "empty plain");
-    f.innerHTML = `האימון לוקח ${ltr(`${t.next.hours} שעות`)} בתא אימון — וממשיך גם כשהמשחק סגור`, e.appendChild(f);
+    f.innerHTML = `היצור יעבור לתא אימון בחווה שלך לעוד ${ltr(`${t.next.hours} שעות`)} (ממשיך גם כשהמשחק סגור), ויחזור חזק יותר ועם מראה חדש`, e.appendChild(f);
     let p = el("button", "btn primary", t.next.ready ? "התחל אימון" : "חסרים חומרים");
     p.disabled = !t.next.ready, p.onclick = () => this.hooks.baseTrain?.(t.uid), e.appendChild(p);
   }

@@ -509,6 +509,8 @@ var Game = class {
       this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)]));
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t);
+      // the town has your farm: ask for what is in its pods
+      (ZONES[t.id] || t).landmarks?.some(l => l.kind === "base") && this.net.send("baseLook");
     }), e.on("chat", t => {
       t.fromId && t.fromId !== this.profile?.id && audio.sfx("chat"), this.ui.pushChat(t);
     }), e.on("party", t => {
@@ -536,8 +538,11 @@ var Game = class {
       }, 12e3);
     }), e.on("base", t => {
       this.ui.base = t, t.fiber && (audio.sfx("loot"), this.ui.toast(`🌿 +${t.fiber} סיבים מהגינה`, "good"));
+      // the pods at the farm: whoever is in them, and one coming out
+      let out = this.world.setBase?.(t, t.starUp);
       for (let n of t.collected || []) audio.sfx("loot"), this.ui.toast(`הושלם: ${loc(ITEMS[n.id])} ×${n.n}`, "good");
-      t.starUp && (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve"), this.ui.toast(`${loc(SPECIES[t.starUp.species])} הגיע ל-${t.starUp.star} כוכבים!`, "good")), t.built && (audio.sfx("quest"), this.ui.toast(`נבנה — רמה ${t.built.level}`, "good")), t.craft && audio.sfx("ui"), this.ui.openPanelId === "base" && this.ui.renderPanel("base");
+      t.starUp && (out ? (audio.sfx("sphereOpen"), setTimeout(() => (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve")), 850)) : (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve")), this.ui.toast(`${loc(SPECIES[t.starUp.species])} יצא מהתא עם ${t.starUp.star} כוכבים — חזק יותר ונראה אחרת!`, "good")),
+      t.started && this.ui.toast(`${loc(SPECIES[(t.training || []).find(c => c.id === t.started.id)?.species] || {}) || "היצור"} עבר לחווה שלך — הוא מתאמן בתא אימון`, "good"), t.built && (audio.sfx("quest"), this.ui.toast(`נבנה — רמה ${t.built.level}`, "good")), t.craft && audio.sfx("ui"), this.ui.openPanelId === "base" && this.ui.renderPanel("base");
     }), e.on("card", t => {
       this.ui.card = t, this.ui.openPanelId === "card" && this.ui.renderPanel("card");
     }), e.on("dex", t => {
@@ -935,7 +940,7 @@ var Game = class {
       setLead: t => {
         let n = this.profile;
         if (!n) return;
-        let s = [...n.team, ...n.box];
+        let s = [...n.team, ...n.box].map(r => r?.uid ?? r);
         e("setTeam", {
           team: [t, ...s.filter(r => r !== t)].slice(0, 6)
         });
@@ -1169,9 +1174,10 @@ var Game = class {
           hair: d.hair,
           outfit: d.outfit
         },
-        petSpecies: d.petSpecies
+        petSpecies: d.petSpecies,
+        petStar: d.petStar || 1
       });
-      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), f.pet?.species !== d.petSpecies && this.world.attachPet(f, d.petSpecies);
+      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1);
     }), s.wilds.forEach((d, u) => {
       r.add(u), this.world.ensureActor(u, {
         kind: "wild",
@@ -1393,6 +1399,16 @@ var Game = class {
     let n = this.nearestNpc(t);
     if (n && n.d < 4.2) {
       this.ui.setPrompt(`${n.npc.icon} דבר עם ${n.npc.he}`), $("#btn-action").textContent = "דבר", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
+    let pod = this.world.incubators?.near(t.x, t.z);
+    if (pod) {
+      let q = pod.slot, sp = q && SPECIES[q.species];
+      if (q && pod.ready) {
+        this.ui.setPrompt(`✨ ${loc(sp)} מוכן לצאת עם ${"★".repeat(q.star)}`), $("#btn-action").textContent = "הוצא", $("#btn-action").onclick = () => this.net.send("baseCollect", { slotId: q.id });
+      } else {
+        this.ui.setPrompt(q ? `🧪 ${loc(sp)} מתאמן → ${"★".repeat(q.star)}` : "🧪 תא אימון פנוי — שלח יצור מכרטיס היצור"), $("#btn-action").textContent = "פתח", $("#btn-action").onclick = () => this.openBase();
+      }
       return;
     }
     let s = this.nearestLandmark(t);

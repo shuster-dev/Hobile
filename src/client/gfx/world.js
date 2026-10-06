@@ -2,6 +2,8 @@ import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometr
 import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
+import { setStarLook } from './starlook.js';
+import { Incubators } from './incubator.js';
 import { FIGURINES } from './figurine-designs.js';
 import { template as figurineTemplate } from './figurine.js';
 import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
@@ -3535,7 +3537,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3546,9 +3548,25 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           pal: n,
           plaza: e.landmarks.find(s => s.kind === "plaza")
         }
-      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs(), this.buildTownStructures(n)) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n));
+      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs(), this.buildTownStructures(n), this.buildIncubators()) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n));
     }
     /** The town's farm and garden, built like the field zones' (zoneart.js). */
+    /** Your farm's training pods (incubator.js): drawn from your own base,
+     *  which `setBase` hands over whenever the server sends it. */
+    buildIncubators() {
+      this.incubators = null;
+      if (!this.zone?.landmarks?.some((l) => l.kind === "base")) return;
+      this.incubators = new Incubators(this);
+      this.zoneGroup.add(this.incubators.group);
+      this._base && this.incubators.sync(this._base);
+    }
+    setBase(base, starUp) {
+      this._base = base;
+      if (!this.incubators) return !1;
+      // only if you are there to see it come out
+      let me = this.selfPosition?.(), out = !!starUp && !!me && !this._inside && this.incubators.near(me.x, me.z, 22) !== null && this.incubators.emerge(starUp);
+      return this.incubators.sync(base), out;
+    }
     buildTownStructures(e) {
       let list = this.props.structures;
       if (!list?.length) return;
@@ -5157,10 +5175,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         rotTarget: 0,
         moving: !1,
         pet: null
-      }, this.actors.set(e, n), t.kind === "player" && t.petSpecies && this.attachPet(n, t.petSpecies), n;
+      }, this.actors.set(e, n), t.kind === "player" && t.petSpecies && this.attachPet(n, t.petSpecies, t.petStar || 1), n;
     }
-    attachPet(e, t) {
-      if (e.pet?.species === t) return;
+    attachPet(e, t, star = 1) {
+      if (e.pet?.species === t) {
+        // the same one back from the farm with another star: dress it again
+        e.pet && (e.pet.star || 1) !== star && (setStarLook(e.pet.group, star), e.pet.star = star);
+        return;
+      }
       if (e.pet && (e.holder.remove(e.pet.holder), disposeTree(e.pet.holder)), !t || !SPECIES[t]) {
         e.pet = null;
         return;
@@ -5169,8 +5191,9 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         s = buildCreature(t, {
           outline: !1
         });
-      s.scale.multiplyScalar(0.6), n.add(s, softShadowTexture(0.38, 0.24)), n.position.set(-1.35, 0, -1.45), e.holder.add(n), e.pet = {
+      s.scale.multiplyScalar(0.6), setStarLook(s, star), n.add(s, softShadowTexture(0.38, 0.24)), n.position.set(-1.35, 0, -1.45), e.holder.add(n), e.pet = {
         species: t,
+        star,
         holder: n,
         group: s,
         lag: new Vector3()
@@ -5298,7 +5321,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         n && (n.group.rotation.y = Math.atan2(this.camera.position.x - n.group.position.x, this.camera.position.z - n.group.position.z));
       }
       for (let n of this.portalRings || []) n.arch.rotation.z += e * 0.5, n.veil && (n.veil.material.opacity = 0.22 + Math.sin(this.time * 2) * 0.08);
-      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1);
+      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1), this.incubators && !this._inside && this.incubators.update(e, t, this.camera);
+      {
+        // the one coming out of its pod is not at your heel yet
+        let em = this.incubators?.emerging(), me = this.selfActor();
+        me?.pet && (me.pet.holder.visible = !em || me.pet.species !== em);
+      }
       for (let n of this.actors.values()) {
         n.key !== this.self && n.holder.position.lerp(n.target, Math.min(1, e * 10));
         let s = n.holder.rotation.y,

@@ -136,6 +136,21 @@ var BUILDING_STYLES = [{
   HOUSE_WALLS = [0xF2E6D0, 0xEED8C0, 0xF4EEE2, 0xE8D4B8, 0xF0E0D4],
   HOUSE_ROOFS = [0xC0563A, 0xB84A3A, 0xA8624A, 0x7A6A8A, 0xD9B464];
 
+/** Where your farm's training pods stand, in a curve facing the middle of the
+ *  yard as you come in by its gate — one for each a pod building can have. */
+const INCUBATOR_R = 1.15;
+function incubatorSpots(zone) {
+  const f = zone?.landmarks?.find((l) => l.kind === "base");
+  if (!f) return [];
+  const out = [];
+  for (let k = 0; k < 5; k++) {
+    const a = (186 + k * 16) * Math.PI / 180, x = f.x + Math.cos(a) * 9.5, z = f.z + Math.sin(a) * 9.5;
+    // faces the middle of the yard
+    out.push({ x, z, y: heightAt(zone.id, x, z), rot: Math.atan2(f.x - x, f.z - z), k });
+  }
+  return out;
+}
+
 function generateUrbanProps(i) {
   let structures = [],
     e = rng(hash(i.id)),
@@ -320,9 +335,12 @@ function generateUrbanProps(i) {
         { kind: "barn", x: f.x - 5, z: f.z + 4.5, rot: Math.PI, w: 7, d: 8, h: 4.2 },
         { kind: "fence", x: f.x + 6, z: f.z + 7, rot: 0, len: 7 }, { kind: "fence", x: f.x + 9.5, z: f.z + 3.5, rot: Math.PI / 2, len: 7 },
         { kind: "trough", x: f.x + 6, z: f.z + 3, rot: 0.2 },
-        { kind: "haystack", x: f.x - 9.5, z: f.z - 2 }, { kind: "haystack", x: f.x + 2, z: f.z + 9 },
+        { kind: "haystack", x: f.x - 10.5, z: f.z + 4 }, { kind: "haystack", x: f.x + 2, z: f.z + 9 },
         { kind: "field", x: f.x + 4, z: f.z - 6, rot: 0, w: 8, d: 5, crop: "cabbage" }
       ]) st.y = y(st.x, st.z), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      // the training pods (client/gfx/incubator.js draws them, with whoever is
+      // in them): solid whether built yet or not, so nobody walks through one
+      for (let q of incubatorSpots(i)) s.push({ x: q.x, z: q.z, r: INCUBATOR_R, kind: "pod", top: q.y + 2.6 });
       for (let x = 0; x < 34; x++) {
         let g = x / 34 * TAU_W;
         g > Math.PI * 1.38 && g < Math.PI * 1.62 || r.push({
@@ -923,4 +941,4 @@ function plazaHeight(i, e, t) {
 
 var STREET_Y = -0.62;
 
-export { generatePlannedProps, BLOCK, BUILDING_STYLES, CURB_IN, CURB_OUT, CURB_RISE, EDGE_Y, LAMP_SPACING, PLAZA, POST, PROP_CACHE, ROAD_HALF, SIDEWALK, STREET_Y, TAU_G, TAU_W, URBAN_ZONES, blockGrid, boundaryRing, curbHeight, distToGridLine, fbm, generateProps, generateUrbanProps, gridOffset, hash, heightAt, mixHex, onRoad, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand, valueNoise };
+export { generatePlannedProps, incubatorSpots, INCUBATOR_R, BLOCK, BUILDING_STYLES, CURB_IN, CURB_OUT, CURB_RISE, EDGE_Y, LAMP_SPACING, PLAZA, POST, PROP_CACHE, ROAD_HALF, SIDEWALK, STREET_Y, TAU_G, TAU_W, URBAN_ZONES, blockGrid, boundaryRing, curbHeight, distToGridLine, fbm, generateProps, generateUrbanProps, gridOffset, hash, heightAt, mixHex, onRoad, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand, valueNoise };

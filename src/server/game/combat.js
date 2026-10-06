@@ -27,7 +27,8 @@ var Combatant = class {
       }, this.maxHp = this.stats.hp, this.hp = Math.max(0, Math.min(this.maxHp, Math.round(num(e.hp, this.maxHp))));else {
         let s = e.creature;
         this.species = s.species, this.level = s.level;
-        let r = statsFor(this.species, this.level, num(s.iv, 0.5), Math.max(1, num(s.star, 1)));
+        this.star = Math.max(1, Math.min(5, num(s.star, 1)));
+        let r = statsFor(this.species, this.level, num(s.iv, 0.5), this.star);
         this.stats = {
           hp: Math.floor((r.hp + num(t.hp)) * (1 + num(n.hp))),
           atk: Math.floor((r.atk + num(t.atk)) * (1 + num(n.atk))),
@@ -78,6 +79,7 @@ var Combatant = class {
         name: this.name,
         species: this.species,
         level: this.level,
+        star: this.star || 1,
         hp: this.hp,
         maxHp: this.maxHp,
         stamina: Math.round(this.stamina),
@@ -928,6 +930,23 @@ function dexView(doc) {
 
 function normalizeDoc(i) {
   ensureQuests(i);
+  // Training used to leave a creature in the team. Now it is at the farm:
+  // move any that are in a pod out of the team and the box — keeping one
+  // in the team to walk with you — and put back any that belong nowhere.
+  if (i.creatures && i.base?.training?.length) {
+    i.team ||= [], i.box ||= [];
+    for (const t of i.base.training) {
+      if (t.from !== undefined) continue;
+      const k = i.team.indexOf(t.uid), b = i.box.indexOf(t.uid);
+      if (k >= 0 && i.team.length > 1) i.team.splice(k, 1), t.from = "team", t.pos = k;
+      else if (b >= 0) i.box.splice(b, 1), t.from = "box", t.pos = b;
+      else if (k < 0) t.from = "box", t.pos = 0;
+    }
+  }
+  if (i.creatures && i.team) {
+    const placed = new Set([...(i.team || []), ...(i.box || []), ...((i.base?.training || []).map(t => t.uid))]);
+    for (const u of Object.keys(i.creatures)) placed.has(u) || (i.box ||= []).push(u);
+  }
   // Characters from before there were kinds get the one nearest their outfit.
   i.appearance = avatarLook(i.appearance || {});
   // Creatures made before that fix are still short of their own level. Give
@@ -1061,6 +1080,11 @@ function publicProfile(i) {
     trainerMaxHp: trainerMaxHp(i),
     team: teamCreatures(i),
     box: (i.box || []).map(e => creatureOf(i, e)).filter(Boolean),
+    // in a pod at the farm: not in the team or the box until they come back
+    away: (i.base?.training || []).map(e => {
+      let t = creatureOf(i, e.uid);
+      return t && { ...t, training: { star: e.star, readyAt: e.readyAt } };
+    }).filter(Boolean),
     inventory: i.inventory,
     gear: i.gear,
     friends: i.friends,
@@ -1203,6 +1227,16 @@ function startTraining(i, e, t = Date.now()) {
     ok: !1,
     reason: "max_star"
   };
+  // It goes to the farm for the whole of it: out of the team, so it cannot be
+  // sent into a fight from a pod. The last one able to fight stays, unless
+  // there is one in the box to take its place.
+  let team = i.team || (i.team = []), box = i.box || (i.box = []),
+    from = team.includes(e) ? "team" : box.includes(e) ? "box" : "",
+    pos = from === "team" ? team.indexOf(e) : box.indexOf(e);
+  if (from === "team" && !team.some(a => a !== e && creatureOf(i, a)) && !box.some(a => creatureOf(i, a))) return {
+    ok: !1,
+    reason: "last_fighter"
+  };
   if (!payCost(i, {
     gold: r.gold,
     items: r.items
@@ -1215,12 +1249,34 @@ function startTraining(i, e, t = Date.now()) {
     uid: e,
     star: r.next,
     startedAt: t,
-    readyAt: t + r.ms
+    readyAt: t + r.ms,
+    from,
+    pos
   };
+  if (from === "team") {
+    team.splice(pos, 1);
+    // someone has to walk beside you: the first in the box steps up
+    if (!team.length && box.length) team.push(box.shift());
+  } else if (from === "box") box.splice(pos, 1);
   return n.training.push(o), {
     ok: !0,
     slot: o
   };
+}
+
+/** Back from the farm: to its old place in the team if there is room. */
+function returnFromFarm(i, slot) {
+  let e = slot.uid;
+  if (!creatureOf(i, e)) return;
+  let team = i.team || (i.team = []), box = i.box || (i.box = []);
+  if (team.includes(e) || box.includes(e)) return;
+  if (slot.from !== "box" && team.length < 6) team.splice(Math.min(slot.pos ?? team.length, team.length), 0, e);
+  else box.push(e);
+}
+
+/** In a pod at the farm right now. */
+function atFarm(i, e) {
+  return !!i?.base?.training?.some(t => t.uid === e);
 }
 
 function collectTraining(i, e, t = Date.now()) {
@@ -1236,10 +1292,11 @@ function collectTraining(i, e, t = Date.now()) {
     reason: "not_ready"
   };
   let o = creatureOf(i, r.uid);
-  if (n.training.splice(s, 1), !o) return {
+  if (n.training.splice(s, 1), returnFromFarm(i, r), !o) return {
     ok: !1,
     reason: "no_creature"
   };
+  let was = o.star || 1;
   o.star = Math.min(STARS.max, r.star);
   let a = o.maxHp || 0,
     l = statsFor(o.species, o.level, o.iv, o.star);
@@ -1247,6 +1304,8 @@ function collectTraining(i, e, t = Date.now()) {
     ok: !0,
     uid: o.uid,
     star: o.star,
+    was,
+    slotId: r.id,
     species: o.species
   };
 }
@@ -1257,7 +1316,7 @@ function cancelTraining(i, e) {
   return n < 0 ? {
     ok: !1,
     reason: "no_slot"
-  } : (t.training.splice(n, 1), {
+  } : (returnFromFarm(i, t.training.splice(n, 1)[0]), {
     ok: !0
   });
 }
@@ -1373,6 +1432,8 @@ function baseView(i, e = Date.now()) {
         ...o,
         species: a?.species,
         level: a?.level,
+        fromStar: a?.star || 1,
+        shiny: !!a?.shiny,
         name: a?.nickname || null,
         remaining: Math.max(0, o.readyAt - e),
         ready: e >= o.readyAt
@@ -1489,4 +1550,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { WEATHER_BOOST, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

@@ -29,6 +29,7 @@ const WP = await import('../src/shared/worldplan.js');
 const P = await import('../src/shared/props.js');
 const C = await import('../src/server/game/combat.js');
 const B = await import('../src/server/game/base.js');
+const WM = await import('../src/server/game/world-messages.js');
 const { SPECIES, ZONES, MOVES, ITEMS, QUESTS, DUNGEONS, ELEMENTS, PROGRESSION, captureChance, statsFor } = G;
 
 // ---------------------------------------------------------------- wiring
@@ -1440,6 +1441,93 @@ section('people');
   ok('the creator has its two steps and every control',
     ['cc-step1', 'cc-step2', 'pick-kind', 'pick-look', 'pick-skin', 'pick-starter', 'in-charname', 'btn-next', 'btn-back', 'btn-create', 'creator-stage']
       .every((id) => html.includes(`id="${id}"`)));
+}
+
+// ---------------------------------------------------------------- the farm
+section('the farm');
+{
+  // a trainer with a lead, one more in the team and one in the box, and
+  // enough of everything for a star
+  const rich = (d) => {
+    d.gold = 1e6;
+    for (const e of Object.keys(G.ELEMENTS)) d.inventory[`crystal_${e}`] = 99;
+    d.inventory.aether_core = 20;
+    C.baseOf(d).buildings.pod = 3;
+  };
+  const fd = C.createPlayerDoc('qa-farm', 'QA', {}, 'cindcub');
+  rich(fd);
+  const lead = fd.team[0];
+  const second = C.addCreature(fd, C.makeCreature('sproutle', 8)).uid;
+  const boxed = C.makeCreature('shellop', 6); fd.creatures[boxed.uid] = boxed; fd.box.push(boxed.uid);
+  const r1 = C.startTraining(fd, lead, 1000);
+  ok('a creature sent to train goes to the farm: out of the team', r1.ok && !fd.team.includes(lead) && !fd.box.includes(lead) && C.atFarm(fd, lead));
+  ok('and the next one walks beside you', C.activeCreature(fd)?.uid === second);
+  const pp = C.publicProfile(fd);
+  ok('the profile still shows it, at the farm, with its countdown', pp.away.length === 1 && pp.away[0].uid === lead && pp.away[0].training.readyAt === r1.slot.readyAt);
+  ok('the farm view says what to draw in the pod', (() => { const t = C.baseView(fd).training[0]; return t.species === 'cindcub' && t.fromStar === 1 && t.star === 2; })());
+  ok('it cannot be put back in the team while it is training', (() => {
+    const before = [...fd.team];
+    const ctx = { doc: fd, self: () => ({}), net: { save() {}, emit() {} } };
+    WM.handleWorldMessage(ctx, 'setTeam', { team: [lead, second] });
+    return !fd.team.includes(lead) && fd.team.includes(second) && before.length === fd.team.length;
+  })());
+  ok('not ready, not collected', C.collectTraining(fd, r1.slot.id, 1001).reason === 'not_ready');
+  const got = C.collectTraining(fd, r1.slot.id, r1.slot.readyAt + 1);
+  ok('done: it comes back stronger, to the head of the team where it was', got.ok && got.star === 2 && got.was === 1 && fd.team[0] === lead && fd.creatures[lead].star === 2);
+  ok('and stronger in fact', C.statsOf(fd.creatures[lead]).atk > G.statsFor('cindcub', fd.creatures[lead].level, fd.creatures[lead].iv, 1).atk);
+
+  const r2 = C.startTraining(fd, boxed.uid, 2000);
+  ok('one from the box trains too, and goes back to the box', r2.ok && !fd.box.includes(boxed.uid) && C.cancelTraining(fd, r2.slot.id).ok && fd.box.includes(boxed.uid));
+
+  const solo = C.createPlayerDoc('qa-farm2', 'QA', {}, 'cindcub');
+  rich(solo);
+  ok('the only one you have cannot be sent away', C.startTraining(solo, solo.team[0]).reason === 'last_fighter' && solo.team.length === 1);
+  const one = C.makeCreature('shellop', 6); solo.creatures[one.uid] = one; solo.box.push(one.uid);
+  const r3 = C.startTraining(solo, solo.team[0]);
+  ok('with one in the box, that one steps up to walk with you', r3.ok && solo.team.length === 1 && solo.team[0] === one.uid && !solo.box.length);
+
+  // a save from before: the one in training is still in the team
+  const legacyF = C.createPlayerDoc('qa-farm3', 'QA', {}, 'cindcub');
+  const l2 = C.addCreature(legacyF, C.makeCreature('sproutle', 8)).uid;
+  C.baseOf(legacyF).training.push({ id: 'old1', uid: legacyF.team[0], star: 2, startedAt: 0, readyAt: 1 });
+  const wasLead = legacyF.team[0];
+  C.normalizeDoc(legacyF);
+  ok('an old save: the one in a pod is moved to the farm, the other leads', !legacyF.team.includes(wasLead) && legacyF.team[0] === l2 && C.atFarm(legacyF, wasLead));
+  C.collectTraining(legacyF, 'old1', 2);
+  ok('and comes back when it is collected', legacyF.team.includes(wasLead) && legacyF.creatures[wasLead].star === 2);
+  const lost = C.createPlayerDoc('qa-farm4', 'QA', {}, 'cindcub');
+  const stray = C.makeCreature('shellop', 6); lost.creatures[stray.uid] = stray;
+  C.normalizeDoc(lost);
+  ok('a creature that belongs nowhere is put back in the box', lost.box.includes(stray.uid));
+
+  const cb = new C.Combatant({ id: 'c1', side: 'a', kind: 'creature', creature: fd.creatures[lead] });
+  ok('a fighter tells the battle its stars, so it is drawn with them', cb.toJSON().star === 2);
+
+  // and it looks it: bigger, marked, ringed, crowned (client/gfx/starlook.js)
+  const SL = await import('../src/client/gfx/starlook.js');
+  const CR = await import('../src/client/gfx/creatures.js');
+  const look = CR.buildCreature('cindcub', { outline: false });
+  const s0 = look.scale.x;
+  SL.setStarLook(look, 3);
+  ok('three stars: bigger, marked, a ring at its feet', near(look.scale.x, s0 * SL.STAR_SCALE[3], 1e-6) && look.userData.model.u.uStar.value === 2 && !!look.userData.starFx);
+  SL.setStarLook(look, 5);
+  ok('five: gold tips and a crown', look.userData.model.u.uTipCol.value.getHex() === SL.GOLD && look.userData.starFx.children.length > 4);
+  SL.setStarLook(look, 1);
+  ok('and dressed again for one star, it is as it was', near(look.scale.x, s0, 1e-6) && !look.userData.starFx && look.userData.model.u.uStar.value === 0);
+  ok('every element has marks that are not its body colour', Object.keys(G.ELEMENTS).every((e) => {
+    const sp = Object.keys(G.SPECIES).find((k) => G.SPECIES[k].types[0] === e);
+    return !sp || SL.starMarks(sp).tip !== G.ELEMENTS[e].color;
+  }));
+
+  // the pods have a place, and nobody walks through them
+  const town = P.propsFor(G.ZONES.aetherport);
+  const spots = P.incubatorSpots(G.ZONES.aetherport);
+  ok('the farm has a spot for every pod there can be', spots.length === G.BUILDINGS.pod.maxLevel);
+  ok('each pod is solid', spots.every((q) => town.colliders.some((c) => c.kind === 'pod' && Math.hypot(c.x - q.x, c.z - q.z) < 0.05)));
+  ok('and stands clear of the barn, the field and the fence', spots.every((q) => {
+    const at = P.resolveCollision(town.colliders.filter((c) => c.kind !== 'pod'), q.x, q.z, 1.15);
+    return Math.hypot(at.x - q.x, at.z - q.z) < 0.01;
+  }));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -2,6 +2,7 @@ import { AdditiveBlending, BoxGeometry, DodecahedronGeometry, MeshStandardMateri
 import { Audio } from '../audio.js';
 import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
+import { setStarLook } from './starlook.js';
 import { KINDS, personAct } from './people.js';
 import { ELEMENTS, MOVES, SPECIES } from '../../shared/gamedata.js';
 import { MEADOW, flowerBase, flowerHead, meadowTuft, thinMaterial } from './world.js';
@@ -528,9 +529,9 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     spawnActor(e) {
       let t = new Group(),
         n = e.kind === "trainer",
-        s = n ? buildAvatar(this.appearance || {}, { hi: !0 }) : buildCreature(e.species, {
+        s = n ? buildAvatar(this.appearance || {}, { hi: !0 }) : setStarLook(buildCreature(e.species, {
           hi: !0
-        });
+        }), e.star || 1);
       let glow = n ? null : takeGlow(s);
       s.userData.phase = lb(e.id), ir.setFromObject(s);
       let r = Number.isFinite(ir.max.y) ? Math.max(0.6, ir.max.y) : 1.6,

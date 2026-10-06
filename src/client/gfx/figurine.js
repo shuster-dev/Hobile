@@ -896,16 +896,17 @@ function vinyl(spec, u) {
     Object.assign(s.uniforms, u);
     s.vertexShader = s.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec4 aFx; varying vec4 vFx; uniform float uTime, uFlame;`)
+        attribute vec4 aFx; varying vec4 vFx; varying vec3 vObj; uniform float uTime, uFlame;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vFx = aFx;
+        vFx = aFx; vObj = position;
         if (aFx.y > 0.0) {
           float fl = sin(uTime * 9.0 + position.y * 23.0 + position.x * 11.0) * 0.6 + sin(uTime * 14.0 - position.z * 17.0) * 0.4;
           transformed += objectNormal * fl * uFlame * aFx.y;
         }`);
     s.fragmentShader = s.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying vec4 vFx; uniform float uBlink, uGlow, uRim, uSpec, uEyeStyle, uEyeGlow; uniform vec3 uLid;`)
+        varying vec4 vFx; varying vec3 vObj; uniform float uBlink, uGlow, uRim, uSpec, uEyeStyle, uEyeGlow, uStar, uFigH, uTime;
+        uniform vec3 uLid, uStarCol, uTipCol, uGlowCol;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float eyeLit = 0.0;
         if (vFx.z < 4.0) {
@@ -934,6 +935,21 @@ function vinyl(spec, u) {
           c = mix(c, uLid, lid);
           eyeLit *= 1.0 - lid;
           diffuseColor.rgb = c;
+        }
+        // Trained stars, painted on (in the bind pose, so they move with it):
+        // from two, the tips — ears, horns, crest — dipped in its element's
+        // colour; from three, stripes down the flanks; from four they glow;
+        // at five the tips are gold.
+        float starTip = 0.0, starStripe = 0.0;
+        if (uStar > 0.5 && vFx.z >= 4.0 && vFx.y <= 0.0) {
+          float hN = vObj.y / uFigH;
+          starTip = smoothstep(0.84, 0.89, hN);
+          float side = smoothstep(0.07, 0.17, abs(vObj.x) / uFigH);
+          float wave = hN * 8.5 + sin(vObj.z / uFigH * 6.0) * 0.55;
+          starStripe = smoothstep(0.24, 0.14, abs(fract(wave) - 0.5)) * side * smoothstep(0.16, 0.28, hN)
+            * step(1.5, uStar) * (1.0 - starTip);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uTipCol, starTip * 0.8);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uStarCol, starStripe * 0.55);
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         if (vFx.z < 4.0) totalEmissiveRadiance += diffuseColor.rgb * (0.16 + eyeLit * 0.75 + uEyeGlow);
@@ -947,6 +963,9 @@ function vinyl(spec, u) {
           vec3 Vv = normalize(vViewPosition);
           float ndv = max(dot(normal, Vv), 0.0);
           totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.45)) * pow(1.0 - ndv, 3.0) * uRim;
+          // a trained one carries its element at the edges, more with each star
+          totalEmissiveRadiance += uGlowCol * pow(1.0 - ndv, 2.4) * 0.16 * uStar;
+          if (uStar > 2.5) totalEmissiveRadiance += mix(uGlowCol, uTipCol, starTip) * (starStripe * 0.8 + starTip * 0.45) * (0.3 + 0.22 * sin(uTime * 3.2 + vObj.y / uFigH * 9.0));
           vec3 Hk = normalize(normalize(vec3(-0.45, 0.75, 0.55)) + Vv);
           totalEmissiveRadiance += vec3(pow(max(dot(normal, Hk), 0.0), 64.0) * uSpec);
         }`);
@@ -1131,6 +1150,12 @@ function instance(id, design, { outline = true, hi = false } = {}) {
     uSpec: { value: design.spec ?? 0.2 },
     uEyeStyle: { value: design.eyeStyle ?? 0 },
     uEyeGlow: { value: design.eyeGlow ?? 0 },
+    // stars earned in training (client/gfx/starlook.js): 0 for none
+    uStar: { value: 0 },
+    uStarCol: { value: new Color(0xffffff) },
+    uTipCol: { value: new Color(0xffffff) },
+    uGlowCol: { value: new Color(0xffffff) },
+    uFigH: { value: Math.max(0.05, T.height) },
   };
   const mat = vinyl(design, u);
   const geo = T.geoHi || T.geoLo;

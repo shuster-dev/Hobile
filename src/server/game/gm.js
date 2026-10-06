@@ -42,7 +42,7 @@ function targetOf(ctx, to) {
 
 function refresh(t) {
   const p = t.self?.();
-  if (p) { p.hpRatio = hpRatio(t.doc); p.petSpecies = activeCreature(t.doc)?.species || ''; }
+  if (p) { p.hpRatio = hpRatio(t.doc); p.petSpecies = activeCreature(t.doc)?.species || ''; p.petStar = activeCreature(t.doc)?.star || 1; }
   t.save?.();
   t.send('profile', publicProfile(t.doc));
 }

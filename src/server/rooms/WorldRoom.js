@@ -160,7 +160,7 @@ export class WorldRoom extends Room {
       id: doc.id, name: doc.name, level: doc.level,
       x: spawn.x, y: 0, z: spawn.z, rot: 0, moving: false, status: 'idle',
       guildTag: '', partyId: '',
-      petSpecies: activeCreature(doc)?.species || '', hpRatio: hpRatio(doc),
+      petSpecies: activeCreature(doc)?.species || '', petStar: activeCreature(doc)?.star || 1, hpRatio: hpRatio(doc),
       body: doc.appearance.body, skin: doc.appearance.skin,
       hair: doc.appearance.hair, outfit: doc.appearance.outfit,
       kind: doc.appearance.kind, look: doc.appearance.look,

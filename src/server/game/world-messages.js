@@ -19,9 +19,9 @@ import { stepWithin } from '../../shared/worldplan.js';
 import {
   acceptQuest, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
   collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
-  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView,
+  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView, atFarm,
 } from './combat.js';
-import { hpRatio } from './player.js';
+import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
 import { handleGm } from './gm.js';
 
@@ -331,6 +331,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
             ctx.speak(n, typeof t?.npcId == "string" ? t.npcId : "");
             break;
           }
+        case "baseLook":
+          {
+            // the farm wants to draw its pods: the garden is not collected
+            let o = baseView(n);
+            o.collected?.length && (ctx.net.save(), ctx.net.emit("profile", publicProfile(n)));
+            ctx.net.emit("base", o);
+            break;
+          }
         case "baseOpen":
           {
             let o = collectGarden(n);
@@ -369,6 +377,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
               kind: "star",
               star: o.star
             }) : [];
+            // who walks beside you may have changed (gone to the farm, back)
+            petOf(s, n), s.hpRatio = hpRatio(n);
             ctx.net.save();
             for (let c of a) ctx.net.emit("questDone", {
               id: c
@@ -431,10 +441,10 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "setTeam":
           {
-            let o = (t.team || []).filter(l => n.creatures[l]).slice(0, 6);
+            let o = (t.team || []).filter(l => typeof l == "string" && n.creatures[l] && !atFarm(n, l)).slice(0, 6);
             if (!o.length) return;
             let a = new Set([...n.team, ...n.box]);
-            n.team = o, n.box = [...a].filter(l => !o.includes(l)), s.petSpecies = activeCreature(n)?.species || "", s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
+            n.team = o, n.box = [...a].filter(l => !o.includes(l)), petOf(s, n), s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
             break;
           }
         case "questAccept":

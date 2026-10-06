@@ -184,6 +184,7 @@ var StoreBase = class {
         guildTag: e.guildId && this.net.guilds.find(n => n.id === e.guildId)?.tag || "",
         partyId: this.party ? this.party.id : "",
         petSpecies: activeCreature(e)?.species || "",
+        petStar: activeCreature(e)?.star || 1,
         hpRatio: hpRatio(e),
         body: e.appearance.body,
         skin: e.appearance.skin,
