@@ -28,12 +28,15 @@ export const WILDS = {
   checkHourMs: 2000,
 };
 
-/** One row of the pool, by weight. */
+/** One row of the pool, by weight. A row's weight is its share of the wilds
+ *  you meet, one by one — so a species that comes in herds is picked that
+ *  much less often, and a herd of three is not three times its share. */
 function pickRow(pool, rnd) {
+  const w = (r) => { const h = howOf(r).herd; return r[1] / (Array.isArray(h) ? (h[0] + h[1]) / 2 : 1); };
   let total = 0;
-  for (const r of pool) total += r[1];
+  for (const r of pool) total += w(r);
   let n = rnd() * total;
-  for (const r of pool) if ((n -= r[1]) <= 0) return r;
+  for (const r of pool) if ((n -= w(r)) <= 0) return r;
   return pool[pool.length - 1];
 }
 
@@ -62,7 +65,7 @@ export function spawnGroup(world, now = Date.now(), rnd = Math.random, room = In
     if (!p) continue;
     const id = world.spawn(row[0], randomLevel(world.zone.id, rnd), p);
     const d = world.wildDocs.get(id);
-    if (d) { d.home = { x: at.x, z: at.z }; d.roam = n > 1 ? WILDS.herdRoam : WILDS.roam; d.hour = how.when || ''; }
+    if (d) { d.home = { x: at.x, z: at.z }; d.roam = n > 1 ? WILDS.herdRoam : WILDS.roam; d.hour = how.when || ''; d.at = how.at || ''; }
     made++;
   }
   return made;
@@ -85,10 +88,13 @@ export function wander(world, now, dtMs, rnd = Math.random) {
     if (d.summonedUntil && now > d.summonedUntil) { world.state.wilds.delete(id); world.wildDocs.delete(id); continue; }
     if (now >= (d.next || 0)) {
       const home = d.home || { x: w.x, z: w.z }, R = d.home ? (d.roam ?? WILDS.roam) : 4;
+      // somewhere near home, and on its own ground if it has one
       let t = null;
-      for (let i = 0; i < 6 && !t; i++) {
+      const P = d.at ? planFor(world.zone) : null;
+      for (let i = 0; i < 10 && !t; i++) {
         const a = rnd() * Math.PI * 2, r = 1 + rnd() * R;
         const x = home.x + Math.cos(a) * r, z = home.z + Math.sin(a) * r;
+        if (P && i < 7 && !P.isHabitat(x, z, d.at)) continue;
         if (standable(world.zone, world.colliders, x, z, 0.6)) t = { x, z };
       }
       d.target = t || { x: w.x, z: w.z };

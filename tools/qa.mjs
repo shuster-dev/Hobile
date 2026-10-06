@@ -1064,6 +1064,42 @@ section('the wilds');
     return H.outOfHour(z, 'lumoth', dayT) && !H.outOfHour(z, 'burrowbun', dayT) && !H.outOfHour(z, 'lumoth', dayT + day * 0.5);
   })());
   ok('a herd is a herd', (() => { const r = H.rowFor(ZONES.stonewake_mesa, 'cragkid'); const n = [0, 0.5, 0.999].map((u) => H.herdSize(r, () => u)); return n[0] === 2 && n[2] === 4 && H.herdSize(['pebblin', 1]) === 1; })());
+
+  // the server side (game/wilds.js), on a zone of its own
+  const Wl = await import('../src/server/game/wilds.js');
+  const mkWorld = (zid) => {
+    const zone = ZONES[zid], state = { wilds: new Map() }, docs = new Map();
+    let n = 0;
+    return { zone, colliders: P.propsFor(zone).colliders, state, wildDocs: docs, target: WP.wildTarget(zone),
+      spawn: (sp, lv, at) => { const id = 'q' + (n++); state.wilds.set(id, { id, species: sp, level: lv, x: at.x, z: at.z, engagedBy: '' }); docs.set(id, { species: sp, level: lv, target: { ...at }, next: 0, mode: '' }); return id; } };
+  };
+  const dayT = T0 - (T0 % day) + day * 0.45, nightT = dayT + day * 0.5;
+  const wm = mkWorld('stonewake_mesa');
+  Wl.populate(wm, dayT, WP.PLANS && ((s) => () => (s = (s * 16807) % 2147483647) / 2147483647)(7));
+  const PM = WP.planFor('stonewake_mesa');
+  ok('a planned zone is stocked to its size', wm.state.wilds.size === WP.wildTarget(ZONES.stonewake_mesa) && WP.wildTarget(ZONES.stonewake_mesa) > 14);
+  ok('every wild comes out on ground a body can stand on', [...wm.state.wilds.values()].every((w) => PM.walkable(w.x, w.z)));
+  ok('the ones with ground of their own come out on it', [...wm.state.wilds.values()].filter((w) => H.howOf(H.rowFor(ZONES.stonewake_mesa, w.species)).at === 'cliff')
+    .every((w) => PM.cliffDist(w.x, w.z) <= 12));
+  {
+    let t = dayT;
+    for (let k = 0; k < 400; k++) { t += 50; Wl.tickWilds(wm, t, 50); }
+    ok('and wander without walking off it, or into the oasis', [...wm.state.wilds.values()].every((w) => PM.walkable(w.x, w.z)));
+  }
+  const wn = mkWorld('verdant_meadow');
+  const herdOf = (sp) => { for (let i = 0; i < 40; i++) { const before = wn.state.wilds.size; Wl.spawnGroup(wn, dayT, Math.random, 9); const ids = [...wn.state.wilds.values()].slice(before); if (ids[0]?.species === sp) return ids.length; } return 0; };
+  ok('the rabbits come out two or three together', [2, 3].includes(herdOf('burrowbun')));
+  const night = mkWorld('verdant_meadow');
+  night.spawn('lumoth', 5, WP.fieldPoint(night.zone, night.colliders));
+  [...night.wildDocs.values()][0].hour = 'night';
+  ok('the moth stays while it is night', Wl.departures(night, nightT) === 0 && night.state.wilds.size === 1);
+  night._hourCheckAt = 0;
+  ok('and is gone when the day comes', Wl.departures(night, dayT) === 1 && night.state.wilds.size === 0);
+  const fought = mkWorld('verdant_meadow');
+  fought.spawn('lumoth', 5, WP.fieldPoint(fought.zone, fought.colliders));
+  [...fought.wildDocs.values()][0].hour = 'night';
+  [...fought.state.wilds.values()][0].engagedBy = 'someone';
+  ok('unless someone is fighting it', Wl.departures(fought, dayT) === 0);
 }
 
 // ---------------------------------------------------------------- GM tools
