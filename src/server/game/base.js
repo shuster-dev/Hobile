@@ -4,6 +4,8 @@ import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
 import { engageWild, handleWorldMessage, speakTo, visitCheck } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
+import { fieldPoint, wildTarget } from '../../shared/worldplan.js';
+import { populate, tickWilds } from './wilds.js';
 import { FIELD, fieldHint, keepSpot, savedSpot, tickField } from './field.js';
 import { weatherAt } from '../../shared/weather.js';
 
@@ -134,6 +136,15 @@ var StoreBase = class {
       }, this.wildDocs = new Map(), this.colliders = propsFor(this.zone).colliders, this.bossDef = WORLD_BOSSES.find(n => n.zone === this.zoneId) || WORLD_BOSSES[0], this.bossContribution = new Map();
       // The same field rules the online room runs (server/game/field.js),
       // with this simulation as the one player's context.
+      // the wilds: who comes out where, in what numbers (game/wilds.js)
+      this.wilds = {
+        zone: this.zone,
+        colliders: this.colliders,
+        state: this.state,
+        wildDocs: this.wildDocs,
+        target: wildTarget(this.zone, WILD_COUNT),
+        spawn: (species, level, at) => this.spawnWild(species, level, at)
+      };
       this.field = {
         zone: this.zone,
         colliders: this.colliders,
@@ -181,7 +192,7 @@ var StoreBase = class {
         kind: e.appearance.kind,
         look: e.appearance.look
       });
-      for (let n = 0; n < WILD_COUNT; n++) this.spawnWild();
+      populate(this.wilds);
       this.scheduleBoss(), this.timer = setInterval(() => this.tick(), TICK_MS), setTimeout(() => this.welcome(), 60);
     }
     stop() {
@@ -230,6 +241,9 @@ var StoreBase = class {
       };
     }
     randomFieldPoint() {
+      // a planned zone knows its own ground (worldplan.js); the town does not
+      let planned = !this.zone.urban && fieldPoint(this.zone, this.colliders);
+      if (planned) return planned;
       let e = this.zone.size / 2 - 8;
       for (let t = 0; t < 24; t++) {
         let n = (Math.random() * 2 - 1) * e,
@@ -247,14 +261,14 @@ var StoreBase = class {
         z: e * 0.6
       };
     }
-    spawnWild() {
+    spawnWild(species, level, at) {
       let e = "w" + uid().slice(0, 8),
-        t = weightedPick(this.zone.spawns),
-        n = randomLevel(this.zoneId),
+        t = species || weightedPick(this.zone.spawns),
+        n = level || randomLevel(this.zoneId),
         {
           x: s,
           z: r
-        } = this.randomFieldPoint();
+        } = at || this.randomFieldPoint();
       this.state.wilds.set(e, {
         id: e,
         species: t,
@@ -276,6 +290,7 @@ var StoreBase = class {
         mode: "",
         restUntil: 0
       });
+      return e;
     }
     scheduleBoss() {
       this.state.boss.nextSpawnAt = Date.now() + 75e3, this.state.boss.species = this.bossDef.species, this.state.boss.level = this.bossDef.level, this.state.boss.x = this.bossDef.x, this.state.boss.z = this.bossDef.z;
@@ -284,26 +299,10 @@ var StoreBase = class {
       let e = Date.now(),
         t = TICK_MS;
       this.state.serverTime = e;
-      for (let [n, s] of this.state.wilds) {
-        if (s.engagedBy) continue;
-        let r = this.wildDocs.get(n);
-        if (!r || r.mode) continue;          // moved by the field while it has a mood
-        if (e > r.next) {
-          let c = this.randomFieldPoint();
-          r.target = {
-            x: s.x + (c.x - s.x) * 0.12,
-            z: s.z + (c.z - s.z) * 0.12
-          }, r.next = e + 2500 + Math.random() * 4e3;
-        }
-        let o = r.target.x - s.x,
-          a = r.target.z - s.z,
-          l = Math.hypot(o, a);
-        if (l > 0.2) {
-          let c = 1.6 * t / 1e3;
-          s.x += o / l * c, s.z += a / l * c, s.rot = Math.atan2(o, a);
-        }
-      }
-      this.state.wilds.size < WILD_COUNT && this.spawnWild(), tickField(this.field, e, t), this.tickBoss(e);
+      // the wilds come out, amble, keep their hours (game/wilds.js); a wild
+      // with a mood is moved by the field instead
+      tickWilds(this.wilds, e, t);
+      tickField(this.field, e, t), this.tickBoss(e);
     }
     tickBoss(e) {
       let t = this.state.boss;

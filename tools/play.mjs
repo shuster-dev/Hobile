@@ -254,6 +254,10 @@ const indoors = await page.evaluate(async () => {
     { x: door.door.x + (door.door.x - door.x) / out * 6, z: door.door.z + (door.door.z - door.z) / out * 6 },
     { x: door.door.x, z: door.door.z },
   ];
+  // This is about the door, not about finding a way across town from wherever
+  // the fight was (a straight walk can stall on a house): start outside it.
+  const me = g.net.room?.self?.();
+  if (me) { me.x = goals[0].x; me.z = goals[0].z; w.snapSelf(me.x, me.z); }
   for (const goal of goals) {
     for (let i = 0; i < 90; i++) {
       const p = w.selfPosition();

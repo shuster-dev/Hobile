@@ -18,7 +18,7 @@
 // a structure's `rot` turns it about y the way `object.rotation.y` does, so
 // its local +z faces (sin rot, cos rot).
 import { ZONES } from './gamedata.js';
-import { fbm, hash, valueNoise } from './props.js';
+import { fbm, hash, resolveCollision, valueNoise } from './props.js';
 import { PLANS } from './zoneplans.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -461,6 +461,61 @@ export function planFor(zoneOrId) {
   if (!zone || !PLANS[zone.id]) return null;
   if (!CACHE.has(zone.id)) CACHE.set(zone.id, new Plan(zone, PLANS[zone.id]));
   return CACHE.get(zone.id);
+}
+
+/**
+ * One step from (fx, fz) toward (tx, tz) for a body of radius r: out of the
+ * colliders, and — in a planned zone — never into deep water, lava, a chasm
+ * or up a rock face. Blocked, it slides along whichever axis keeps it on its
+ * feet. A body that is somehow already off the ground (an old save, a GM
+ * warp) is let walk out.
+ */
+export function stepWithin(zone, colliders, fx, fz, tx, tz, r = 0.5) {
+  const P = zone && !zone.urban ? planFor(zone) : null;
+  const p = resolveCollision(colliders, tx, tz, r);
+  if (!P || P.walkable(p.x, p.z)) return p;
+  for (const [x, z] of [[tx, fz], [fx, tz]]) {
+    const q = resolveCollision(colliders, x, z, r);
+    if (P.walkable(q.x, q.z)) return q;
+  }
+  return P.walkable(fx, fz) ? { x: fx, z: fz } : p;
+}
+
+/** Can a wild (or a returning player) be put down here? */
+export function standable(zone, colliders, x, z, pad = 1.2) {
+  const P = zone && !zone.urban ? planFor(zone) : null;
+  if (P && (!P.walkable(x, z) || P.deckAt(x, z))) return false;
+  if (P && Math.hypot(x, z) > P.half - 8) return false;
+  return !colliders.some((c) => Math.hypot(c.x - x, c.z - z) < (c.r ?? Math.max(c.hw, c.hd)) + pad);
+}
+
+/**
+ * A point out in the field for a wild: on walkable ground, clear of the
+ * landmarks and of anything built, and — when `tag` names a habitat — on that
+ * kind of ground if there is any (shared/habitats.js). Wilds with no ground of
+ * their own keep mostly to the tall grass (65%), as they always have in the
+ * stories: that is where you go looking.
+ */
+export function fieldPoint(zone, colliders, rnd = Math.random, tag = null) {
+  const P = zone && !zone.urban ? planFor(zone) : null;
+  const half = zone.size / 2 - 8;
+  if (!tag && P && P.patches.length && rnd() < 0.65) tag = 'grass';
+  for (let i = 0; i < 80; i++) {
+    let x, z;
+    if (P) { const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * (P.half - 10); x = Math.cos(a) * d; z = Math.sin(a) * d; }
+    else { x = (rnd() * 2 - 1) * half; z = (rnd() * 2 - 1) * half; }
+    if (zone.landmarks.some((l) => l.r && Math.hypot(l.x - x, l.z - z) < l.r + 4)) continue;
+    if (!standable(zone, colliders, x, z)) continue;
+    if (tag && P && i < 64 && !P.isHabitat(x, z, tag)) continue;
+    return { x, z };
+  }
+  return null;
+}
+
+/** How many wilds a zone keeps: more ground, more of them. */
+export function wildTarget(zone, base = 14) {
+  if (!zone || zone.urban) return base;
+  return Math.round(base * Math.min(2.6, Math.max(1, (zone.size / 130) ** 2 * 0.62)));
 }
 
 export { PLANS, polyDist, inRect, CELL };

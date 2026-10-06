@@ -1,3 +1,4 @@
+import { planFor } from './worldplan.js';
 // `three` was imported here for one line of arithmetic, and it cost the server
 // 26MB: `shared/` is loaded by WorldRoom, so every deploy shipped the whole
 // renderer to a process that never draws a frame. The blend is reproduced
@@ -62,6 +63,9 @@ function fbm(i, e, t = 0, n = 3) {
 }
 
 function heightAt(i, e, t) {
+  // a planned field zone (worldplan.js) knows its own ground
+  let plan = !URBAN_ZONES.has(i) && planFor(i);
+  if (plan) return plan.height(e, t);
   if (URBAN_ZONES.has(i)) {
     let a = hash(i);
     if (t < EDGE_Y) return -1.35;
@@ -491,6 +495,8 @@ function propColliders(i, e) {
 
 function generateProps(i) {
   if (i.urban) return generateUrbanProps(i);
+  let plan = planFor(i);
+  if (plan) return generatePlannedProps(i, plan);
   let e = rng(hash(i.id)),
     t = i.size / 2 - 6,
     n = [],
@@ -678,6 +684,88 @@ function generateProps(i) {
   };
 }
 
+/**
+ * The scenery of a planned zone (worldplan.js): trees where its woods are and
+ * a few out in the open, rocks gathered under its cliffs, bushes and grass
+ * where things grow — none of it in the water, on a road, against a building
+ * or in a camp. What is built comes from the plan, with its colliders.
+ */
+function generatePlannedProps(i, P) {
+  let e = rng(hash(i.id)),
+    half = i.size / 2 - 5,
+    trees = [],
+    rocks = [],
+    bushes = [],
+    grass = [],
+    buildings = [],
+    cols = [],
+    nearLandmark = (x, z, pad) => i.landmarks.some(l => Math.hypot(l.x - x, l.z - z) < (l.r || 0) + pad),
+    built = P.colliders,
+    nearBuilt = (x, z, pad) => built.some(c => Math.hypot(c.x - x, c.z - z) < (c.r ?? Math.max(c.hw, c.hd)) + pad) || P.structures.some(s => (s.kind === "field" || s.kind === "orchard") && Math.abs(s.x - x) < s.w / 2 + pad && Math.abs(s.z - z) < s.d / 2 + pad),
+    open = (x, z, pad = 1.5) => Math.hypot(x, z) < half - 2 && P.walkable(x, z) && !P.deckAt(x, z) && P.roadAt(x, z) < 0.15 && !nearBuilt(x, z, pad);
+  // the camp's cottages, as in every zone
+  for (let m of i.landmarks) {
+    if (m.kind !== "camp") continue;
+    for (let E = 0; E < 4; E++) {
+      // the same draws, in the same order, as every camp has always had: the
+      // cottages stand where they always stood (tools/camera-test.mjs knows them)
+      let a = E / 4 * TAU_W + e() * 0.25,
+        S = (m.r || 10) * 0.66,
+        x = m.x + Math.cos(a) * S,
+        z = m.z + Math.sin(a) * S,
+        w = 3.1 + e() * 1.1,
+        d = 2.9 + e() * 1,
+        h = 2.5 + e() * 0.9;
+      if (!P.walkable(x, z) || nearBuilt(x, z, 2)) continue;
+      buildings.push({ x, z, w, d, h, rot: a + Math.PI / 2, kind: "house", seed: e() }), cols.push({ x, z, r: Math.max(w, d) * 0.62, kind: "building" });
+    }
+  }
+  const look = P.spec.props || {};
+  // woods: a jittered grid, kept where the forest is thick enough
+  const step = look.treeStep ?? 5.2;
+  for (let x = -half; x < half; x += step) for (let z = -half; z < half; z += step) {
+    let tx = x + (e() - 0.5) * step * 0.9, tz = z + (e() - 0.5) * step * 0.9;
+    let f = P.forestAt(tx, tz), lone = (look.lone ?? 0.035);
+    if (e() > f * 0.9 + lone) continue;
+    if (!open(tx, tz, 2.2) || nearLandmark(tx, tz, 7)) continue;
+    let s = (0.75 + e() * 0.95) * (f > 0.5 ? 1.12 : 1);
+    trees.push({ x: tx, z: tz, s, rot: e() * TAU_W, tilt: (e() - 0.5) * 0.09, kind: e() < (look.slim ?? 0.24) ? "slim" : "broad" }), cols.push({ x: tx, z: tz, r: 0.52 * s + 0.42, kind: "tree" });
+  }
+  // rocks: some anywhere, more at the foot of the cliffs and the chasm's lip
+  let nRocks = Math.round(i.size * 0.5 * (look.rocks ?? 1));
+  for (let k = 0, tries = 0; k < nRocks && tries < nRocks * 8; tries++) {
+    let x = (e() * 2 - 1) * half, z = (e() * 2 - 1) * half;
+    let nearRock = P.cliffDist(x, z) < 9 || P.tone(x, z).rock > 0.2;
+    if (!nearRock && e() > 0.45) continue;
+    if (!open(x, z, 1.5) || nearLandmark(x, z, 3)) continue;
+    let s = (nearRock ? 0.7 : 0.5) + e() * (nearRock ? 1.6 : 1.1);
+    rocks.push({ x, z, s, rot: e() * TAU_W, tiltX: (e() - 0.5) * 0.5, tiltZ: (e() - 0.5) * 0.5 }), cols.push({ x, z, r: s, kind: "rock" });
+    k++;
+  }
+  // bushes: at the edges of woods, by water, in the grass
+  let nBush = Math.round(i.size * 0.9 * (look.bushes ?? 1));
+  for (let k = 0, tries = 0; k < nBush && tries < nBush * 6; tries++) {
+    let x = (e() * 2 - 1) * half, z = (e() * 2 - 1) * half;
+    let likes = P.forestAt(x, z) * 0.8 + (P.waterDist(x, z) < 8 ? 0.5 : 0) + P.grassAt(x, z) * 0.4 + 0.12;
+    if (e() > likes || !open(x, z, 0.8) || nearLandmark(x, z, 2)) continue;
+    bushes.push({ x, z, s: 0.5 + e() * 0.7, rot: e() * TAU_W });
+    k++;
+  }
+  let nGrass = Math.round(i.size * 9 * (look.grass ?? 1));
+  for (let k = 0; k < nGrass; k++) {
+    let x = (e() * 2 - 1) * half, z = (e() * 2 - 1) * half;
+    if (!P.walkable(x, z) || P.deckAt(x, z)) continue;
+    grass.push({ x, z, s: 0.65 + e() * 0.8, rot: e() * TAU_W, phase: e() * TAU_W });
+  }
+  for (let m of i.landmarks) m.kind === "dungeon" && cols.push({ x: m.x, z: m.z - 0.6, r: 2, kind: "gate" });
+  for (let m of i.landmarks) m.kind === "camp" && cols.push({ x: m.x, z: m.z, r: 1.2, kind: "spring", top: 0.45 });
+  cols.push(...built);
+  return cols.push(...boundaryRing(i)), {
+    trees, rocks, bushes, grass, buildings, colliders: cols, props: [], urban: !1,
+    structures: P.structures, plan: P
+  };
+}
+
 function boundaryRing(i) {
   let t = i.size / 2 - 3,
     n = 3.2,
@@ -792,4 +880,4 @@ function plazaHeight(i, e, t) {
 
 var STREET_Y = -0.62;
 
-export { BLOCK, BUILDING_STYLES, CURB_IN, CURB_OUT, CURB_RISE, EDGE_Y, LAMP_SPACING, PLAZA, POST, PROP_CACHE, ROAD_HALF, SIDEWALK, STREET_Y, TAU_G, TAU_W, URBAN_ZONES, blockGrid, boundaryRing, curbHeight, distToGridLine, fbm, generateProps, generateUrbanProps, gridOffset, hash, heightAt, mixHex, onRoad, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand, valueNoise };
+export { generatePlannedProps, BLOCK, BUILDING_STYLES, CURB_IN, CURB_OUT, CURB_RISE, EDGE_Y, LAMP_SPACING, PLAZA, POST, PROP_CACHE, ROAD_HALF, SIDEWALK, STREET_Y, TAU_G, TAU_W, URBAN_ZONES, blockGrid, boundaryRing, curbHeight, distToGridLine, fbm, generateProps, generateUrbanProps, gridOffset, hash, heightAt, mixHex, onRoad, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand, valueNoise };

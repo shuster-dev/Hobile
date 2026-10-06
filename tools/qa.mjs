@@ -25,6 +25,7 @@ for (const m of modules) {
 }
 
 const G = await import('../src/shared/gamedata.js');
+const WP = await import('../src/shared/worldplan.js');
 const P = await import('../src/shared/props.js');
 const C = await import('../src/server/game/combat.js');
 const B = await import('../src/server/game/base.js');
@@ -641,6 +642,26 @@ ok('a zone lays the same paths every time', wildZones.every((z) => {
 const trailMiss = [];
 for (const z of wildZones) {
   const tr = Wv.buildTrails(z, P.propsFor(z).colliders), camp = z.landmarks.find((l) => l.kind === 'camp');
+  if (WP.planFor(z)) {
+    // A planned zone's roads bend round what is in the way, so "the path
+    // leaves the camp toward it" is not the question: can you walk from the
+    // camp to each portal and gate on road, and does the road reach it?
+    const N = 120, px = z.size / N, on = new Uint8Array(N * N), seen = new Uint8Array(N * N);
+    const idx = (x, zz) => { const i = Math.floor(x / px + N / 2), j = Math.floor(zz / px + N / 2); return i < 0 || j < 0 || i >= N || j >= N ? -1 : j * N + i; };
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const x = (i + 0.5 - N / 2) * px, zz = (j + 0.5 - N / 2) * px;
+      on[j * N + i] = tr.at(x, zz) > 0.35 || Math.hypot(x - camp.x, zz - camp.z) < camp.r + 2 ? 1 : 0;
+    }
+    const q = [idx(camp.x, camp.z)]; seen[q[0]] = 1;
+    while (q.length) { const k = q.pop(), i = k % N, j = (k / N) | 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) { const ni = i + di, nj = j + dj; if (ni < 0 || nj < 0 || ni >= N || nj >= N) continue; const n = nj * N + ni; if (on[n] && !seen[n]) { seen[n] = 1; q.push(n); } } }
+    for (const t of z.landmarks) {
+      if (t.kind !== 'portal' && t.kind !== 'dungeon') continue;
+      let reach = false;
+      for (let a = 0; a < 16 && !reach; a++) for (const r of [0, 2, 4, 6]) { const k = idx(t.x + Math.cos(a / 16 * 6.283) * r, t.z + Math.sin(a / 16 * 6.283) * r); if (k >= 0 && seen[k]) { reach = true; break; } }
+      reach || trailMiss.push(`${z.id}:${t.kind}@${t.x},${t.z} no road`);
+    }
+    continue;
+  }
   for (const t of z.landmarks) {
     if (t.kind !== 'portal' && t.kind !== 'dungeon') continue;
     if (Math.hypot(t.x - camp.x, t.z - camp.z) < (camp.r || 8) + 6) continue;

@@ -15,6 +15,7 @@ import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, SPECIES, ZONES, statsFor } 
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { giverView } from '../../shared/story.js';
 import { resolveCollision } from '../../shared/props.js';
+import { stepWithin } from '../../shared/worldplan.js';
 import {
   acceptQuest, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
   collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
@@ -153,7 +154,9 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let half = ctx.zone.size / 2;
             tx = Math.max(-half, Math.min(half, tx));
             tz = Math.max(-half, Math.min(half, tz));
-            let o = resolveCollision(ctx.colliders, tx, tz, 0.42);
+            // ...and never into the river, up a cliff or over the chasm
+            // (worldplan.js): the same step the client predicts with
+            let o = stepWithin(ctx.zone, ctx.colliders, s.x, s.z, tx, tz, 0.42);
             // The client reports ~12 times a second whether or not the stick
             // is held, so "stepped" is a real change of place, not a packet.
             (t.moving || Math.hypot(o.x - s.x, o.z - s.z) > 0.05) && (ctx.lastStepAt = r);
