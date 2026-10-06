@@ -2243,18 +2243,18 @@ var MOVES = {
       accent: 3817552,
       sky: 9418456,
       capturable: !1,
-      size: 130,
+      size: 200,
       urban: !0,
       safe: !0,
       water: {
-        z: -38,
+        z: -62,
         level: -1.35,
         color: 1919587
       },
       rift: {
         x: 0,
-        y: 28,
-        z: -52,
+        y: 30,
+        z: -78,
         r: 10
       },
       spawns: [["sparkit", 20], ["mossnail", 20], ["pebblin", 20], ["coglet", 20], ["zephyrb", 20]],
@@ -2264,7 +2264,7 @@ var MOVES = {
         he: "כיכר הרסיס",
         x: 0,
         z: 0,
-        r: 9
+        r: 10
       }, {
         kind: "archive",
         name: "The Archive",
@@ -2282,78 +2282,85 @@ var MOVES = {
         kind: "shop",
         name: "Market Row",
         he: "שוק הרחוב",
-        x: -12,
+        x: -60,
         z: 12,
         r: 7.5,
         npc: "tavi",
         interior: "shop",
         door: {
-          x: -12,
+          x: -60,
           z: 17.5
         }
       }, {
         kind: "workshop",
         name: "Ren’s Workshop",
         he: "המסגרייה של רן",
-        x: 12,
+        x: 60,
         z: -12,
         r: 7.5,
         npc: "ren",
         interior: "workshop",
         door: {
-          x: 12,
+          x: 60,
           z: -6.5
         }
       }, {
         kind: "clinic",
         name: "Tideward Clinic",
         he: "מרפאת הגאות",
-        x: -36,
-        z: 12,
+        x: 36,
+        z: 36,
         r: 7.5,
         interior: "clinic",
         door: {
-          x: -36,
-          z: 17.5
+          x: 36,
+          z: 41.5
         }
       }, {
         kind: "base",
-        name: "Your Yard",
-        he: "החצר שלך",
-        x: 12,
-        z: 12,
-        r: 7.5
+        name: "Your Farm",
+        he: "החווה שלך",
+        x: -48,
+        z: 62,
+        r: 13
+      }, {
+        kind: "garden",
+        name: "Lantern Garden",
+        he: "גן הפנסים",
+        x: 48,
+        z: 62,
+        r: 11
       }, {
         kind: "pier",
         name: "Rift Pier",
         he: "מזח הקרע",
         x: 0,
-        z: -44,
+        z: -68,
         r: 8
       }, {
         kind: "gate",
         name: "North Gate",
         he: "השער הצפוני",
         x: 0,
-        z: 36,
+        z: 72,
         r: 5,
         npc: "sela"
       }, {
         kind: "dungeon",
         to: "undercity_cistern",
         x: -36,
-        z: -12
+        z: -36
       }, {
         kind: "portal",
         to: "verdant_meadow",
         x: 0,
-        z: 46
+        z: 84
       }, {
         kind: "portal",
         gate: "ember",
         to: "emberfall_canyon",
         x: -9,
-        z: -40,
+        z: -64,
         name: "Flame Gate",
         he: "שער הלהבה",
         band: [8, 16]
@@ -2362,7 +2369,7 @@ var MOVES = {
         gate: "aqua",
         to: "tidal_hollow",
         x: -3,
-        z: -47,
+        z: -71,
         name: "Tide Gate",
         he: "שער הגאות",
         band: [14, 24]
@@ -2371,7 +2378,7 @@ var MOVES = {
         gate: "terra",
         to: "stonewake_mesa",
         x: 3,
-        z: -47,
+        z: -71,
         name: "Stone Gate",
         he: "שער האבן",
         band: [10, 20]
@@ -2380,7 +2387,7 @@ var MOVES = {
         gate: "volt",
         to: "stormreach_heights",
         x: 9,
-        z: -40,
+        z: -64,
         name: "Storm Gate",
         he: "שער הסופה",
         band: [18, 28]

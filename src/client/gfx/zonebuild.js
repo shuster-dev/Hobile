@@ -125,7 +125,7 @@ export const BUILDERS = {
     windows(k, g, [[0, h + 1.2, d / 2 + 0.05]], 1, 1);
     for (const sz of [1, -1]) for (const sx of [1, -1]) k.box(0.3, h, 0.3, { x: sx * w / 2, y: h / 2 + 0.2, z: sz * d / 2 }, WHITE);
   },
-  dwelling(k, g, s, o) { house(k, g, { w: s.w, d: s.d, h: s.h, wall: o.pal.wall ?? WHITE, roof: THATCH, chimney: [s.w * 0.25, -s.d * 0.2], smoke: o.smoke }); },
+  dwelling(k, g, s, o) { house(k, g, { w: s.w, d: s.d, h: s.h, wall: s.wall ?? o.pal.wall ?? WHITE, roof: s.roof ?? THATCH, chimney: [s.w * 0.25, -s.d * 0.2], smoke: s.i % 3 ? null : o.smoke }); },
   field(k, g, s) {
     k.box(s.w, 0.12, s.d, { y: 0.02 }, 0x7A5A3A);
     const wheat = s.crop !== 'cabbage';
@@ -398,6 +398,19 @@ export const BUILDERS = {
     k.box(1.2, 2, 0.4, { y: 1, z: 3.1 }, DARK);
     for (let i = 0; i < 5; i++) k.rock(0.6, { x: Math.cos(i * 1.4) * 4.4, y: 0.25, z: Math.sin(i * 1.4) * 4.4 }, 0x8A8494);
     k.box(2.6, 0.2, 2.6, { y: 7.05 }, 0x4A6A44);
+  },
+  trough(k) {
+    k.box(2.4, 0.7, 0.9, { y: 0.35 }, WOOD_D);
+    k.box(2.2, 0.06, 0.7, { y: 0.62 }, 0x5A9AC8);
+    for (const sx of [1, -1]) k.box(0.15, 0.5, 1, { x: sx * 1.1, y: 0.25 }, WOOD);
+  },
+  pond(k, g, s) {
+    const r = s.r ?? 4;
+    k.cyl(r, r, 0.12, { y: 0.02 }, 0x4AA0C8, 20);
+    k.cyl(r * 0.7, r * 0.7, 0.13, { y: 0.03 }, 0x3A86B4, 20);
+    for (let i = 0; i < 18; i++) { const a = i / 18 * PI * 2; k.rock(0.42 + (i % 3) * 0.08, { x: Math.cos(a) * (r + 0.2), y: 0.1, z: Math.sin(a) * (r + 0.2), sy: 0.6 }, i % 2 ? STONE : STONE_D); }
+    for (let i = 0; i < 5; i++) { const a = i * 1.7, d = r * (0.3 + (i % 3) * 0.2); k.cyl(0.38, 0.38, 0.03, { x: Math.cos(a) * d, y: 0.12, z: Math.sin(a) * d }, 0x5EB85A, 8); }
+    k.ball(0.12, { x: Math.cos(1.7) * r * 0.5, y: 0.2, z: Math.sin(1.7) * r * 0.5 }, 0xFF9CC8, 6);
   },
   lanterns(k, g, s, o) {
     const P = s.pts;

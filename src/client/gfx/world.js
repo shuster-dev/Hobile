@@ -8,7 +8,7 @@ import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { NPCS, npcList } from '../../shared/npcs.js';
 import { planFor } from '../../shared/worldplan.js';
 import { buildPlanArt } from './zoneart.js';
-import { buildWater } from './zonekit.js';
+import { buildWater, splitByChunks } from './zonekit.js';
 import { BLOCK, CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, PLAZA, SIDEWALK, STREET_Y, TAU_G, blockGrid, curbHeight, fbm, gridOffset, hash, heightAt, mixHex, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand } from '../../shared/props.js';
 
 var PartBuilder = class {
@@ -1463,12 +1463,13 @@ function buildCityGround(i, e, t, n) {
       cast: !1,
       receive: !0
     });
-  p && s.add(p);
+  // In 48m squares, so a town twice the size draws the part the camera faces
+  p && chunkInto(s, p);
   let x = a.mesh(f, {
     cast: !0,
     receive: !0
   });
-  x && s.add(x);
+  x && chunkInto(s, x);
   let g = vertexColorMat({
       roughness: 0.14,
       metalness: 0.55,
@@ -1478,7 +1479,7 @@ function buildCityGround(i, e, t, n) {
       cast: !1,
       receive: !1
     });
-  m && s.add(m);
+  m && chunkInto(s, m);
   let v = [];
   c.forEach((A, k) => {
     let L = vertexColorMat({
@@ -1496,7 +1497,7 @@ function buildCityGround(i, e, t, n) {
       cast: !1,
       receive: !1
     });
-    O && s.add(O);
+    O && chunkInto(s, O);
   });
   let E = vertexColorMat({
     roughness: 0.4,
@@ -1512,7 +1513,7 @@ function buildCityGround(i, e, t, n) {
     cast: !1,
     receive: !1
   });
-  _ && s.add(_);
+  _ && chunkInto(s, _);
   let S = null;
   if (d.length) {
     S = new ShaderMaterial({
@@ -3545,7 +3546,15 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           pal: n,
           plaza: e.landmarks.find(s => s.kind === "plaza")
         }
-      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs()) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n));
+      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs(), this.buildTownStructures(n)) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n));
+    }
+    /** The town's farm and garden, built like the field zones' (zoneart.js). */
+    buildTownStructures(e) {
+      let list = this.props.structures;
+      if (!list?.length) return;
+      let z = this.zone,
+        P = { structures: list, zone: z, level: z.water?.level ?? -1.35, water: null, half: z.size / 2, height: (x, y) => this.heightAt(x, y) };
+      this.planArt = buildPlanArt(P, e), this.zoneGroup.add(this.planArt.group);
     }
     /** A planned zone's water and everything built in it (zoneart.js). */
     buildPlan(e) {
@@ -4874,7 +4883,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let r = s.rotTarget - s.holder.rotation.y;
         for (; r > Math.PI;) r -= Math.PI * 2;
         for (; r < -Math.PI;) r += Math.PI * 2;
-        s.holder.rotation.y += r * Math.min(1, e * 6), s.group.userData.baseY = 0, setCreatureLod(s.group, s.holder.position.distanceTo(this.camera.position)), animateCreature(s.group, t, s.moving);
+        let dc = s.holder.position.distanceTo(this.camera.position);
+        // past where a figure is more than a few pixels, it is not drawn at all
+        if (s.group.visible = dc < figureFar(), !s.group.visible) continue;
+        s.holder.rotation.y += r * Math.min(1, e * 6), s.group.userData.baseY = 0, setCreatureLod(s.group, dc), animateCreature(s.group, t, s.moving);
         let o = t * 0.001 + s.phase,
           a = s.group.userData.rig;
         if (!s.moving && a?.arms?.length) {
@@ -5183,7 +5195,9 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       if (!on) return this.titleCam = null;
       let z = this.zone || {},
         l = (z.landmarks || []).find(n => n.kind === "plaza" || n.kind === "fountain") || (z.landmarks || [])[0] || { x: 0, z: 0 };
-      this.titleCam = { x: l.x || 0, z: l.z || 0, r: 24, h: 11, a: 0.6 };
+      // over the roofs: the town is twice the size it was, and a camera that
+      // circled at roof height went through a wall on every lap
+      this.titleCam = { x: l.x || 0, z: l.z || 0, r: 44, h: 34, a: 0.6 };
     }
     /** Open a zone looking at open ground. Arriving with your back to a wall
      *  used to start the zone on a close-up of the back of your own head: no
@@ -5297,7 +5311,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let gp = n.holder.position,
           gv = n._lp ? Math.hypot(gp.x - n._lp.x, gp.z - n._lp.z) / Math.max(e, 1e-3) : 0;
         n._gs = (n._gs || 0) + (Math.min(12, gv) - (n._gs || 0)) * Math.min(1, e * 8), (n._lp ||= gp.clone()).copy(gp), n.group.userData.groundSpeed = n._gs;
-        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = 0, setCreatureLod(n.group, n.holder.position.distanceTo(this.camera.position)), animateCreature(n.group, t, n.moving), n.pet) {
+        let dc = n.holder.position.distanceTo(this.camera.position), seen = n.key === this.self || dc < figureFar();
+        n.group.visible = seen, n.pet && (n.pet.group.visible = seen);
+        if (!seen) continue;
+        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet) {
           let o = new Vector3(-1.35, 0, -1.45);
           n.pet._lp ||= n.pet.lag.clone();
           let pv;
@@ -5818,6 +5835,13 @@ function interiorOf(i, e, t, n) {
     x: Math.sin(a),
     z: Math.cos(a)
   };
+}
+
+/** How far off a trainer, a keeper or a wild one is still drawn. Each is a
+ *  skinned model of several thousand triangles; a crowded town square at the
+ *  far end of the street was most of a small phone's frame. */
+function figureFar() {
+  return QUALITY.tier === "low" ? 58 : QUALITY.tier === "medium" ? 80 : 120;
 }
 
 function npcNear(i, e) {
@@ -6423,6 +6447,18 @@ function buildTrails(zone, colliders) {
       return i < 0 || j < 0 || i >= N || j >= N ? 0 : data[j * N + i] / 255;
     }
   };
+}
+
+/** A merged mesh cut into 48m squares (zonekit.js), each added to `group`
+ *  with the same material and shadows. */
+function chunkInto(group, mesh, cell = 48) {
+  let parts = mesh.geometry.index ? null : splitByChunks(mesh.geometry, cell);
+  if (!parts || parts.length < 2) return group.add(mesh), mesh;
+  for (let g of parts) {
+    let m = new Mesh(g, mesh.material);
+    m.castShadow = mesh.castShadow, m.receiveShadow = mesh.receiveShadow, m.renderOrder = mesh.renderOrder, m.userData = { ...mesh.userData }, group.add(m);
+  }
+  return mesh.geometry.dispose(), mesh;
 }
 
 /** Items with x and z, sorted into square cells of `size` metres. */

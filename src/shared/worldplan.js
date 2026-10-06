@@ -106,7 +106,11 @@ class Plan {
     this.structures = S(spec.structures).map((s, i) => ({ rot: 0, ...s, i }));
     this.decks = [];
     for (const s of this.structures) this.deckOf(s);
-    for (const s of this.structures) s.y = s.y ?? (s.kind === 'bridge' || s.kind === 'boardwalk' || s.kind === 'pier' ? this.level : this.height(s.x, s.z));
+    for (const s of this.structures) {
+      // a line of things (rails, lanterns) has points, not a middle
+      if (s.x === undefined && s.pts?.length) { s.x = s.pts[0][0]; s.z = s.pts[0][1]; }
+      s.y = s.y ?? (s.kind === 'bridge' || s.kind === 'boardwalk' || s.kind === 'pier' ? this.level : this.height(s.x, s.z));
+    }
     this.colliders = this.structures.flatMap((s) => this.footprint(s));
     this.buildGrid();
   }
@@ -305,20 +309,7 @@ class Plan {
   }
 
   /** What stops a body: a structure's walls, posts and railings. */
-  footprint(s) {
-    const box = (lx, lz, hw, hd, top, kind = 'structure') => {
-      const c = Math.cos(s.rot), sn = Math.sin(s.rot);
-      return { x: s.x + lx * c + lz * sn, z: s.z - lx * sn + lz * c, hw, hd, rot: -s.rot, kind, top: (s.y ?? 0) + top };
-    };
-    const circ = (lx, lz, r, top, kind = 'structure') => {
-      const c = Math.cos(s.rot), sn = Math.sin(s.rot);
-      return { x: s.x + lx * c + lz * sn, z: s.z - lx * sn + lz * c, r, kind, top: (s.y ?? 0) + top };
-    };
-    const F = FOOTPRINTS[s.kind];
-    if (F) return F(s, box, circ);
-    if (s.w && s.d) return [box(0, 0, s.w / 2, s.d / 2, s.h ?? 4)];
-    return [];
-  }
+  footprint(s) { return footprintOf(s); }
 
   // ------------------------------------------------------------- habitats
   /** A coarse grid of the questions spawning asks a hundred times: is this
@@ -388,6 +379,23 @@ class Plan {
   }
 }
 
+/** A structure's colliders in the world, from its kind (FOOTPRINTS below). */
+export function footprintOf(s) {
+  const rot = s.rot || 0;   // a haystack or a pond is laid without one
+  const box = (lx, lz, hw, hd, top, kind = 'structure') => {
+    const c = Math.cos(rot), sn = Math.sin(rot);
+    return { x: s.x + lx * c + lz * sn, z: s.z - lx * sn + lz * c, hw, hd, rot: -rot, kind, top: (s.y ?? 0) + top };
+  };
+  const circ = (lx, lz, r, top, kind = 'structure') => {
+    const c = Math.cos(rot), sn = Math.sin(rot);
+    return { x: s.x + lx * c + lz * sn, z: s.z - lx * sn + lz * c, r, kind, top: (s.y ?? 0) + top };
+  };
+  const F = FOOTPRINTS[s.kind];
+  if (F) return F(s, box, circ);
+  if (s.w && s.d) return [box(0, 0, s.w / 2, s.d / 2, s.h ?? 4)];
+  return [];
+}
+
 /** Distance in cells to the nearest set cell (two-pass chamfer, 1 / 1.4). */
 function chamfer(src, n) {
   const D = new Float32Array(n * n);
@@ -451,6 +459,8 @@ const FOOTPRINTS = {
   airship: () => [],
   volcano: () => [],
   stilthouse: (s, box) => [box(0, 0, 3, 2.8, 5.5)],
+  trough: (s, box) => [box(0, 0, 1.2, 0.45, 0.8)],
+  pond: (s, box, circ) => [circ(0, 0, (s.r ?? 4) + 0.3, 0.5)],
 };
 
 const CACHE = new Map();

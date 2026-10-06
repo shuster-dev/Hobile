@@ -52,12 +52,12 @@ var NPCS = {
     outfit: "wanderer",
     schedule: [{
       at: 0,
-      x: -36,
-      z: 12,
+      x: -84,
+      z: 36,
       act: "sleep"
     }, {
       at: 0.28,
-      x: -12,
+      x: -60,
       z: 12,
       act: "work"
     }, {
@@ -67,8 +67,8 @@ var NPCS = {
       act: "social"
     }, {
       at: 0.9,
-      x: -36,
-      z: 12,
+      x: -84,
+      z: 36,
       act: "sleep"
     }]
   },
@@ -86,12 +86,12 @@ var NPCS = {
     outfit: "ranger",
     schedule: [{
       at: 0,
-      x: 36,
-      z: -12,
+      x: 84,
+      z: -36,
       act: "sleep"
     }, {
       at: 0.22,
-      x: 12,
+      x: 60,
       z: -12,
       act: "work"
     }, {
@@ -101,8 +101,8 @@ var NPCS = {
       act: "social"
     }, {
       at: 0.88,
-      x: 36,
-      z: -12,
+      x: 84,
+      z: -36,
       act: "sleep"
     }]
   },
@@ -121,17 +121,17 @@ var NPCS = {
     schedule: [{
       at: 0,
       x: 0,
-      z: 36,
+      z: 72,
       act: "work"
     }, {
       at: 0.35,
       x: 0,
-      z: 24,
+      z: 58,
       act: "walk"
     }, {
       at: 0.55,
       x: 0,
-      z: 36,
+      z: 72,
       act: "work"
     }, {
       at: 0.8,
@@ -165,13 +165,13 @@ var NPCS = {
       act: "social"
     }, {
       at: 0.5,
-      x: -12,
+      x: -60,
       z: 12,
       act: "social"
     }, {
       at: 0.68,
-      x: 0,
-      z: 0,
+      x: 48,
+      z: 62,
       act: "social"
     }, {
       at: 0.86,
@@ -206,13 +206,34 @@ function npcAt(i, e) {
     p = a.z - o.z,
     x = Math.hypot(f, p) > 0.5,
     g = x && d > 0.01 && d < 0.99;
-  return {
-    x: o.x + f * u,
-    z: o.z + p * u,
-    rot: x ? Math.atan2(f, p) : 0,
-    moving: g,
-    act: g ? "walk" : o.act
-  };
+  if (!x) return { x: o.x, z: o.z, rot: 0, moving: !1, act: o.act };
+  // Across town by the streets, not through the houses: out to the nearest
+  // street, along it to the street nearest where they are going, down that
+  // one, and the last few steps to the door.
+  let path = streetRoute(o, a),
+    total = 0;
+  for (let k = 1; k < path.length; k++) total += Math.hypot(path[k][0] - path[k - 1][0], path[k][1] - path[k - 1][1]);
+  let left = u * total;
+  for (let k = 1; k < path.length; k++) {
+    let [ax, az] = path[k - 1], [bx, bz] = path[k], L = Math.hypot(bx - ax, bz - az);
+    if (left <= L || k === path.length - 1) {
+      let t = L ? Math.min(1, left / L) : 1;
+      return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, rot: L ? Math.atan2(bx - ax, bz - az) : 0, moving: g, act: g ? "walk" : o.act };
+    }
+    left -= L;
+  }
+  return { x: a.x, z: a.z, rot: Math.atan2(f, p), moving: g, act: g ? "walk" : o.act };
+}
+
+/** The town's streets run every 24m both ways (props.js BLOCK). */
+function streetRoute(o, a) {
+  let B = 24,
+    zo = Math.round(o.z / B) * B,
+    xa = Math.round(a.x / B) * B,
+    pts = [[o.x, o.z], [o.x, zo], [xa, zo], [xa, a.z], [a.x, a.z]],
+    out = [pts[0]];
+  for (let q of pts.slice(1)) Math.hypot(q[0] - out[out.length - 1][0], q[1] - out[out.length - 1][1]) > 0.01 && out.push(q);
+  return out;
 }
 
 function npcList(i) {

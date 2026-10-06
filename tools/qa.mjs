@@ -175,6 +175,19 @@ for (const z of Object.values(ZONES)) {
 }
 ok('the player cannot walk into a rock', thinRocks.length === 0, thinRocks.slice(0, 4).join(' '));
 
+// One haystack laid without a rotation put a NaN in the town's colliders, and
+// every step anyone took through `resolveCollision` came out NaN with it.
+const badSolids = [];
+for (const z of Object.values(ZONES)) {
+  const { colliders, structures } = P.propsFor(z);
+  for (const c of [...colliders, ...(structures || [])]) {
+    if (Object.values(c).some((v) => typeof v === 'number' && !Number.isFinite(v))) badSolids.push(`${z.id}:${c.kind}`);
+  }
+  const at = P.resolveCollision(colliders, 0.3, 4.1, PLAYER_R);
+  if (!Number.isFinite(at.x) || !Number.isFinite(at.z)) badSolids.push(`${z.id}:step`);
+}
+ok('every solid thing in every zone is somewhere (no NaN)', badSolids.length === 0, badSolids.slice(0, 4).join(' '));
+
 const SOLID = ['bench', 'bin', 'hydrant', 'bollard', 'fence', 'workbench', 'lamp', 'planter', 'stall', 'fountain'];
 const openProps = [];
 for (const z of Object.values(ZONES)) {

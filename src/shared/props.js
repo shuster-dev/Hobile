@@ -1,4 +1,4 @@
-import { planFor } from './worldplan.js';
+import { footprintOf, planFor } from './worldplan.js';
 // `three` was imported here for one line of arithmetic, and it cost the server
 // 26MB: `shared/` is loaded by WorldRoom, so every deploy shipped the whole
 // renderer to a process that never draws a frame. The blend is reproduced
@@ -86,7 +86,7 @@ function heightAt(i, e, t) {
 var TAU_W = Math.PI * 2,
   BLOCK = 24,
   ROAD_HALF = 4.5,
-  EDGE_Y = -38,
+  EDGE_Y = -62,
   URBAN_ZONES = new Set(["aetherport"]);
 
 function blockGrid(i) {
@@ -131,10 +131,14 @@ var BUILDING_STYLES = [{
     roof: 3814186,
     floors: [2, 3]
   }],
-  POST = 3.2;
+  POST = 3.2,
+  // the edge-of-town houses (zonebuild.js dwelling)
+  HOUSE_WALLS = [0xF2E6D0, 0xEED8C0, 0xF4EEE2, 0xE8D4B8, 0xF0E0D4],
+  HOUSE_ROOFS = [0xC0563A, 0xB84A3A, 0xA8624A, 0x7A6A8A, 0xD9B464];
 
 function generateUrbanProps(i) {
-  let e = rng(hash(i.id)),
+  let structures = [],
+    e = rng(hash(i.id)),
     t = i.size / 2,
     n = [],
     s = [],
@@ -158,6 +162,22 @@ function generateUrbanProps(i) {
     let m = l(x, g, 2);
     if (m && m.kind !== "portal") continue;
     let v = BLOCK / 2 - ROAD_HALF - 1.2;
+    // Out past the middle of town the blocks are houses with pitched roofs
+    // and gardens, not shops four storeys high: the town thins out toward its
+    // edge, and a town twice the size costs the phone less than twice as much.
+    if (Math.hypot(x, g) > 50) {
+      let n2 = e() < 0.5 ? 2 : 3;
+      for (let y = 0; y < n2; y++) {
+        let side = Math.floor(e() * 4), a2 = side * Math.PI / 2,
+          along = (y - (n2 - 1) / 2) * (v * 2 / n2) + (e() - 0.5),
+          hx = x + Math.sin(a2) * (v - 3) + Math.cos(a2) * along,
+          hz = g + Math.cos(a2) * (v - 3) - Math.sin(a2) * along;
+        if (onRoad(hx, hz, -1) || l(hx, hz, 2) || hz < EDGE_Y + 8) continue;
+        let st = { kind: "dwelling", x: hx, z: hz, rot: a2, w: 5 + e() * 1.4, d: 5 + e() * 1.2, h: 3.4 + e() * 0.8, wall: HOUSE_WALLS[Math.floor(e() * HOUSE_WALLS.length)], roof: HOUSE_ROOFS[Math.floor(e() * HOUSE_ROOFS.length)] };
+        st.y = heightAt(i.id, hx, hz), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      }
+      continue;
+    }
     for (let E = 0; E < 4; E++) {
       if (e() < 0.06) continue;
       let _ = E % 2 === 0 ? "x" : "z",
@@ -293,9 +313,19 @@ function generateUrbanProps(i) {
       }
     }
     if (f.kind === "base") {
-      for (let x = 0; x < 22; x++) {
-        let g = x / 22 * TAU_W;
-        g > Math.PI * 0.85 && g < Math.PI * 1.15 || r.push({
+      // Your farm: a barn, a pen, troughs, hay, a patch of cabbages, inside its
+      // fence — built like the field zones' farms (zonebuild.js)
+      let y = (x, z) => heightAt(i.id, x, z);
+      for (let st of [
+        { kind: "barn", x: f.x - 5, z: f.z + 4.5, rot: Math.PI, w: 7, d: 8, h: 4.2 },
+        { kind: "fence", x: f.x + 6, z: f.z + 7, rot: 0, len: 7 }, { kind: "fence", x: f.x + 9.5, z: f.z + 3.5, rot: Math.PI / 2, len: 7 },
+        { kind: "trough", x: f.x + 6, z: f.z + 3, rot: 0.2 },
+        { kind: "haystack", x: f.x - 9.5, z: f.z - 2 }, { kind: "haystack", x: f.x + 2, z: f.z + 9 },
+        { kind: "field", x: f.x + 4, z: f.z - 6, rot: 0, w: 8, d: 5, crop: "cabbage" }
+      ]) st.y = y(st.x, st.z), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      for (let x = 0; x < 34; x++) {
+        let g = x / 34 * TAU_W;
+        g > Math.PI * 1.38 && g < Math.PI * 1.62 || r.push({
           kind: "fence",
           x: f.x + Math.cos(g) * p,
           z: f.z + Math.sin(g) * p,
@@ -313,6 +343,18 @@ function generateUrbanProps(i) {
         z: f.z,
         rot: 0
       });
+    }
+    if (f.kind === "garden") {
+      // The lantern garden: a pond with lilies, benches round it, lamps
+      let y = (x, z) => heightAt(i.id, x, z),
+        st = { kind: "pond", x: f.x, z: f.z, r: 4.2, rot: 0 };
+      st.y = y(st.x, st.z), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      for (let x = 0; x < 4; x++) {
+        let g = x / 4 * TAU_W + Math.PI / 4;
+        r.push({ kind: "bench", x: f.x + Math.cos(g) * 6.6, z: f.z + Math.sin(g) * 6.6, rot: g + Math.PI / 2 });
+        r.push({ kind: "lamp", x: f.x + Math.cos(g + Math.PI / 4) * 8.4, z: f.z + Math.sin(g + Math.PI / 4) * 8.4, rot: 0, s: 1 }), s.push({ x: f.x + Math.cos(g + Math.PI / 4) * 8.4, z: f.z + Math.sin(g + Math.PI / 4) * 8.4, r: 0.55, kind: "prop" });
+        o.push({ x: f.x + Math.cos(g + 0.5) * 9.4, z: f.z + Math.sin(g + 0.5) * 9.4, s: 0.9, rot: e() * TAU_W, tilt: 0, kind: "street" });
+      }
     }
     if (f.kind === "gate" && (r.push({
       kind: "gatehouse",
@@ -418,7 +460,8 @@ function generateUrbanProps(i) {
     buildings: n,
     colliders: s,
     props: r,
-    urban: !0
+    urban: !0,
+    structures
   };
 }
 
@@ -835,7 +878,7 @@ var CURB_IN = ROAD_HALF - 1.2,
   CURB_OUT = CURB_IN + 0.34,
   LAMP_SPACING = 5.72,
   CURB_RISE = 0.16,
-  SIDEWALK = 54,
+  SIDEWALK = 88,
   TAU_G = Math.PI * 2;
 
 function gridOffset(i) {
