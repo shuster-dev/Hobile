@@ -1310,6 +1310,478 @@ var MOVES = {
         eyes: 3874048
       }
     }),
+    // -- v0.30: each field zone's own line, and the rare ones that only come
+    // out in their hour (shared/habitats.js says where and when).
+    burrowbun: def({
+      id: "burrowbun",
+      name: "Burrowbun",
+      he: "בורובאן",
+      types: ["verdant"],
+      rarity: "common",
+      base: {
+        hp: 48,
+        atk: 50,
+        def: 44,
+        spa: 40,
+        spd: 46,
+        spe: 78
+      },
+      learn: [[1, "tackle"], [1, "vinewhip"], [7, "gustcut"], [11, "focus"], [15, "leechbloom"], [28, "thornstorm"]],
+      evolve: {
+        into: "clovhare",
+        level: 18
+      },
+      model: {
+        shape: "quad",
+        a: 13214330,
+        b: 16774370,
+        scale: 0.72,
+        eyes: 3810324
+      }
+    }),
+    clovhare: def({
+      id: "clovhare",
+      name: "Clovhare",
+      he: "קלובהייר",
+      types: ["verdant", "gale"],
+      rarity: "evolved",
+      base: {
+        hp: 66,
+        atk: 76,
+        def: 60,
+        spa: 58,
+        spd: 64,
+        spe: 116
+      },
+      learn: [[1, "vinewhip"], [1, "gustcut"], [1, "leechbloom"], [20, "cyclonelift"], [26, "tailwind"], [32, "thornstorm"]],
+      model: {
+        shape: "quad",
+        a: 12159582,
+        b: 16774370,
+        scale: 1,
+        eyes: 2771486
+      }
+    }),
+    salamite: def({
+      id: "salamite",
+      name: "Salamite",
+      he: "סלמייט",
+      types: ["ember"],
+      rarity: "common",
+      base: {
+        hp: 50,
+        atk: 54,
+        def: 48,
+        spa: 60,
+        spd: 46,
+        spe: 52
+      },
+      learn: [[1, "tackle"], [1, "emberjab"], [10, "rockfling"], [15, "cinderburst"], [20, "guard"], [30, "magmawave"]],
+      evolve: {
+        into: "basalisk",
+        level: 24
+      },
+      model: {
+        shape: "quad",
+        a: 15226158,
+        b: 16760954,
+        scale: 0.8,
+        eyes: 2756616
+      }
+    }),
+    basalisk: def({
+      id: "basalisk",
+      name: "Basalisk",
+      he: "בזליסק",
+      types: ["ember", "terra"],
+      rarity: "evolved",
+      base: {
+        hp: 78,
+        atk: 88,
+        def: 92,
+        spa: 80,
+        spd: 70,
+        spe: 62
+      },
+      learn: [[1, "emberjab"], [1, "rockfling"], [1, "cinderburst"], [28, "quakestep"], [32, "bulwark"], [38, "magmawave"]],
+      model: {
+        shape: "quad",
+        a: 3811878,
+        b: 16738847,
+        scale: 1.1,
+        eyes: 16761914
+      }
+    }),
+    cragkid: def({
+      id: "cragkid",
+      name: "Cragkid",
+      he: "קראגקיד",
+      types: ["terra"],
+      rarity: "common",
+      base: {
+        hp: 54,
+        atk: 62,
+        def: 58,
+        spa: 34,
+        spd: 44,
+        spe: 60
+      },
+      learn: [[1, "tackle"], [1, "rockfling"], [12, "gustcut"], [16, "guard"], [22, "quakestep"]],
+      evolve: {
+        into: "ramstone",
+        level: 26
+      },
+      model: {
+        shape: "quad",
+        a: 15918802,
+        b: 9075306,
+        scale: 0.8,
+        eyes: 3811866
+      }
+    }),
+    ramstone: def({
+      id: "ramstone",
+      name: "Ramstone",
+      he: "רמסטון",
+      types: ["terra", "gale"],
+      rarity: "evolved",
+      base: {
+        hp: 82,
+        atk: 104,
+        def: 86,
+        spa: 44,
+        spd: 66,
+        spe: 88
+      },
+      learn: [[1, "rockfling"], [1, "gustcut"], [1, "quakestep"], [30, "bulwark"], [34, "cyclonelift"], [40, "focus"]],
+      model: {
+        shape: "quad",
+        a: 15392715,
+        b: 7234648,
+        scale: 0.95,
+        eyes: 3811866
+      }
+    }),
+    shellop: def({
+      id: "shellop",
+      name: "Shellop",
+      he: "שלופ",
+      types: ["aqua"],
+      rarity: "common",
+      base: {
+        hp: 52,
+        atk: 56,
+        def: 78,
+        spa: 44,
+        spd: 54,
+        spe: 28
+      },
+      learn: [[1, "tackle"], [1, "bubblelash"], [14, "guard"], [20, "tidecrash"], [26, "rockfling"]],
+      evolve: {
+        into: "beaconch",
+        level: 28
+      },
+      model: {
+        shape: "blob",
+        a: 16747114,
+        b: 16180168,
+        scale: 0.75,
+        eyes: 1710634
+      }
+    }),
+    beaconch: def({
+      id: "beaconch",
+      name: "Beaconch",
+      he: "ביקונץ'",
+      types: ["aqua", "lumen"],
+      rarity: "evolved",
+      base: {
+        hp: 82,
+        atk: 70,
+        def: 104,
+        spa: 90,
+        spd: 90,
+        spe: 40
+      },
+      learn: [[1, "bubblelash"], [1, "glintray"], [1, "tidecrash"], [32, "mendinglight"], [40, "solarlance"], [44, "maelstrom"]],
+      model: {
+        shape: "blob",
+        a: 15229002,
+        b: 16777215,
+        scale: 1.3,
+        glow: !0,
+        eyes: 1710634
+      }
+    }),
+    nimbulb: def({
+      id: "nimbulb",
+      name: "Nimbulb",
+      he: "נימבאלב",
+      types: ["volt"],
+      rarity: "common",
+      base: {
+        hp: 46,
+        atk: 34,
+        def: 44,
+        spa: 74,
+        spd: 62,
+        spe: 54
+      },
+      learn: [[1, "tackle"], [1, "sparkbite"], [18, "gustcut"], [22, "arcbolt"], [26, "cyclonelift"]],
+      evolve: {
+        into: "thundrift",
+        level: 30
+      },
+      model: {
+        shape: "sprite",
+        a: 14477567,
+        b: 16769136,
+        scale: 0.8,
+        eyes: 1976906
+      }
+    }),
+    thundrift: def({
+      id: "thundrift",
+      name: "Thundrift",
+      he: "ת'אנדריפט",
+      types: ["volt", "gale"],
+      rarity: "evolved",
+      base: {
+        hp: 70,
+        atk: 50,
+        def: 66,
+        spa: 116,
+        spd: 92,
+        spe: 84
+      },
+      learn: [[1, "sparkbite"], [1, "arcbolt"], [1, "cyclonelift"], [34, "tailwind"], [40, "thunderdome"]],
+      model: {
+        shape: "sprite",
+        a: 8029864,
+        b: 16769136,
+        scale: 1.1,
+        eyes: 16769136
+      }
+    }),
+    sleetpup: def({
+      id: "sleetpup",
+      name: "Sleetpup",
+      he: "סליטפאפ",
+      types: ["frost"],
+      rarity: "common",
+      base: {
+        hp: 70,
+        atk: 44,
+        def: 52,
+        spa: 58,
+        spd: 56,
+        spe: 36
+      },
+      learn: [[1, "tackle"], [1, "frostnip"], [24, "bubblelash"], [26, "guard"], [28, "icelance"]],
+      evolve: {
+        into: "walrune",
+        level: 34
+      },
+      model: {
+        shape: "blob",
+        a: 16054783,
+        b: 9418968,
+        scale: 0.8,
+        eyes: 1054752
+      }
+    }),
+    walrune: def({
+      id: "walrune",
+      name: "Walrune",
+      he: "וולרון",
+      types: ["frost", "terra"],
+      rarity: "evolved",
+      base: {
+        hp: 110,
+        atk: 96,
+        def: 88,
+        spa: 70,
+        spd: 76,
+        spe: 50
+      },
+      learn: [[1, "frostnip"], [1, "rockfling"], [1, "icelance"], [38, "quakestep"], [40, "bulwark"], [46, "glacierfall"]],
+      model: {
+        shape: "blob",
+        a: 9083568,
+        b: 14677759,
+        scale: 1.15,
+        eyes: 1054752
+      }
+    }),
+    glowcap: def({
+      id: "glowcap",
+      name: "Glowcap",
+      he: "גלוקאפ",
+      types: ["verdant", "umbra"],
+      rarity: "common",
+      base: {
+        hp: 52,
+        atk: 40,
+        def: 50,
+        spa: 70,
+        spd: 66,
+        spe: 40
+      },
+      learn: [[1, "tackle"], [1, "vinewhip"], [30, "shadowclaw"], [32, "leechbloom"], [34, "duskbind"]],
+      evolve: {
+        into: "mycelord",
+        level: 38
+      },
+      model: {
+        shape: "sprite",
+        a: 5917338,
+        b: 7336160,
+        scale: 0.75,
+        eyes: 1709104
+      }
+    }),
+    mycelord: def({
+      id: "mycelord",
+      name: "Mycelord",
+      he: "מייסלורד",
+      types: ["verdant", "umbra"],
+      rarity: "evolved",
+      base: {
+        hp: 92,
+        atk: 66,
+        def: 84,
+        spa: 110,
+        spd: 92,
+        spe: 56
+      },
+      learn: [[1, "leechbloom"], [1, "shadowclaw"], [1, "duskbind"], [42, "voidpulse"], [46, "thornstorm"]],
+      model: {
+        shape: "sprite",
+        a: 4864634,
+        b: 7336160,
+        scale: 1.05,
+        eyes: 7336160
+      }
+    }),
+    lumoth: def({
+      id: "lumoth",
+      name: "Lumoth",
+      he: "לומות'",
+      types: ["lumen", "gale"],
+      rarity: "rare",
+      base: {
+        hp: 64,
+        atk: 46,
+        def: 60,
+        spa: 110,
+        spd: 96,
+        spe: 94
+      },
+      learn: [[1, "glintray"], [1, "gustcut"], [12, "cyclonelift"], [18, "mendinglight"], [30, "solarlance"]],
+      model: {
+        shape: "insect",
+        a: 16052454,
+        b: 10479871,
+        scale: 1,
+        wings: !0,
+        glow: !0,
+        eyes: 1714762
+      }
+    }),
+    drizzlamb: def({
+      id: "drizzlamb",
+      name: "Drizzlamb",
+      he: "דריזלאמב",
+      types: ["aqua", "gale"],
+      rarity: "rare",
+      base: {
+        hp: 80,
+        atk: 50,
+        def: 70,
+        spa: 92,
+        spd: 88,
+        spe: 70
+      },
+      learn: [[1, "bubblelash"], [1, "gustcut"], [12, "tidecrash"], [18, "tailwind"], [36, "maelstrom"]],
+      model: {
+        shape: "quad",
+        a: 12109528,
+        b: 4872816,
+        scale: 0.95,
+        eyes: 1054752
+      }
+    }),
+    stormstag: def({
+      id: "stormstag",
+      name: "Stormstag",
+      he: "סטורמסטאג",
+      types: ["volt", "lumen"],
+      rarity: "rare",
+      base: {
+        hp: 76,
+        atk: 96,
+        def: 70,
+        spa: 100,
+        spd: 72,
+        spe: 86
+      },
+      learn: [[1, "sparkbite"], [1, "glintray"], [1, "arcbolt"], [1, "focus"], [36, "thunderdome"], [44, "solarlance"]],
+      model: {
+        shape: "quad",
+        a: 3820154,
+        b: 16769136,
+        scale: 1.0,
+        glow: !0,
+        eyes: 16769136
+      }
+    }),
+    cindervix: def({
+      id: "cindervix",
+      name: "Cindervix",
+      he: "סינדרוויקס",
+      types: ["ember", "umbra"],
+      rarity: "rare",
+      base: {
+        hp: 66,
+        atk: 90,
+        def: 62,
+        spa: 96,
+        spd: 70,
+        spe: 96
+      },
+      learn: [[1, "emberjab"], [1, "shadowclaw"], [1, "cinderburst"], [20, "duskbind"], [30, "magmawave"], [40, "voidpulse"]],
+      model: {
+        shape: "quad",
+        a: 3814456,
+        b: 16742954,
+        scale: 1.05,
+        eyes: 16758830
+      }
+    }),
+    geodig: def({
+      id: "geodig",
+      name: "Geodig",
+      he: "ג'יאודיג",
+      types: ["terra", "lumen"],
+      rarity: "rare",
+      base: {
+        hp: 74,
+        atk: 98,
+        def: 96,
+        spa: 54,
+        spd: 70,
+        spe: 78
+      },
+      learn: [[1, "rockfling"], [1, "glintray"], [1, "ironfang"], [16, "quakestep"], [24, "bulwark"], [40, "solarlance"]],
+      model: {
+        shape: "quad",
+        a: 8018570,
+        b: 15255807,
+        scale: 1,
+        eyes: 1708056
+      }
+    }),
+
     duskmaw: def({
       id: "duskmaw",
       name: "Duskmaw",
