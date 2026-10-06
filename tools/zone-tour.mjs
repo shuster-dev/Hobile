@@ -100,6 +100,13 @@ for (const id of ids) {
     console.log(' ', f);
   }
   await page.evaluate(() => { const w = window.__hobile.world, k = w._tourSaved; if (k) { w.camDist = k.d; w.camHeight = k.h; w.updateCamera = k.upd; } });
+  if (process.env.MAP) {
+    await page.evaluate(() => window.__hobile.ui.openPanel('map'));
+    await wait(900);
+    await page.screenshot({ path: path.join(outDir, `${id}-map.png`) });
+    await page.evaluate(() => window.__hobile.ui.closePanel());
+    await wait(400);
+  }
 }
 const stats = await page.evaluate(() => { const r = window.__hobile.world.renderer.info.render; return { calls: r.calls, tris: r.triangles }; });
 console.log(`errors: ${errors.length}`, errors.slice(0, 4), stats);

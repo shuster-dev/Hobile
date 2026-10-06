@@ -4,6 +4,7 @@ import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
 import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf, typeMultiplier } from '../shared/gamedata.js';
 import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
+import { CELL, planFor } from '../shared/worldplan.js';
 
 /**
  * Friends, parties, guilds, duels and the chat channels beyond this zone's.
@@ -350,6 +351,11 @@ var UI = class {
     wash.addColorStop(0, pastel(this.zone?.ground ?? 6531422, 0.62)), wash.addColorStop(1, pastel(this.zone?.ground ?? 6531422, 0.38)), s.fillStyle = wash, s.fillRect(0, 0, r, r);
     let a = e.selfPosition(),
       l = (h, d) => [c + (h - a.x) / o * c, c + (d - a.z) / o * c];
+    let art = zoneArt(this.zone);
+    if (art) {
+      let sc = art.scale;
+      s.globalAlpha = 0.85, s.drawImage(art.canvas, (a.x - o + art.size / 2) * sc, (a.z - o + art.size / 2) * sc, o * 2 * sc, o * 2 * sc, 0, 0, r, r), s.globalAlpha = 1;
+    }
     // The edge of the world, when it is close enough to matter. Without it the
     // radar has no frame and every zone reads the same.
     if (this.zone?.size) {
@@ -414,6 +420,9 @@ var UI = class {
     // panel it sits in is warm white now — so two zones do not look alike.
     o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.fillStyle = pastel(t.ground ?? 6531422, 0.5), o.fill(), o.strokeStyle = "rgba(42,47,77,.28)", o.lineWidth = 1.5, o.stroke();
     o.save(), o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.clip();
+    // a planned zone draws its own ground: rivers, woods, roads, what is built
+    let art = zoneArt(t);
+    art && o.drawImage(art.canvas, l - a * c, l - a * c, a * 2 * c, a * 2 * c);
     // Pins first, then labels, so a label can never be painted under a disc
     // drawn after it.
     let pins = [];
@@ -1795,6 +1804,55 @@ var MAP_PIN = {
 
 /** Accepts a palette number (0x3a5f58) or a css hex, and gives back rgba. */
 /** A zone colour washed toward white, as a CSS colour: `k` of the way there. */
+/**
+ * A planned zone drawn from above for the map and the radar: its ground in the
+ * zone's colour washed light, then the water, the rock, the woods and the tall
+ * grass, the roads, what is built and the bridges — once per zone, from the
+ * plan's own grid, so it costs nothing per frame. (worldplan.js)
+ */
+var ZONE_ART = new Map();
+function zoneArt(zone) {
+  if (!zone || zone.urban) return null;
+  if (ZONE_ART.has(zone.id)) return ZONE_ART.get(zone.id);
+  let P = planFor(zone);
+  if (!P) return ZONE_ART.set(zone.id, null), null;
+  let n = P.grid.n, half = P.half, k = 2,
+    cv = document.createElement("canvas");
+  cv.width = cv.height = n * k;
+  let c = cv.getContext("2d"),
+    img = c.createImageData(n, n),
+    hex = (v) => [v >> 16 & 255, v >> 8 & 255, v & 255],
+    mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t),
+    base = hex(zone.ground ?? 6531422).map(v => v + (255 - v) * 0.5),
+    W = { water: [126, 186, 226], lava: [255, 140, 70], ice: [218, 240, 252], swamp: [120, 146, 112] }[P.water?.kind] || [126, 186, 226];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    let x = -half + (i + 0.5) * CELL, z = -half + (j + 0.5) * CELL, q = j * n + i, col = base;
+    if (P.grassAt(x, z) > 0.3) col = mix(col, [120, 190, 96], 0.3);
+    if (P.forestAt(x, z) > 0.35) col = mix(col, [70, 128, 76], 0.55);
+    if (P.grid.cliffD[q] < 0.5) col = mix(col, [150, 132, 120], 0.8);
+    if (P.roadAt(x, z) > 0.4) col = mix(col, [214, 188, 140], 0.85);
+    if (P.grid.waterD[q] < 0.5) col = W;
+    if (!P.grid.walk[q] && P.grid.waterD[q] >= 0.5 && P.grid.cliffD[q] >= 0.5) col = mix(col, [60, 60, 80], 0.7);
+    img.data.set([col[0] | 0, col[1] | 0, col[2] | 0, 255], q * 4);
+  }
+  let tmp = document.createElement("canvas");
+  tmp.width = tmp.height = n, tmp.getContext("2d").putImageData(img, 0, 0);
+  c.imageSmoothingEnabled = !0, c.drawImage(tmp, 0, 0, n * k, n * k);
+  let toPx = (x, z) => [(x + half) / CELL * k, (z + half) / CELL * k];
+  for (let st of P.structures) {
+    if (st.deck) {
+      let [ax, az] = toPx(st.a[0], st.a[1]), [bx, bz] = toPx(st.b[0], st.b[1]);
+      c.strokeStyle = "#8a6440", c.lineWidth = Math.max(2, st.w / CELL * k), c.beginPath(), c.moveTo(ax, az), c.lineTo(bx, bz), c.stroke();
+      continue;
+    }
+    if (st.kind === "volcano" || st.kind === "rails" || st.kind === "lanterns" || st.kind === "airship") continue;
+    let [px, pz] = toPx(st.x, st.z), w = Math.max(3, (st.w ?? (st.r ? st.r * 2 : 4)) / CELL * k), d = Math.max(3, (st.d ?? (st.r ? st.r * 2 : 4)) / CELL * k);
+    c.save(), c.translate(px, pz), c.rotate(-(st.rot || 0)), c.fillStyle = st.kind === "field" ? "#d8b860" : st.kind === "orchard" ? "#5e9a4e" : "#7a5a4a", c.fillRect(-w / 2, -d / 2, w, d), c.restore();
+  }
+  let art = { canvas: cv, size: P.size, scale: n * k / P.size };
+  return ZONE_ART.set(zone.id, art), art;
+}
+
 function pastel(i, k) {
   let t = i >> 16 & 255,
     n = i >> 8 & 255,
