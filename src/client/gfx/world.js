@@ -1,5 +1,5 @@
 import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
-import { QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
+import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { FIGURINES } from './figurine-designs.js';
@@ -1171,14 +1171,14 @@ function buildFountainWater(f, y, pal) {
           gl_Position = projectionMatrix * mv;
           vA = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.85, 1.0, t));
         }`,
-      fragmentShader: `
+      fragmentShader: displayFrag(`
         varying float vA;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
           float r = dot(d, d);
           if (r > 0.25) discard;
           gl_FragColor = vec4(mix(vec3(0.62, 0.86, 1.0), vec3(1.0), smoothstep(0.25, 0.0, r)) * vA * 0.9, 1.0);
-        }`,
+        }`),
       transparent: !0,
       blending: AdditiveBlending,
       depthWrite: !1
@@ -1216,7 +1216,7 @@ function buildWaterPlane(i, e) {
     },
     s = new ShaderMaterial({
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-      fragmentShader: A_,
+      fragmentShader: displayFrag(A_),
       uniforms: n,
       transparent: !0,
       blending: AdditiveBlending,
@@ -1274,7 +1274,7 @@ function buildAmbientMotes(i, e) {
     },
     l = new ShaderMaterial({
       vertexShader: R_,
-      fragmentShader: C_,
+      fragmentShader: displayFrag(C_),
       uniforms: a,
       transparent: !0,
       blending: AdditiveBlending,
@@ -1290,7 +1290,7 @@ function buildAmbientMotes(i, e) {
 function buildFogWall(i, e, t) {
   let n = new ShaderMaterial({
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-      fragmentShader: `
+      fragmentShader: displayFrag(`
       varying vec2 vUv;
       uniform float uTime; uniform float uNight; uniform vec3 uColor;
       void main() {
@@ -1302,7 +1302,7 @@ function buildFogWall(i, e, t) {
         // still bright where it stops draws a straight line across the harbour
         float edge = (1.0 - smoothstep(0.55, 1.0, abs(p.x))) * (1.0 - smoothstep(0.55, 1.0, abs(p.y)));
         gl_FragColor = vec4(uColor * (ring * 0.5 + lane * 0.45 * shim) * edge * (0.35 + uNight * 0.8), 1.0);
-      }`,
+      }`),
       uniforms: {
         uTime: {
           value: 0
@@ -1514,9 +1514,9 @@ function buildCityGround(i, e, t, n) {
   if (d.length) {
     S = new ShaderMaterial({
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-      fragmentShader: `varying vec2 vUv; uniform float uAmt; uniform vec3 uColor;
+      fragmentShader: displayFrag(`varying vec2 vUv; uniform float uAmt; uniform vec3 uColor;
         void main(){ vec2 p = vUv * 2.0 - 1.0; float f = exp(-dot(p,p) * 3.4);
-        gl_FragColor = vec4(uColor * f * uAmt, 1.0); }`,
+        gl_FragColor = vec4(uColor * f * uAmt, 1.0); }`),
       uniforms: {
         uAmt: {
           value: 0
@@ -1981,7 +1981,7 @@ function buildDust(i, e) {
     },
     l = new Points(o, new ShaderMaterial({
       vertexShader: O_,
-      fragmentShader: B_,
+      fragmentShader: displayFrag(B_),
       uniforms: a,
       transparent: !0,
       blending: AdditiveBlending,
@@ -2123,7 +2123,7 @@ function buildPrecip(spec) {
     },
     points = new Points(geo, new ShaderMaterial({
       vertexShader: PRECIP_VERT,
-      fragmentShader: PRECIP_FRAG,
+      fragmentShader: displayFrag(PRECIP_FRAG),
       uniforms,
       transparent: !0,
       depthWrite: !1
@@ -3810,8 +3810,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let S = s ? t + 150 : n === "cloud" ? t + 140 : t + 62,
         b = new Mesh(new CylinderGeometry(S, S, 120, 56, 1, !0), new ShaderMaterial({
           vertexShader: "varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-          fragmentShader: `varying float vY; uniform vec3 uColor; uniform float uLo, uHi;
-          void main(){ gl_FragColor = vec4(uColor, 0.97 * (1.0 - smoothstep(uLo, uHi, vY))); }`,
+          fragmentShader: displayFrag(`varying float vY; uniform vec3 uColor; uniform float uLo, uHi;
+          void main(){ gl_FragColor = vec4(uColor, 0.97 * (1.0 - smoothstep(uLo, uHi, vY))); }`),
           uniforms: {
             uColor: {
               value: new Color(e.fog)

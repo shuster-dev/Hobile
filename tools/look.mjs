@@ -46,7 +46,7 @@ const snap = async (name) => {
   console.log(`  ${file}`);
 };
 
-await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${PORT}/solo.html${process.env.QUERY ? '?' + process.env.QUERY : ''}`, { waitUntil: 'load' });
 // The front door first: the harbour turning behind the logo.
 await page.waitForSelector('#btn-play:not([disabled])', { timeout: 30000 });
 await wait(3000);
