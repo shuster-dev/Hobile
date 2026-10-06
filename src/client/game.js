@@ -13,6 +13,7 @@ import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
 import { weatherAt } from '../shared/weather.js';
 import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
+import { HOURS, howOf, rowFor } from '../shared/habitats.js';
 
 var WANT_LOGIN = "hobile.wantLogin";
 
@@ -741,8 +742,21 @@ var Game = class {
   watchField(s) {
     let me = this.profile?.id;
     if (!me || !s?.wilds) return;
-    let chasers = this._chasers ||= new Map();
+    let chasers = this._chasers ||= new Map(), told = this._told ||= new Set(), zone = ZONES[this.zone?.id];
     s.wilds.forEach((w, id) => {
+      // a rare one out in its hour: say it once, it is the reason to go look
+      let when = howOf(rowFor(zone, w.species)).when;
+      if (when && HOURS[when] && !told.has(id)) {
+        told.add(id);
+        this.ui.toast(`${HOURS[when].icon} ${loc(SPECIES[w.species])} נראה באזור — הוא יוצא ${HOURS[when].he}`, "good");
+      }
+      // a shy one bolting from me: the first few times, say how to get near
+      if (w.alert === "~" && w.target === me && temperOf(w.species) === "shy" && !told.has("~" + id)) {
+        told.add("~" + id);
+        let n = this._shyTips = (this._shyTips || 0) + 1;
+        this.ui.toast(n <= 3 ? `💨 ${loc(SPECIES[w.species])} נבהל וברח — התקרב לאט: הטה את הג'ויסטיק רק עד חצי` : `💨 ${loc(SPECIES[w.species])} ברח`, n <= 3 ? "" : "good");
+      }
+      w.alert !== "~" && told.delete("~" + id);
       let mine = w.alert === "!" && w.target === me;
       if (mine && !chasers.has(id)) {
         chasers.set(id, w.species), audio.sfx("alert"), vibrate([30, 40, 30]);
@@ -752,6 +766,7 @@ var Game = class {
       }
     });
     for (let id of [...chasers.keys()]) s.wilds.has(id) || chasers.delete(id);
+    for (let id of [...told]) s.wilds.has(id.replace(/^~/, "")) || told.delete(id);
   }
   renderInvitePrompt(e) {
     let t = document.querySelector("#panel .body");

@@ -3,6 +3,7 @@ import { zoneMinimap } from './input.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
 import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf, typeMultiplier } from '../shared/gamedata.js';
+import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 
 /**
  * Friends, parties, guilds, duels and the chat channels beyond this zone's.
@@ -558,6 +559,7 @@ var UI = class {
         base: "הבסיס",
         card: "כרטיס יצור",
         dex: "אוסף היצורים",
+        species: "יומן המינים",
         clinic: "מרפאת הגאות",
         account: "החשבון שלי",
         map: "מפת האזור",
@@ -586,6 +588,7 @@ var UI = class {
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
       dex: () => this.panelDex(o),
+      species: () => this.panelSpecies(o),
       clinic: () => this.panelClinic(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
@@ -611,15 +614,97 @@ var UI = class {
         let tile = el("button", `dex-tile ${row.caught ? "" : "locked"}`);
         let el0 = ELEMENTS[row.types[0]];
         tile.style.setProperty("--elem", el0?.ui || "#7d87ab");
+        // one that only comes out in its hour says so, caught or not: it is
+        // the clue for where to look
+        let hour = foundWhere(row.id).find((f) => f.when)?.when;
         tile.innerHTML = row.caught
           ? `<span class="ico">${el0?.icon || "•"}</span><b>${row.he}</b>` +
             `<span class="n">${row.caught > 1 ? `×${row.caught}` : "חדש"}</span>`
-          : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}</span>`;
-        if (row.caught) tile.onclick = () => this.hooks.openSpecies?.(row.id);
+          : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}${hour ? ` ${HOURS[hour].icon}` : ""}</span>`;
+        tile.setAttribute("aria-label", row.caught ? row.he : "יצור שעוד לא נתפס");
+        tile.onclick = () => { this.speciesId = row.id; this.openPanel("species"); };
         grid.appendChild(tile);
       }
       host.appendChild(grid);
     }
+  }
+
+  /**
+   * One species in the log: its picture (a shadow until you catch one), its
+   * line, and where and when it is found — which is the part a player hunting
+   * for it needs, so it is there before it is caught.
+   */
+  panelSpecies(host) {
+    let id = this.speciesId, sp = SPECIES[id];
+    if (!sp) { host.appendChild(emptyState("📕", "לא נמצא")); return; }
+    let row = this.dex?.rows.find((r) => r.id === id), caught = row?.caught || 0;
+    let name = (s) => (this.dex?.rows.find((r) => r.id === s.id)?.caught ? Ze(loc(s)) : "???");
+    let back = el("button", "btn small ghost", "→ לאוסף");
+    back.onclick = () => this.openPanel("dex");
+    host.appendChild(back);
+    let page = el("div", `species-page ${caught ? "" : "locked"}`), el0 = ELEMENTS[sp.types[0]];
+    page.style.setProperty("--elem", el0?.ui || "#7d87ab");
+    let img = zoneMinimap(id),
+      rarity = { starter: "פותח", common: "נפוץ", evolved: "מתפתח", final: "סופי", rare: "נדיר", legendary: "אגדי" }[sp.rarity] || sp.rarity;
+    page.innerHTML = `
+      <div class="art" style="background:linear-gradient(150deg, ${oo(sp.model.a)}, ${oo(sp.model.b)})">${img ? `<img src="${img}" alt="" />` : ""}</div>
+      <div class="name">${caught ? Ze(loc(sp)) : "???"}</div>
+      <div class="chips">${sp.types.map((t) => `<span class="chip">${ELEMENTS[t].icon} ${Ze(loc(ELEMENTS[t]))}</span>`).join("")}<span class="chip">${rarity}</span></div>
+      <div class="caught">${caught ? `נתפסו ${caught}` : "עוד לא נתפס"}</div>`;
+    host.appendChild(page);
+
+    // the line it belongs to, from the first form to the last
+    let root = sp;
+    for (let guard = 0; guard < 4; guard++) {
+      let prev = Object.values(SPECIES).find((s) => s.evolve?.into === root.id);
+      if (!prev) break;
+      root = prev;
+    }
+    if (root.evolve) {
+      let chain = [], at = root;
+      while (at) { chain.push(at); at = at.evolve ? SPECIES[at.evolve.into] : null; }
+      host.appendChild(section("קו ההתפתחות"));
+      let line = el("div", "evo-line");
+      line.innerHTML = chain.map((s, i) => (i ? `<span class="arrow">← רמה ${ltr(chain[i - 1].evolve.level)}</span>` : "") +
+        `<span class="evo ${s.id === id ? "here" : ""}">${ELEMENTS[s.types[0]]?.icon || ""} ${name(s)}</span>`).join("");
+      host.appendChild(line);
+    }
+
+    host.appendChild(section("איפה למצוא"));
+    let where = foundWhere(id);
+    let often = { common: "נפוץ", uncommon: "לא נפוץ", rare: "נדיר" };
+    for (let f of where) {
+      let it = el("div", "list-item");
+      it.innerHTML = `<div class="ico-lg">${f.when ? HOURS[f.when].icon : f.at ? HABITATS[f.at].icon : "📍"}</div>
+        <div class="grow"><b>${Ze(whereLine(f))}</b><span>רמות ${ltr(`${f.levels[0]}–${f.levels[1]}`)} · ${often[f.often]}</span></div>`;
+      host.appendChild(it);
+    }
+    if (!where.length) {
+      let prev = Object.values(SPECIES).find((s) => s.evolve?.into === id);
+      let it = el("div", "empty plain");
+      it.textContent = prev ? `לא חי בטבע — מתפתח מ${prev.evolve && this.dex?.rows.find((r) => r.id === prev.id)?.caught ? loc(prev) : "יצור אחר"} ברמה ${prev.evolve.level}.`
+        : sp.rarity === "starter" ? "אחד משלושת יצורי הפתיחה."
+        : sp.rarity === "legendary" ? "מגיע למי שמשלים את יומן המינים של מארו."
+        : "לא נראה בטבע.";
+      host.appendChild(it);
+    }
+    if (!caught) return;
+
+    host.appendChild(section("נתוני בסיס"));
+    let grid = el("div", "statgrid"), lbl = { hp: "חיים", atk: "התקפה", def: "הגנה", spa: "מיוחדת", spd: "עמידות", spe: "מהירות" };
+    for (let [k, v] of Object.entries(sp.base)) {
+      let m = el("div", "stat");
+      m.innerHTML = `<span>${lbl[k] || k}</span><i style="width:${Math.min(100, v / 130 * 100)}%"></i><b class="mono">${ltr(v)}</b>`;
+      grid.appendChild(m);
+    }
+    host.appendChild(grid);
+    host.appendChild(section("מהלכים"));
+    let moves = el("div", "chips");
+    for (let [lv, m] of sp.learn || []) {
+      let mv = MOVES[m];
+      mv && moves.appendChild(el("span", "chip", `${ltr(lv)} · ${ELEMENTS[mv.type]?.icon || "◆"} ${Ze(loc(mv))}`));
+    }
+    host.appendChild(moves);
   }
 
   /**

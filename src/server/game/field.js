@@ -28,7 +28,7 @@
 //        from the game, never at a trainer with nothing left standing, and
 //        never before trainer level 3 — the first fights are yours to pick.
 import { resolveCollision } from '../../shared/props.js';
-import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf, WEAK_GAP } from '../../shared/temper.js';
+import { FIELD_FROM_LEVEL, SHY_R, SNEAK_PACE, ambushAbove, isNight, stanceOfLead, temperOf, WEAK_GAP } from '../../shared/temper.js';
 import { activeCreature } from './combat.js';
 
 export { isNight, temperOf };
@@ -46,6 +46,11 @@ export const FIELD = {
   fleeR: 5.5,             // a much weaker one bolts when you come this close
   fleeMs: 1800,
   fleeSpeed: 3.6,         // slower than you: still catchable
+  shyR: SHY_R,            // a shy one (the rare ones) notices you this close
+  sneakPace: SNEAK_PACE,  // m/s: slower than this and it lets you near
+  shyMs: 2600,            // and bolts this long
+  shySpeed: 5.2,          // faster than a creep, slower than a run
+  shyRestMs: 3500,        // then catches its breath before it can bolt again
   weakGap: WEAK_GAP,      // levels below your companion that count as "much weaker"
   wildRestMs: 20_000,     // one that gave up leaves everyone alone this long
   foughtRestMs: 45_000,   // and one you just fought, longer
@@ -210,9 +215,9 @@ export function tickField(world, now, dtMs) {
 
     if (d.mode === 'flee') {
       const entry = world.player(d.prey);
-      if (!entry?.p || now >= d.until) { calmWild(w, d, now, 3_000); continue; }
+      if (!entry?.p || now >= d.until) { calmWild(w, d, now, d.shy ? FIELD.shyRestMs : 3_000); d.shy = false; continue; }
       const p = entry.p;
-      step(world, w, p.x, p.z, Math.hypot(p.x - w.x, p.z - w.z) || 1, FIELD.fleeSpeed, dt, true);
+      step(world, w, p.x, p.z, Math.hypot(p.x - w.x, p.z - w.z) || 1, d.shy ? FIELD.shySpeed : FIELD.fleeSpeed, dt, true);
       continue;
     }
 
@@ -222,7 +227,22 @@ export function tickField(world, now, dtMs) {
     }
 
     // Idle: look around, now and then.
-    if (!scan || now < (d.restUntil || 0) || temperOf(w.species, night) !== 'fierce') continue;
+    if (!scan || now < (d.restUntil || 0)) continue;
+    const temper = temperOf(w.species, night);
+    if (temper === 'shy') {
+      // Anyone at all, rushing at it, sends it off — a new trainer too; one
+      // who creeps up (a half tilt of the stick) gets to stand beside it.
+      for (const entry of world.players()) {
+        const { p, ctx } = entry;
+        if (!p || !ctx || ctx.inside || ctx.away) continue;
+        if (Math.hypot(p.x - w.x, p.z - w.z) > FIELD.shyR || !((ctx.pace || 0) > FIELD.sneakPace)) continue;
+        setMood(w, d, 'flee', entry.key, p.id || entry.doc?.id || '', now + FIELD.shyMs);
+        d.shy = true;
+        break;
+      }
+      continue;
+    }
+    if (temper !== 'fierce') continue;
     people ||= [...world.players()].filter((e) => !unnoticeable(world, e, now));
     let best = null, bestD = Infinity, bestStance = '';
     for (const entry of people) {

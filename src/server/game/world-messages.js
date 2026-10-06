@@ -157,6 +157,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // The client reports ~12 times a second whether or not the stick
             // is held, so "stepped" is a real change of place, not a packet.
             (t.moving || Math.hypot(o.x - s.x, o.z - s.z) > 0.05) && (ctx.lastStepAt = r);
+            // How fast they are coming, smoothed over a few packets: a shy
+            // wild bolts from a run and lets a creep come close (field.js).
+            {
+              let gap = r - (ctx.lastMoveAt || 0), went = Math.hypot(o.x - s.x, o.z - s.z);
+              ctx.lastMoveAt = r;
+              if (gap > 0 && gap < 1000) ctx.pace = (ctx.pace || 0) * 0.55 + Math.min(12, went / gap * 1000) * 0.45;
+              else ctx.pace = 0;
+            }
             s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, keepSpot(n, ctx.zoneId, s), ctx.checkVisits(n, s);
           }
           break;

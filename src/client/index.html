@@ -34,6 +34,19 @@ body.hud-lean #minimap{width:100px;height:100px}
 .dex-tile .n{color:var(--muted);font-size:10px}
 .dex-tile.locked{opacity:.38;border-inline-start-color:var(--stroke);cursor:default}
 .dex-tile.locked b{color:var(--faint)}
+.dex-tile.locked{cursor:pointer}
+.species-page{border:1px solid var(--stroke-strong);border-radius:var(--r3);overflow:hidden;box-shadow:var(--e3);margin-block:var(--s2) var(--s3)}
+.species-page .art{height:168px;display:grid;place-items:center;position:relative}
+.species-page .art img{height:160px;width:auto;filter:drop-shadow(0 8px 16px rgba(0,0,0,.35))}
+.species-page.locked .art{background:linear-gradient(150deg,#c9d2dc,#e8edf2)!important}
+.species-page.locked .art img{filter:brightness(0) opacity(.5)}
+.species-page .name{padding:var(--s3) var(--s4) var(--s1);font-size:var(--t-xl);font-weight:900}
+.species-page .chips{padding:0 var(--s4)}
+.species-page .caught{padding:var(--s2) var(--s4) var(--s3);font-size:var(--t-sm);color:var(--muted)}
+.evo-line{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s2);font-size:var(--t-sm)}
+.evo-line .evo{padding:4px var(--s3);border-radius:var(--pill);border:1px solid var(--stroke);font-weight:700}
+.evo-line .evo.here{border-color:var(--elem,var(--aether));background:color-mix(in srgb,var(--elem,var(--aether)) 16%,transparent)}
+.evo-line .arrow{color:var(--muted);font-size:var(--t-xs)}
 
 /* --- running as an app --------------------------------------------------- */
 /* iOS changes the visual viewport when the address bar collapses without

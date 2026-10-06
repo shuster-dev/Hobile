@@ -777,7 +777,7 @@ const F = await import('../src/server/game/field.js');
 section('the field');
 {
   for (const [id, t] of Object.entries(G.TEMPER)) {
-    ok(`temper ${id} names a species and a real temper`, !!SPECIES[id] && (t === 'fierce' || t === 'nocturnal'), t);
+    ok(`temper ${id} names a species and a real temper`, !!SPECIES[id] && (t === 'fierce' || t === 'nocturnal' || t === 'shy'), t);
   }
   for (const z of Object.values(ZONES)) {
     if (z.urban) continue;
@@ -950,6 +950,28 @@ section('the field');
     Object.assign(self(), { x: camp.x + 1, z: camp.z + 1 });
     for (const [, w] of fw.state.wilds) Object.assign(w, { x: camp.x + 3.5, z: camp.z + 1 });
   });
+  // shy: the rare ones bolt from a trainer who comes running, and let one
+  // who creeps up stand beside them
+  reset();
+  id = put('lumoth', 6, 5);
+  fw.pace = 7.4;
+  const s0 = dist(id);
+  ok('a shy wild bolts from a trainer coming at a run', run(1500, () => fw.state.wilds.get(id).alert === '~') && fw.state.wilds.get(id).target === fdoc.id);
+  run(1500);
+  ok('and gets away from them, faster than a creep', dist(id) > s0 + 3, `${s0.toFixed(1)} → ${dist(id).toFixed(1)}`);
+  ok('but never starts a fight', !fev.some(([k]) => k === 'goto'));
+  ok('then stops to catch its breath', run(F.FIELD.shyMs + 500, () => !fw.state.wilds.get(id).alert) && fw.wildDocs.get(id).restUntil > T);
+  reset();
+  id = put('lumoth', 6, 4);
+  fw.pace = 3.2;
+  ok('one who creeps up (a half tilt of the stick) is let near', !run(4000, () => fw.state.wilds.get(id).alert));
+  reset();
+  fdoc.level = 1;
+  id = put('stormstag', 3, 4);
+  fw.pace = 7.4;
+  ok('a shy one bolts from a new trainer too — it is shy, not fierce', run(1500, () => fw.state.wilds.get(id).alert === '~'));
+  fdoc.level = 6; fw.pace = 0;
+
   ok('the town never has it at all', (() => {
     const tw = new B.WorldSim(fnet, 'aetherport');
     tw.start(); tw.stop();
@@ -962,6 +984,65 @@ section('the field');
     }
     return !seen;
   })());
+}
+
+// ---------------------------------------------------------------- the wilds
+// Where and when each wild is found (shared/habitats.js): every field zone has
+// a line of its own, the rare ones keep their hours, and the log can say where
+// to look for anything that lives wild.
+section('the wilds');
+{
+  const H = await import('../src/shared/habitats.js');
+  const W = await import('../src/shared/weather.js');
+  const fieldZones = Object.values(ZONES).filter((z) => z.capturable !== false);
+  const bad = [];
+  for (const z of Object.values(ZONES)) for (const row of z.spawns || []) {
+    const how = H.howOf(row);
+    if (how.at && !H.HABITATS[how.at]) bad.push(`${z.id}/${row[0]} at ${how.at}`);
+    if (how.when && !H.HOURS[how.when]) bad.push(`${z.id}/${row[0]} when ${how.when}`);
+    if (how.herd && !(how.herd[0] >= 1 && how.herd[1] >= how.herd[0] && how.herd[1] <= 5)) bad.push(`${z.id}/${row[0]} herd`);
+    if (!(row[1] > 0)) bad.push(`${z.id}/${row[0]} weight`);
+  }
+  ok('every spawn row says a real ground, a real hour and a sane herd', !bad.length, bad.join(', '));
+  const own = fieldZones.map((z) => [z.id, z.spawns.filter(([sp]) => fieldZones.filter((o) => H.rowFor(o, sp)).length === 1 && SPECIES[sp].evolve)]);
+  ok('every field zone has a line found nowhere else', own.every(([, l]) => l.length >= 1), own.filter(([, l]) => !l.length).map(([z]) => z).join(','));
+  ok('and its own line is what it has most of', fieldZones.every((z) => {
+    const top = [...z.spawns].sort((a, b) => b[1] - a[1])[0][0];
+    return own.find(([id]) => id === z.id)[1].some(([sp]) => sp === top);
+  }));
+  ok('every zone prize is its own line, grown', fieldZones.every((z) => {
+    const q = G.zoneQuestChain(z)[`q_${z.id}_prize`];
+    return q && q.goal.species === z.prize && SPECIES[z.prize] && Object.values(SPECIES).some((s) => s.evolve?.into === z.prize);
+  }));
+  const wild = new Set(fieldZones.flatMap((z) => z.spawns.map(([sp]) => sp)));
+  const missing = Object.values(SPECIES).filter((s) => s.rarity !== 'boss' && !wild.has(s.id)
+    && !Object.values(SPECIES).some((p) => p.evolve?.into === s.id) && s.rarity !== 'starter');
+  ok('anything that does not evolve from something lives wild somewhere', !missing.length, missing.map((s) => s.id).join(','));
+  ok('the log can say where every wild one is', [...wild].every((sp) => H.foundWhere(sp).length && H.foundWhere(sp).every((f) => H.whereLine(f).length > 2)));
+
+  // a day and a year of the clock, sampled
+  const T0 = 1_790_000_000_000, day = W.DAY_MS, year = W.YEAR_MS;
+  const sample = (zone, row, span, n) => { let on = 0; for (let i = 0; i < n; i++) on += H.inHour(row, zone, T0 + span * i / n) ? 1 : 0; return on / n; };
+  const hours = fieldZones.flatMap((z) => z.spawns.filter((r) => H.howOf(r).when).map((r) => [z, r]));
+  ok('the rare ones keep hours', hours.length >= 5);
+  for (const [z, r] of hours) {
+    const share = sample(z, r, year * 2, 4000);
+    ok(`${r[0]} in ${z.id} (${H.howOf(r).when}) is out some of the time, not all of it`, share > 0.08 && share < 0.6, `${(share * 100).toFixed(0)}%`);
+  }
+  ok('at night the moth is out, by day it is not',
+    H.inHour(H.rowFor(ZONES.verdant_meadow, 'lumoth'), ZONES.verdant_meadow, T0 - (T0 % day) + day * 0.05)
+    && !H.inHour(H.rowFor(ZONES.verdant_meadow, 'lumoth'), ZONES.verdant_meadow, T0 - (T0 % day) + day * 0.45));
+  ok('the rain lamb comes with the rain the sky shows', (() => {
+    const z = ZONES.tidal_hollow, r = H.rowFor(z, 'drizzlamb');
+    for (let i = 0; i < 3000; i++) { const t = T0 + i * 60_000; const sky = W.weatherAt(z, t).id; if (H.inHour(r, z, t) !== (sky === 'rain' || sky === 'storm')) return false; }
+    return true;
+  })());
+  ok('no zone ever runs out of things to meet', fieldZones.every((z) => { for (let i = 0; i < 500; i++) if (!H.spawnPool(z, T0 + i * 97_000).length) return false; return true; }));
+  ok('one out of its hour is told to leave; one in it, or a regular, is not', (() => {
+    const z = ZONES.verdant_meadow, dayT = T0 - (T0 % day) + day * 0.45;
+    return H.outOfHour(z, 'lumoth', dayT) && !H.outOfHour(z, 'burrowbun', dayT) && !H.outOfHour(z, 'lumoth', dayT + day * 0.5);
+  })());
+  ok('a herd is a herd', (() => { const r = H.rowFor(ZONES.stonewake_mesa, 'cragkid'); const n = [0, 0.5, 0.999].map((u) => H.herdSize(r, () => u)); return n[0] === 2 && n[2] === 4 && H.herdSize(['pebblin', 1]) === 1; })());
 }
 
 // ---------------------------------------------------------------- GM tools

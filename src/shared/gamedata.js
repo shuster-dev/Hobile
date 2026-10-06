@@ -1991,6 +1991,7 @@ var MOVES = {
   // listed is calm: it wanders, and it only fights when you start it.
   //   fierce     sees you, shouts, comes for you (server/game/field.js)
   //   nocturnal  calm by day, fierce after dark
+  //   shy        never comes for you; runs from a trainer who comes running
   // Past the meadow, each zone's fierce ones are mostly of its own element, so
   // a companion of that element is the way to walk it in peace; and every
   // zone keeps calm ones too, so none is a gauntlet (tools/qa.mjs holds the
@@ -2010,7 +2011,19 @@ var MOVES = {
     glacilisk: "fierce",
     ferrogeist: "fierce",
     duskmaw: "fierce",
-    nocturnix: "nocturnal"
+    basalisk: "fierce",
+    ramstone: "fierce",
+    thundrift: "fierce",
+    walrune: "fierce",
+    mycelord: "fierce",
+    nocturnix: "nocturnal",
+    // shy: bolts from a trainer who comes at a run (walk up slowly — a half
+    // tilt of the stick — and it lets you near). The rare ones are shy.
+    lumoth: "shy",
+    drizzlamb: "shy",
+    stormstag: "shy",
+    cindervix: "shy",
+    geodig: "shy"
   },
   ITEMS = {
     sphere_basic: {
@@ -2384,7 +2397,11 @@ var MOVES = {
       capturable: !0,
       element: "verdant",
       size: 120,
-      spawns: [["sproutle", 18], ["cindcub", 10], ["puddlet", 10], ["sparkit", 16], ["zephyrb", 16], ["pebblin", 16], ["mossnail", 14]],
+      spawns: [["burrowbun", 18, { at: "grass", herd: [2, 3] }], ["sproutle", 14, { at: "grass" }], ["zephyrb", 14], ["sparkit", 12], ["mossnail", 12, { at: "water" }],
+        ["puddlet", 10, { at: "water" }], ["pebblin", 10], ["cindcub", 8], ["clovhare", 3, { at: "grass" }],
+        ["lumoth", 4, { when: "night" }], ["drizzlamb", 5, { when: "rain", herd: [1, 2] }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "clovhare",
       landmarks: [{
         kind: "camp",
         name: "Meadow Watch",
@@ -2415,7 +2432,10 @@ var MOVES = {
       capturable: !0,
       element: "terra",
       size: 132,
-      spawns: [["pebblin", 22], ["boulderon", 12], ["coglet", 16], ["mossnail", 14], ["cindcub", 10], ["ferrogeist", 8], ["sproutle", 10], ["duskmaw", 3]],
+      spawns: [["cragkid", 20, { at: "cliff", herd: [2, 4] }], ["pebblin", 18], ["coglet", 12], ["boulderon", 8, { at: "cliff" }], ["mossnail", 8, { at: "water" }],
+        ["cindcub", 6], ["ferrogeist", 6], ["ramstone", 5, { at: "cliff" }], ["geodig", 3, { at: "cliff" }], ["duskmaw", 2]],
+      // the prize of the zone quest: its own line, grown
+      prize: "ramstone",
       landmarks: [{
         kind: "camp",
         name: "Quarry Rest",
@@ -2451,7 +2471,10 @@ var MOVES = {
       capturable: !0,
       element: "volt",
       size: 134,
-      spawns: [["sparkit", 20], ["voltmane", 14], ["zephyrb", 14], ["cirrowing", 12], ["coglet", 12], ["frostnib", 10], ["glimmer", 10], ["ferrogeist", 6]],
+      spawns: [["nimbulb", 20, { herd: [2, 3] }], ["sparkit", 14], ["voltmane", 10], ["zephyrb", 10], ["cirrowing", 10, { at: "cliff" }], ["coglet", 10],
+        ["glimmer", 8], ["ferrogeist", 5], ["thundrift", 4], ["frostnib", 4], ["stormstag", 4, { when: "storm" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "thundrift",
       landmarks: [{
         kind: "camp",
         name: "Mast Camp",
@@ -2487,7 +2510,10 @@ var MOVES = {
       capturable: !0,
       element: "ember",
       size: 130,
-      spawns: [["cindcub", 18], ["emberfly", 20], ["pebblin", 18], ["sparkit", 14], ["pyrelynx", 8], ["coglet", 12], ["boulderon", 4]],
+      spawns: [["salamite", 20, { at: "lava", herd: [2, 3] }], ["emberfly", 18], ["cindcub", 14], ["pebblin", 12], ["sparkit", 8], ["coglet", 8],
+        ["pyrelynx", 6], ["boulderon", 4], ["basalisk", 4, { at: "lava" }], ["cindervix", 5, { when: "ash" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "basalisk",
       landmarks: [{
         kind: "camp",
         name: "Cinder Camp",
@@ -2528,7 +2554,11 @@ var MOVES = {
       capturable: !0,
       element: "aqua",
       size: 130,
-      spawns: [["puddlet", 16], ["tidefin", 12], ["mossnail", 18], ["zephyrb", 12], ["frostnib", 12], ["glimmer", 12], ["cirrowing", 6]],
+      spawns: [["shellop", 20, { at: "shore", herd: [2, 3] }], ["puddlet", 14, { at: "water" }], ["mossnail", 12, { at: "water" }], ["tidefin", 10, { at: "water" }],
+        ["zephyrb", 10], ["glimmer", 10], ["frostnib", 6], ["cirrowing", 5], ["beaconch", 4, { at: "shore" }],
+        ["lumoth", 3, { when: "night" }], ["drizzlamb", 4, { when: "rain", herd: [1, 2] }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "beaconch",
       landmarks: [{
         kind: "camp",
         name: "Hollow Docks",
@@ -2569,7 +2599,10 @@ var MOVES = {
       capturable: !0,
       element: "frost",
       size: 140,
-      spawns: [["frostnib", 20], ["glacilisk", 8], ["coglet", 14], ["zephyrb", 12], ["glimmer", 14], ["cirrowing", 10], ["duskmaw", 3]],
+      spawns: [["sleetpup", 20, { at: "ice", herd: [2, 3] }], ["frostnib", 16], ["glimmer", 10], ["glacilisk", 8], ["coglet", 8], ["zephyrb", 8],
+        ["cirrowing", 8], ["walrune", 4, { at: "ice" }], ["duskmaw", 3], ["lumoth", 2, { when: "night" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "walrune",
       landmarks: [{
         kind: "camp",
         name: "Rime Outpost",
@@ -2600,7 +2633,10 @@ var MOVES = {
       capturable: !0,
       element: "umbra",
       size: 140,
-      spawns: [["umbrat", 20], ["nocturnix", 12], ["ferrogeist", 10], ["duskmaw", 8], ["glacilisk", 8], ["solaraith", 6], ["aurorix", 1]],
+      spawns: [["glowcap", 18, { at: "forest", herd: [2, 4] }], ["umbrat", 18], ["nocturnix", 10], ["ferrogeist", 8], ["duskmaw", 8], ["glacilisk", 6],
+        ["solaraith", 6], ["mycelord", 5, { at: "forest" }], ["aurorix", 1], ["lumoth", 3, { when: "night" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "mycelord",
       landmarks: [{
         kind: "camp",
         name: "Lantern Rest",
@@ -3013,7 +3049,9 @@ function zoneQuestChain(i) {
       starter: 1,
       common: 0
     },
-    o = [...(i.spawns || [])].map(([h]) => h).filter(h => Object.prototype.hasOwnProperty.call(SPECIES, h)).sort((h, d) => (r[SPECIES[d].rarity] ?? 0) - (r[SPECIES[h].rarity] ?? 0))[0],
+    // the zone's own line where it names one; else its rarest regular (one
+    // that only comes out in its hour would make the quest a wait)
+    o = SPECIES[i.prize] ? i.prize : [...(i.spawns || [])].filter(h => !(h[2] && h[2].when)).map(([h]) => h).filter(h => Object.prototype.hasOwnProperty.call(SPECIES, h)).sort((h, d) => (r[SPECIES[d].rarity] ?? 0) - (r[SPECIES[h].rarity] ?? 0))[0],
     a = ELEMENTS[i.element] || null,
     l = a ? `${a.icon} ` : "",
     c = {};
