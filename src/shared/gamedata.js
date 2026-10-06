@@ -2396,7 +2396,7 @@ var MOVES = {
       sky: 9425151,
       capturable: !0,
       element: "verdant",
-      size: 120,
+      size: 240,
       spawns: [["burrowbun", 18, { at: "grass", herd: [2, 3] }], ["sproutle", 14, { at: "grass" }], ["zephyrb", 14], ["sparkit", 12], ["mossnail", 12, { at: "water" }],
         ["puddlet", 10, { at: "water" }], ["pebblin", 10], ["cindcub", 8], ["clovhare", 3, { at: "grass" }],
         ["lumoth", 4, { when: "night" }], ["drizzlamb", 5, { when: "rain", herd: [1, 2] }]],
@@ -2407,18 +2407,18 @@ var MOVES = {
         name: "Meadow Watch",
         he: "משמר האחו",
         x: 0,
-        z: 34,
+        z: 72,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
-        x: 2,
-        z: 46
+        x: 0,
+        z: 100
       }, {
         kind: "portal",
         to: "emberfall_canyon",
-        x: 48,
-        z: -34
+        x: 74,
+        z: -70
       }]
     },
     stonewake_mesa: {
@@ -2431,7 +2431,7 @@ var MOVES = {
       sky: 15255450,
       capturable: !0,
       element: "terra",
-      size: 132,
+      size: 240,
       spawns: [["cragkid", 20, { at: "cliff", herd: [2, 4] }], ["pebblin", 18], ["coglet", 12], ["boulderon", 8, { at: "cliff" }], ["mossnail", 8, { at: "water" }],
         ["cindcub", 6], ["ferrogeist", 6], ["ramstone", 5, { at: "cliff" }], ["geodig", 3, { at: "cliff" }], ["duskmaw", 2]],
       // the prize of the zone quest: its own line, grown
@@ -2440,24 +2440,24 @@ var MOVES = {
         kind: "camp",
         name: "Quarry Rest",
         he: "מנוחת המחצבה",
-        x: -18,
-        z: 20,
+        x: -40,
+        z: 45,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 50
+        z: 100
       }, {
         kind: "portal",
         to: "emberfall_canyon",
-        x: 46,
-        z: -38
+        x: 40,
+        z: -92
       }, {
         kind: "dungeon",
         to: "sunken_vault",
-        x: 20,
-        z: 26
+        x: 45,
+        z: 70
       }]
     },
     stormreach_heights: {
@@ -2470,7 +2470,7 @@ var MOVES = {
       sky: 7176112,
       capturable: !0,
       element: "volt",
-      size: 134,
+      size: 240,
       spawns: [["nimbulb", 20, { herd: [2, 3] }], ["sparkit", 14], ["voltmane", 10], ["zephyrb", 10], ["cirrowing", 10, { at: "cliff" }], ["coglet", 10],
         ["glimmer", 8], ["ferrogeist", 5], ["thundrift", 4], ["frostnib", 4], ["stormstag", 4, { when: "storm" }]],
       // the prize of the zone quest: its own line, grown
@@ -2479,24 +2479,24 @@ var MOVES = {
         kind: "camp",
         name: "Mast Camp",
         he: "מחנה התורן",
-        x: 16,
-        z: 18,
+        x: 35,
+        z: 40,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 52
+        z: 100
       }, {
         kind: "portal",
         to: "frostpeak_ridge",
-        x: -48,
-        z: -40
+        x: -76,
+        z: -68
       }, {
         kind: "dungeon",
         to: "storm_spire",
-        x: -22,
-        z: 24
+        x: -45,
+        z: 52
       }]
     },
     emberfall_canyon: {
@@ -2509,7 +2509,7 @@ var MOVES = {
       sky: 16757370,
       capturable: !0,
       element: "ember",
-      size: 130,
+      size: 240,
       spawns: [["salamite", 20, { at: "lava", herd: [2, 3] }], ["emberfly", 18], ["cindcub", 14], ["pebblin", 12], ["sparkit", 8], ["coglet", 8],
         ["pyrelynx", 6], ["boulderon", 4], ["basalisk", 4, { at: "lava" }], ["cindervix", 5, { when: "ash" }]],
       // the prize of the zone quest: its own line, grown
@@ -2518,29 +2518,29 @@ var MOVES = {
         kind: "camp",
         name: "Cinder Camp",
         he: "מחנה הגחלים",
-        x: -20,
-        z: 18,
+        x: -45,
+        z: 40,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 50
+        z: 100
       }, {
         kind: "portal",
         to: "verdant_meadow",
-        x: -52,
-        z: 36
+        x: -80,
+        z: 60
       }, {
         kind: "portal",
         to: "tidal_hollow",
-        x: 44,
-        z: -40
+        x: 74,
+        z: -70
       }, {
         kind: "dungeon",
         to: "sunken_vault",
-        x: 22,
-        z: 30
+        x: 45,
+        z: 64
       }]
     },
     tidal_hollow: {
@@ -2553,7 +2553,7 @@ var MOVES = {
       sky: 8379647,
       capturable: !0,
       element: "aqua",
-      size: 130,
+      size: 240,
       spawns: [["shellop", 20, { at: "shore", herd: [2, 3] }], ["puddlet", 14, { at: "water" }], ["mossnail", 12, { at: "water" }], ["tidefin", 10, { at: "water" }],
         ["zephyrb", 10], ["glimmer", 10], ["frostnib", 6], ["cirrowing", 5], ["beaconch", 4, { at: "shore" }],
         ["lumoth", 3, { when: "night" }], ["drizzlamb", 4, { when: "rain", herd: [1, 2] }]],
@@ -2563,29 +2563,29 @@ var MOVES = {
         kind: "camp",
         name: "Hollow Docks",
         he: "מזח החלול",
-        x: 18,
-        z: -12,
+        x: 35,
+        z: 10,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 50
+        z: 100
       }, {
         kind: "portal",
         to: "emberfall_canyon",
-        x: -48,
-        z: 42
+        x: -78,
+        z: 62
       }, {
         kind: "portal",
         to: "frostpeak_ridge",
-        x: 46,
-        z: -44
+        x: 84,
+        z: 52
       }, {
         kind: "dungeon",
         to: "storm_spire",
-        x: -26,
-        z: -28
+        x: -52,
+        z: 46
       }]
     },
     frostpeak_ridge: {
@@ -2598,7 +2598,7 @@ var MOVES = {
       sky: 12575999,
       capturable: !0,
       element: "frost",
-      size: 140,
+      size: 240,
       spawns: [["sleetpup", 20, { at: "ice", herd: [2, 3] }], ["frostnib", 16], ["glimmer", 10], ["glacilisk", 8], ["coglet", 8], ["zephyrb", 8],
         ["cirrowing", 8], ["walrune", 4, { at: "ice" }], ["duskmaw", 3], ["lumoth", 2, { when: "night" }]],
       // the prize of the zone quest: its own line, grown
@@ -2607,19 +2607,19 @@ var MOVES = {
         kind: "camp",
         name: "Rime Outpost",
         he: "מוצב הכפור",
-        x: -14,
-        z: -20,
+        x: -50,
+        z: -45,
         r: 10
       }, {
         kind: "portal",
         to: "tidal_hollow",
-        x: -50,
-        z: 46
+        x: -74,
+        z: 70
       }, {
         kind: "portal",
         to: "umbral_grove",
-        x: 48,
-        z: -46
+        x: 74,
+        z: -70
       }]
     },
     umbral_grove: {
@@ -2632,7 +2632,7 @@ var MOVES = {
       sky: 2761552,
       capturable: !0,
       element: "umbra",
-      size: 140,
+      size: 240,
       spawns: [["glowcap", 18, { at: "forest", herd: [2, 4] }], ["umbrat", 18], ["nocturnix", 10], ["ferrogeist", 8], ["duskmaw", 8], ["glacilisk", 6],
         ["solaraith", 6], ["mycelord", 5, { at: "forest" }], ["aurorix", 1], ["lumoth", 3, { when: "night" }]],
       // the prize of the zone quest: its own line, grown
@@ -2641,19 +2641,19 @@ var MOVES = {
         kind: "camp",
         name: "Lantern Rest",
         he: "מנוחת הפנס",
-        x: 12,
-        z: 22,
+        x: 25,
+        z: 62,
         r: 10
       }, {
         kind: "portal",
         to: "frostpeak_ridge",
-        x: -52,
-        z: 48
+        x: -74,
+        z: 70
       }, {
         kind: "dungeon",
         to: "hollow_keep",
-        x: -20,
-        z: -30
+        x: -62,
+        z: -62
       }]
     }
   },
@@ -2742,8 +2742,8 @@ var MOVES = {
     id: "wb_magmadon",
     species: "magmadon",
     zone: "emberfall_canyon",
-    x: 10,
-    z: -22,
+    x: 20,
+    z: -40,
     level: 22,
     everyMinutes: 20,
     windowMinutes: 6
@@ -2751,8 +2751,8 @@ var MOVES = {
     id: "wb_leviathorn",
     species: "leviathorn",
     zone: "tidal_hollow",
-    x: -18,
-    z: 16,
+    x: -30,
+    z: 22,
     level: 30,
     everyMinutes: 25,
     windowMinutes: 6
@@ -2761,7 +2761,7 @@ var MOVES = {
     species: "nullwarden",
     zone: "umbral_grove",
     x: 0,
-    z: -14,
+    z: -30,
     level: 42,
     everyMinutes: 30,
     windowMinutes: 8
