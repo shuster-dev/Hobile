@@ -94,9 +94,30 @@ export function initDevice() {
 
   // The visual viewport is the honest one on iOS: the address bar collapsing
   // changes it without firing resize, which leaves the canvas the wrong height.
+  //
+  // Except on the home screen since iOS 26.1: there the viewport (innerHeight,
+  // dvh, the visual viewport) comes out short by the status bar's height while
+  // the page still starts under the status bar, so the game stopped ~60px
+  // above the bottom and a dark band sat under the controls. With no browser
+  // chrome to collapse, the large viewport (lvh) is the whole screen, so a
+  // home-screen app takes that — unless the gap is a keyboard (far taller than
+  // any status bar), when the shrunken height is the right one.
+  let probe = null;
+  const largeViewport = () => {
+    if (!probe) {
+      probe = document.createElement('div');
+      probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:100vh;height:100lvh;visibility:hidden;pointer-events:none';
+      document.body.appendChild(probe);
+    }
+    return probe.getBoundingClientRect().height;
+  };
   const syncViewport = () => {
     const vv = window.visualViewport;
-    const h = vv ? vv.height : window.innerHeight;
+    let h = vv ? vv.height : window.innerHeight;
+    if (device.standalone && device.ios) {
+      const full = largeViewport();
+      if (full > h && full - h <= 96) h = full;
+    }
     document.documentElement.style.setProperty('--vh', `${h}px`);
   };
   syncViewport();

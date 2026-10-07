@@ -54,6 +54,7 @@ body.hud-lean #minimap{width:100px;height:100px}
    one; the dvh fallback covers browsers that do this correctly. */
 html,body{height:100dvh}
 #app{height:var(--vh,100dvh)}
+body.is-standalone.is-ios{height:var(--vh,100dvh)}
 body{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
   overscroll-behavior:none;touch-action:manipulation}
 #world-canvas,#battle-canvas,#look-zone,#stick-zone{touch-action:none}
