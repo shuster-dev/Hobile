@@ -492,6 +492,57 @@ button.list-item.tier-row{width:100%;text-align:start;font:inherit;color:inherit
 .guild-motd{background:var(--sunken);border-radius:var(--r2);padding:8px 10px;font-size:var(--t-sm);margin-bottom:6px;white-space:pre-wrap}
 .guild-log{font-size:var(--t-xs);color:var(--muted);display:flex;flex-direction:column;gap:3px}
 .btn.danger-text{color:#ff8a7a}
+.ride-btn{position:absolute;right:14px;bottom:100px;width:52px;height:52px;border-radius:50%;background:var(--panel);border:2px solid var(--stroke-strong);font-size:24px;display:grid;place-items:center;box-shadow:var(--e2);z-index:2}
+.ride-btn.on{background:radial-gradient(circle at 35% 30%,#bff7ee,var(--aether) 60%,var(--aether-deep));border-color:#fff;color:#04221e}
+#cutscene{position:fixed;inset:0;z-index:var(--z-dialogue);pointer-events:none}
+#cutscene .cs-bar{position:absolute;left:0;right:0;height:12vh;background:#000;transition:transform .5s var(--ease);pointer-events:auto}
+#cutscene .cs-bar.top{top:0;transform:translateY(-100%)}#cutscene .cs-bar.bottom{bottom:0;transform:translateY(100%)}
+#cutscene.on .cs-bar{transform:none}
+#cutscene .cs-dark{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,rgba(20,40,70,0) 30%,rgba(8,14,34,.62));opacity:0;transition:opacity 2.2s}
+#cutscene.cold .cs-dark{opacity:1}
+#cutscene .cs-flash{position:absolute;inset:0;background:#e8fffb;opacity:0}
+#cutscene .cs-flash.go{animation:csflash .9s ease-out}
+@keyframes csflash{0%{opacity:.95}100%{opacity:0}}
+#cutscene .cs-line{position:absolute;left:var(--s4);right:var(--s4);bottom:calc(12vh + 14px + var(--safe-b));padding:14px 16px 16px;border-radius:var(--r3);background:rgba(8,12,28,.78);border:1px solid rgba(127,243,255,.28);box-shadow:var(--e3);color:#fff;pointer-events:auto;opacity:0;transform:translateY(12px);transition:opacity .4s,transform .4s;max-width:640px;margin:0 auto;cursor:pointer}
+#cutscene.on .cs-line{opacity:1;transform:none}
+#cutscene .cs-line .who{display:block;color:var(--who,#fff);font-size:var(--t-sm);letter-spacing:.02em;margin-bottom:4px}
+#cutscene .cs-line .text{margin:0;font-size:var(--t-lg);line-height:1.55;min-height:3.1em}
+#cutscene .cs-line.narration .text{font-style:italic;color:#d8e6ff}
+#cutscene .cs-line .next{position:absolute;left:12px;bottom:8px;color:var(--aether);animation:csnext 1.2s infinite}
+@keyframes csnext{50%{opacity:.25}}
+#cutscene .cs-skip{position:absolute;top:calc(12vh + 10px + var(--safe-t));left:var(--s4);pointer-events:auto;background:rgba(8,12,28,.6);color:#fff;border:1px solid var(--stroke-strong);border-radius:var(--pill);padding:6px 14px;font:inherit;font-size:var(--t-sm)}
+#cutscene .cs-roll{position:absolute;inset:12vh 0;overflow:hidden;pointer-events:auto;text-align:center;color:#fff;-webkit-mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(transparent,#000 14%,#000 86%,transparent)}
+#cutscene .cs-roll .inner{position:absolute;left:0;right:0;top:100%;animation:csroll 24s linear forwards;padding:0 var(--s5)}
+#cutscene .cs-roll h2{font-size:var(--t-2xl);margin:30px 0 8px;color:var(--aether)}
+#cutscene .cs-roll p{margin:6px 0;font-size:var(--t-md);color:#dfe6ff}
+#cutscene .cs-roll p.big{font-size:var(--t-xl);color:var(--gold);margin:18px 0}
+@keyframes csroll{to{transform:translateY(-100%);top:0}}
+body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:none!important;transition:opacity .4s}
+.scene-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tailor-top{display:flex;gap:var(--s3);align-items:center;margin-bottom:var(--s3)}
+.tailor-top .grow{display:flex;flex-direction:column;gap:2px}
+.tailor-pic{width:120px;height:146px;border-radius:var(--r3);background:radial-gradient(circle at 50% 35%,var(--raise-2),var(--sunken));display:grid;place-items:center;flex:0 0 auto;overflow:hidden}
+.tailor-pic img{width:100%;height:100%;object-fit:contain}
+.swatch{width:36px;height:36px;border-radius:50%;border:2px solid var(--stroke-strong);flex:0 0 auto;box-shadow:var(--inset-hair)}
+.iicon{display:inline-block;vertical-align:middle;width:1.35em;height:1.35em;object-fit:contain;pointer-events:none}
+.iicon.sm{width:1.25em;height:1.25em;margin-inline:1px}
+.ico-lg:has(.iicon){width:40px}
+.ico-lg .iicon{width:40px;height:40px}
+.boot-bar{width:180px;height:6px;margin:12px auto 0;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}
+.boot-bar i{display:block;height:100%;width:0;background:var(--aether);border-radius:99px;transition:width .2s}
+.update-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:var(--z-toast);display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--stroke-strong);border-radius:var(--pill);padding:8px 10px 8px 16px;box-shadow:var(--e3);font-size:var(--t-sm)}
+.pass-head{display:flex;gap:var(--s3);align-items:center;margin-bottom:var(--s3)}
+.pass-head .grow{display:flex;flex-direction:column;gap:2px}
+.pass-tier{width:64px;height:64px;border-radius:var(--r3);background:radial-gradient(circle at 40% 30%,#bff7ee,var(--aether) 55%,var(--aether-deep));color:#04221e;display:flex;flex-direction:column;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:var(--e2)}
+.pass-tier b{font-size:26px;line-height:1}
+.pass-tier span{font-size:10px}
+.pass-n{width:30px;text-align:center;font-weight:700;color:var(--muted);flex:0 0 auto}
+.pass-row.star{border-color:var(--gold)}
+.swatch.sm{display:inline-block;width:14px;height:14px;vertical-align:middle;border-width:1px}
+.job-btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.job-btns .btn{min-width:38px;padding:4px 8px}
+.job-btns .btn.best{outline:2px solid var(--aether);outline-offset:1px}
+.work-yield{color:var(--gold);font-size:var(--t-sm)}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
@@ -562,6 +613,7 @@ button.list-item.tier-row{width:100%;text-align:start;font:inherit;color:inherit
 
     <div id="action-cluster">
       <button class="action-main" id="btn-action">פעולה</button>
+      <button class="ride-btn hidden" id="btn-ride" type="button" aria-label="רכיבה">🐎</button>
       <button class="skill-btn s0" data-slot="0" aria-label="כישור 1"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
       <button class="skill-btn s1" data-slot="1" aria-label="כישור 2"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
       <button class="skill-btn s2" data-slot="2" aria-label="כישור 3"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
@@ -662,6 +714,8 @@ button.list-item.tier-row{width:100%;text-align:start;font:inherit;color:inherit
     <div style="text-align:center">
       <div class="spin" style="margin:0 auto"></div>
       <div class="msg" id="loading-msg">טוען את העולם…</div>
+      <!-- the download of the game itself, before any of it can run (the loader below) -->
+      <div class="boot-bar hidden" id="boot-bar-wrap" aria-hidden="true"><i id="boot-bar"></i></div>
       <!-- Which build is this? Without it, "did my change ship?" can only be
            answered by hunting for a symptom. -->
       <div class="msg" id="build-stamp" dir="ltr" style="opacity:.45;font-size:11px;margin-top:6px">v0.13</div>

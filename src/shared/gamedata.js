@@ -1,5 +1,7 @@
 import { NPC_QUESTS } from './story.js';
+import { SAGA_QUESTS, SAGA_SPECIES } from './saga.js';
 import { natureMul } from './traits.js';
+import { MORE_MOVES, MORE_SPAWNS, MORE_SPECIES, MORE_TEMPER } from './species-more.js';
 var ELEMENTS = {
     ember: {
       name: "Ember",
@@ -2665,6 +2667,15 @@ var MOVES = {
       }]
     }
   },
+  // the second wave (shared/species-more.js): seventy creatures, thirty moves,
+  // and where they live — merged before anything below reads the zones
+  _moreMerged = (() => {
+    Object.assign(MOVES, MORE_MOVES), Object.assign(SPECIES, MORE_SPECIES), Object.assign(TEMPER, MORE_TEMPER);
+    // the rift's guardian and the little one it leaves behind (shared/saga.js)
+    Object.assign(SPECIES, SAGA_SPECIES);
+    for (const [z, rows] of Object.entries(MORE_SPAWNS)) ZONES[z] && (ZONES[z].spawns = [...(ZONES[z].spawns || []), ...rows]);
+    return !0;
+  })(),
   HOME_ZONE = "aetherport",
   // How hard a zone's wilds fight. `scale` multiplies a wild's stats in the
   // fight (one that is caught is an ordinary creature of its level); `ai` is
@@ -3123,6 +3134,9 @@ function zoneQuestChain(i) {
     }
   }), c;
 }
+
+// the rest of the main story (shared/saga.js): steps 11 to 16
+Object.assign(QUESTS, SAGA_QUESTS);
 
 var DAILY_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "daily"),
   MAIN_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "main").sort((i, e) => QUESTS[i].step - QUESTS[e].step),

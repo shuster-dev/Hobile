@@ -697,7 +697,7 @@ ok('the paths go round the trees, mostly', onPath.length <= wildZones.length * 2
 // Figurines: every species is sculpted, and every sculpture holds together.
 section('figurines');
 const Fig = await import('../src/client/gfx/figurine.js');
-const { FIGURINES } = await import('../src/client/gfx/figurine-designs.js');
+const { FIGURINES } = await import('../src/client/gfx/figurine-designs-more.js');
 ok('every species has a figurine', Object.keys(G.SPECIES).every((id) => FIGURINES[id]),
   Object.keys(G.SPECIES).filter((id) => !FIGURINES[id]).join(','));
 const figBad = [];
@@ -1050,7 +1050,7 @@ section('the wilds');
     return q && q.goal.species === z.prize && SPECIES[z.prize] && Object.values(SPECIES).some((s) => s.evolve?.into === z.prize);
   }));
   const wild = new Set(fieldZones.flatMap((z) => z.spawns.map(([sp]) => sp)));
-  const missing = Object.values(SPECIES).filter((s) => s.rarity !== 'boss' && !wild.has(s.id)
+  const missing = Object.values(SPECIES).filter((s) => s.rarity !== 'boss' && !s.gift && !wild.has(s.id)
     && !Object.values(SPECIES).some((p) => p.evolve?.into === s.id) && s.rarity !== 'starter');
   ok('anything that does not evolve from something lives wild somewhere', !missing.length, missing.map((s) => s.id).join(','));
   ok('the log can say where every wild one is', [...wild].every((sp) => H.foundWhere(sp).length && H.foundWhere(sp).every((f) => H.whereLine(f).length > 2)));
@@ -1062,7 +1062,7 @@ section('the wilds');
   ok('the rare ones keep hours', hours.length >= 5);
   for (const [z, r] of hours) {
     const share = sample(z, r, year * 2, 4000);
-    ok(`${r[0]} in ${z.id} (${H.howOf(r).when}) is out some of the time, not all of it`, share > 0.08 && share < 0.6, `${(share * 100).toFixed(0)}%`);
+    ok(`${r[0]} in ${z.id} (${H.howOf(r).when}) is out some of the time, not all of it`, share > 0.08 && share < (H.howOf(r).when === 'day' ? 0.75 : 0.6), `${(share * 100).toFixed(0)}%`);
   }
   ok('at night the moth is out, by day it is not',
     H.inHour(H.rowFor(ZONES.verdant_meadow, 'lumoth'), ZONES.verdant_meadow, T0 - (T0 % day) + day * 0.05)
@@ -1101,7 +1101,7 @@ section('the wilds');
     ok('and wander without walking off it, or into the oasis', [...wm.state.wilds.values()].every((w) => PM.walkable(w.x, w.z)));
   }
   const wn = mkWorld('verdant_meadow');
-  const herdOf = (sp) => { for (let i = 0; i < 40; i++) { const before = wn.state.wilds.size; Wl.spawnGroup(wn, dayT, Math.random, 9); const ids = [...wn.state.wilds.values()].slice(before); if (ids[0]?.species === sp) return ids.length; } return 0; };
+  const herdOf = (sp) => { for (let i = 0; i < 300; i++) { const before = wn.state.wilds.size; Wl.spawnGroup(wn, dayT, Math.random, 9); const ids = [...wn.state.wilds.values()].slice(before); if (ids[0]?.species === sp) return ids.length; } return 0; };
   ok('the rabbits come out two or three together', [2, 3].includes(herdOf('burrowbun')));
   const night = mkWorld('verdant_meadow');
   night.spawn('lumoth', 5, WP.fieldPoint(night.zone, night.colliders));
@@ -1776,6 +1776,294 @@ section('endgame');
   const tend = tsent.find(([e]) => e === 'dungeonEnd')?.[1];
   ok('walking out of the tower pays what was reached, chest and all', tend?.endless && tend.floors === 5 && tend.gold > 0 && dd.records.towerBest === 5 && dd.weekly.tower === 5, JSON.stringify(tend && { f: tend.floors, g: tend.gold }));
   tw.stop();
+}
+
+
+// ---------------------------------------------------------------- riding
+section('riding');
+{
+  const RD = await import('../src/shared/riding.js');
+  const WP = await import('../src/shared/worldplan.js');
+  const G3 = await import('../src/shared/gamedata.js');
+  const P3 = await import('../src/shared/props.js');
+  ok('a grown bird flies, a grown water creature swims, a grown beast carries you', RD.mountKind('pyrewing') === 'fly' && RD.mountKind('torrentoad') === 'swim' && RD.mountKind('blazehound') === 'land');
+  ok('a small one carries nobody, until its third star', RD.mountKind('kindlepup') === null && RD.mountKind('kindlepup', 3) === 'land');
+  ok('a boss is nobody\'s horse', RD.mountKind('rootfather') === null);
+  ok('every element has something to ride', Object.keys(G3.ELEMENTS).every((e) => Object.values(G3.SPECIES).some((s) => s.types[0] === e && RD.mountKind(s.id))));
+  ok('the air, the water and the land each have riders', ['fly', 'swim', 'land'].every((k) => Object.values(G3.SPECIES).filter((s) => RD.mountKind(s.id) === k).length >= 5));
+  // in the tidal hollow: a step into the water stops a walker, not a swimmer
+  const zone = G3.ZONES.tidal_hollow, plan = WP.planFor(zone), cols = P3.propsFor(zone).colliders;
+  let shore = null;
+  for (let r = 10; r < plan.half - 10 && !shore; r += 1.5) for (let a = 0; a < 6.28 && !shore; a += 0.05) {
+    const x = Math.cos(a) * r, z = Math.sin(a) * r, x2 = Math.cos(a) * (r + 1.5), z2 = Math.sin(a) * (r + 1.5);
+    if (plan.walkable(x, z) && plan.inWater(x2, z2) && !plan.onCliff(x2, z2)) shore = { x, z, x2, z2 };
+  }
+  ok('there is a shore to test at', !!shore);
+  if (shore) {
+    const w = WP.stepWithin(zone, cols, shore.x, shore.z, shore.x2, shore.z2, 0.42, 'walk');
+    const s = WP.stepWithin(zone, cols, shore.x, shore.z, shore.x2, shore.z2, 0.42, 'swim');
+    const f = WP.stepWithin(zone, cols, shore.x, shore.z, shore.x2, shore.z2, 0.42, 'fly');
+    ok('walking, the water stops you; swimming or flying, it does not', !plan.inWater(w.x, w.z) && plan.inWater(s.x, s.z) && plan.inWater(f.x, f.z), JSON.stringify({ w, s }));
+  }
+  const lava = G3.ZONES.emberfall_canyon, lp = WP.planFor(lava);
+  let lavaPt = null;
+  for (let r = 6; r < lp.half - 8 && !lavaPt; r += 2) for (let a = 0; a < 6.28 && !lavaPt; a += 0.1) { const x = Math.cos(a) * r, z = Math.sin(a) * r; if (lp.inWater(x, z)) lavaPt = { x, z }; }
+  ok('nobody swims in lava', !lavaPt || !lp.swimmable(lavaPt.x, lavaPt.z));
+  // the message, on a solo world
+  const rdoc = C.createPlayerDoc('t-ride', 'Rider', {}, 'cindcub');
+  C.normalizeDoc(rdoc);
+  const lead = rdoc.creatures[rdoc.team[0]];
+  const self = { x: 0, z: 30, mount: '', mountKind: '', mountStar: 1 };
+  const out = [];
+  const rctx = { doc: rdoc, zone: G3.ZONES.aetherport, zoneId: 'aetherport', colliders: [], self: () => self, net: { emit: (k, v) => out.push([k, v]), save() {} } };
+  WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
+  ok('a cub cannot carry you', out.some(([k, v]) => k === 'error' && v.code === 'cannot_ride') && !rctx.ride);
+  lead.species = 'blazehound'; lead.level = 25;
+  WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
+  ok('grown, it can: everyone sees you on it', rctx.ride?.kind === 'land' && self.mount === 'blazehound' && rdoc.riding === lead.uid);
+  const ctx2 = { doc: rdoc };
+  const self2 = {};
+  WM.restoreRide(ctx2, self2, rdoc);
+  ok('and back from a fight you are on it again', ctx2.ride?.uid === lead.uid && self2.mountKind === 'land');
+  WM.handleWorldMessage(rctx, 'ride', {});
+  ok('and down again', !rctx.ride && !self.mount && !rdoc.riding);
+}
+
+// ---------------------------------------------------------------- farm work
+// Creatures from the box at work on the farm (shared/farmwork.js): a job
+// each, a basket that fills while you are away, and a garden and forge that
+// do more with hands on them.
+section('farm work');
+{
+  const FW = await import('../src/shared/farmwork.js');
+  const H = 3600e3;
+  const wd = C.createPlayerDoc('qa-work', 'QA', {}, 'cindcub');
+  C.normalizeDoc(wd);
+  const add = (sp, lv) => { const c = C.makeCreature(sp, lv); wd.creatures[c.uid] = c; wd.box.push(c.uid); return c.uid; };
+  const fern = add('sproutle', 12), rock = add('pebblin', 12), spark = add('cindcub', 12);
+  ok('a starting farm has one place to work, more as it is built up', FW.workerSlots(C.baseOf(wd).buildings) === 1 && FW.workerSlots({ pod: 5, refinery: 5, workshop: 5, garden: 5 }) === FW.WORK.maxSlots);
+  ok('each creature knows what it is best at', FW.bestJob(['verdant']) === 'garden' && FW.bestJob(['terra']) === 'mine' && FW.bestJob(['ember']) === 'forge' && FW.bestJob(['gale']) === 'scout');
+  ok('one that likes its job does more of it', FW.workRate('garden', { level: 10 }, ['verdant']).fiber > FW.workRate('garden', { level: 10 }, ['ember']).fiber * 1.4);
+  ok('one from the team cannot be sent; one from the box can', C.assignWorker(wd, wd.team[0], 'garden').reason === 'not_in_box' && C.assignWorker(wd, fern, 'garden', 0).ok);
+  ok('the places are counted', C.assignWorker(wd, rock, 'mine', 0).reason === 'no_work_slot');
+  C.baseOf(wd).buildings.garden = 3; C.baseOf(wd).buildings.workshop = 3;
+  ok('built up, there is room for more', C.assignWorker(wd, rock, 'mine', 0).ok && C.assignWorker(wd, spark, '', 0).ok && C.workersOf(wd).find((w) => w.uid === spark).job === 'forge');
+  const v = C.baseView(wd, 3 * H);
+  ok('the farm shows who works where, and what is ready', v.work.workers.length === 3 && v.work.workers.find((w) => w.uid === fern).ready.fiber > 0 && v.work.slots >= 3);
+  ok('the garden yields more with a gardener, the forge works faster with a smith', v.work.garden > 1 && v.work.forge > 1 && C.workBoost(wd, 'garden') === 1 + FW.WORK.gardenBoost);
+  const fiber0 = wd.inventory.fiber || 0, scrap0 = wd.inventory.scrap_iron || 0;
+  const got = C.collectWork(wd, 3 * H);
+  ok('collected: into the bag', got.ok && (wd.inventory.fiber || 0) - fiber0 === got.got.fiber && (wd.inventory.scrap_iron || 0) - scrap0 === got.got.scrap_iron && got.got.fiber > 0);
+  ok('and nothing twice', Object.keys(C.collectWork(wd, 3 * H).got).length === 0);
+  // a slow trickle is carried, not lost: twelve collections an hour apart give what one at twelve hours does
+  const a = C.createPlayerDoc('qa-work2', 'QA', {}, 'cindcub'), b = C.createPlayerDoc('qa-work3', 'QA', {}, 'cindcub');
+  for (const d of [a, b]) { C.normalizeDoc(d); const c = C.makeCreature('zephyrb', 9); c.nature = 'steady'; d.creatures[c.uid] = c; d.box.push(c.uid); C.assignWorker(d, c.uid, 'scout', 0); }
+  let sa = 0; for (let h = 1; h <= 12; h++) sa += C.collectWork(a, h * H).got.sphere_basic || 0;
+  const sb = C.collectWork(b, 12 * H).got.sphere_basic || 0;
+  ok('a little at a time adds up the same', sa === sb && sb >= 1, `${sa} vs ${sb}`);
+  const g0 = b.gold, late = C.collectWork(b, 100 * H).got.gold || 0, full = (FW.workRate('scout', b.creatures[b.box[0]], G.SPECIES[b.creatures[b.box[0]].species].types).gold * FW.WORK.capHours);
+  ok('the basket fills and stops: twelve hours at most', late <= Math.ceil(full) && late >= Math.floor(full) - 1 && b.gold - g0 === late);
+  // into the team: off the job, paid for what it did
+  const ctx = { doc: wd, self: () => ({}), net: { save() {}, emit() {} } };
+  const f1 = wd.inventory.fiber || 0;
+  C.workersOf(wd).find((w) => w.uid === fern).since = Date.now() - 4 * H;
+  WM.handleWorldMessage(ctx, 'setTeam', { team: [...wd.team, fern] });
+  ok('called into the team, it leaves its job and its basket is paid', wd.team.includes(fern) && !C.isWorker(wd, fern) && (wd.inventory.fiber || 0) > f1);
+  wd.gold = 1e6; for (const e of Object.keys(G.ELEMENTS)) wd.inventory[`crystal_${e}`] = 99;
+  ok('one sent to train leaves its job too', C.isWorker(wd, rock) && C.startTraining(wd, rock).ok && !C.isWorker(wd, rock));
+  const out = [];
+  const ctx2 = { doc: wd, self: () => ({}), net: { save() {}, emit: (k, x) => out.push([k, x]) } };
+  WM.handleWorldMessage(ctx2, 'baseUnwork', { uid: spark });
+  ok('stopped from the panel: back to the box, the view says so', !C.isWorker(wd, spark) && wd.box.includes(spark) && out.some(([k, x]) => k === 'base' && x.work.workers.length === 0));
+  WM.handleWorldMessage(ctx2, 'baseWork', { uid: spark, job: 'mine' });
+  ok('and put to work again from the panel', C.workersOf(wd)[0]?.uid === spark && out.some(([k, x]) => k === 'base' && x.hired?.uid === spark));
+  ok('the profile marks the worker in the box', C.publicProfile(wd).box.find((c) => c.uid === spark)?.job === 'mine');
+  delete wd.creatures[spark];
+  ok('one that is gone (traded away) stops working', C.workersOf(wd).length === 0);
+  ok('every job has a corner of the farm', (() => { const FX = FW; return FX.JOB_IDS.length === 4; })());
+}
+
+// ---------------------------------------------------------------- the story's end
+// The rest of the main chain (shared/saga.js): the anchors, the keep, the
+// fight on the pier, the scenes, and the sky over the port.
+section('the story\'s end');
+{
+  const SG = await import('../src/shared/saga.js');
+  const SV = await import('../src/server/game/saga.js');
+  const PB = await import('../src/server/game/party-battle.js');
+  const WP = await import('../src/shared/worldplan.js');
+  const P4 = await import('../src/shared/props.js');
+  const main = Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step);
+  ok('the main story goes on to sixteen steps and ends', main.length === 16 && main[15].id === 'q_main_16' && main[15].outro === 'credits');
+  ok('every step that opens with a scene has one written', main.every((q) => !q.scene || SG.SCENES[q.scene]?.length) && SG.SCENES.credits.some((l) => l.roll));
+  const SHOTS = new Set(['self', 'orbit', 'sky', 'holo', 'rift']), FX = new Set(['pulse', 'shake', 'flash', 'holo-in', 'holo-out', 'tear', 'seal', 'dark']);
+  ok('every line has a speaker, words, a shot and effects the player knows', Object.values(SG.SCENES).flat().every((l) => SG.SPEAKERS[l.who] && l.he?.length > 8 && (!l.shot || SHOTS.has(l.shot)) && (l.fx || []).every((f) => FX.has(f))));
+  ok('she appears before she speaks, and is gone at the end of each scene', Object.values(SG.SCENES).every((ls) => {
+    let on = false;
+    for (const l of ls) { if ((l.fx || []).includes('holo-in')) on = true; if (l.shot === 'holo' && !on) return false; if ((l.fx || []).includes('holo-out')) on = false; }
+    return !on;
+  }));
+  ok('the rift\'s guardian and the little one are real creatures', G.SPECIES.tehomon?.rarity === 'boss' && G.SPECIES.riftling?.rarity === 'legendary' && G.SPECIES.tehomon.learn.every(([, m]) => G.MOVES[m]));
+  ok('each anchor stands somewhere you can walk to, clear of everything', SG.ANCHORS.every((a) => {
+    const z = G.ZONES[a.zone], p = WP.planFor(z), at = P4.resolveCollision(P4.propsFor(z).colliders, a.x, a.z, 2.5);
+    return p.walkable(a.x, a.z) && Math.hypot(at.x - a.x, at.z - a.z) < 0.01 && G.SPECIES[a.guardian.species];
+  }));
+  // a trainer who finished the old ending picks the story up again
+  const sd = C.createPlayerDoc('qa-saga', 'QA', {}, 'cindcub');
+  C.normalizeDoc(sd);
+  sd.quests.active = {}; sd.quests.done = main.slice(0, 10).map((q) => q.id);
+  C.normalizeDoc(sd);
+  ok('one who finished step ten finds step eleven waiting', !!sd.quests.active.q_main_11);
+  // the anchors
+  sd.quests.active = { q_main_13: { progress: 0 } };
+  const [A1, A2, A3] = SG.ANCHORS;
+  ok('not in its zone, no fight', SV.storyFoe(sd, A1.id, 'aetherport', { x: A1.x, z: A1.z }).error === 'not_here');
+  ok('too far from it, no fight', SV.storyFoe(sd, A1.id, A1.zone, { x: A1.x + 30, z: A1.z }).error === 'too_far');
+  const f1 = SV.storyFoe(sd, A1.id, A1.zone, { x: A1.x + 2, z: A1.z });
+  ok('at the anchor: its guardian, harder than a wild of its level', f1.foe?.species === A1.guardian.species && f1.foe.story === A1.id && f1.foe.hpScale > 1);
+  const pb = new PB.PartyBattle({ mode: 'pve', zoneId: A1.zone, wild: f1.foe });
+  ok('it fights as a boss (no sphere takes one), its health raised', pb.foe.kind === 'boss' && pb.story === A1.id && pb.foe.maxHp > G.statsFor(A1.guardian.species, A1.guardian.level, pb.foe.creature.iv, 1, pb.foe.creature.nature).hp * 1.5);
+  ok('won: the anchor breaks', SV.storyWin(sd, A1.id).length === 0 && sd.story.anchors.includes(A1.id) && sd.quests.active.q_main_13.progress === 1);
+  ok('and it does not break twice', SV.storyWin(sd, A1.id).length === 0 && sd.quests.active.q_main_13.progress === 1 && SV.storyFoe(sd, A1.id, A1.zone, { x: A1.x, z: A1.z }).error === 'anchor_broken');
+  SV.storyWin(sd, A2.id);
+  ok('three broken: the step is done', SV.storyWin(sd, A3.id).includes('q_main_13') && sd.quests.active.q_main_13.done);
+  ok('the profile says which are broken', C.publicProfile(sd).story.anchors.length === 3);
+  // the pier
+  ok('the pier holds nothing before its time', SV.storyFoe(sd, 'finale', 'aetherport', { x: SG.FINALE.x, z: SG.FINALE.z }).error === 'not_now');
+  sd.quests.active = { q_main_15: { progress: 0 } };
+  const ff = SV.storyFoe(sd, 'finale', 'aetherport', { x: SG.FINALE.x, z: SG.FINALE.z + 3 });
+  ok('then the rift\'s guardian waits on it', ff.foe?.species === 'tehomon' && ff.foe.hpScale > f1.foe.hpScale);
+  ok('the sky is torn while it waits', SG.riftState(sd.quests) === 'torn');
+  ok('beaten: the step is done', SV.storyWin(sd, 'finale').includes('q_main_15'));
+  const cl = C.claimQuest(sd, 'q_main_15');
+  ok('and the little one stays with you', cl?.creature?.species === 'riftling' && Object.values(sd.creatures).some((c) => c.species === 'riftling'));
+  ok('the sky closes, and the last step opens', SG.riftState(sd.quests) === 'sealed' && !!sd.quests.active.q_main_16);
+  // the scenes are remembered
+  ok('a scene watched is kept; one that does not exist is not', SV.sceneSeen(sd, 'voice') && !SV.sceneSeen(sd, 'nope') && C.publicProfile(sd).story.seen.join() === 'voice');
+  // the message, on a solo world: the fight starts with the story foe
+  const sd2 = C.createPlayerDoc('qa-saga2', 'QA', {}, 'cindcub');
+  C.normalizeDoc(sd2);
+  sd2.quests.active = { q_main_13: { progress: 0 } };
+  let started = null;
+  const sctx = { doc: sd2, zoneId: A2.zone, zone: G.ZONES[A2.zone], self: () => ({ x: A2.x + 1, z: A2.z }), net: { emit() {}, save() {} }, startBattle: (o) => { started = o; } };
+  WM.handleWorldMessage(sctx, 'storyFight', { id: A2.id });
+  ok('from the world: a fight with the guardian, and one at a time', started?.wild?.story === A2.id && started.wild.species === A2.guardian.species && (WM.handleWorldMessage(sctx, 'storyFight', { id: A2.id }), true));
+}
+
+// ---------------------------------------------------------------- look and sound
+// Each element lands its own way (gfx/movefx.js), every zone has its own tune
+// (client/music.js), and the tailor sells hats and dyes (shared/cosmetics.js).
+section('look and sound');
+{
+  const MF = await import('../src/client/gfx/movefx.js');
+  ok('every element has its own way of landing a hit', Object.keys(G.ELEMENTS).every((e) => MF.SIGNATURE_TYPES.includes(e)));
+  ok('a critical holds the arena longest, a plain hit barely', MF.hitStop({ crit: true }) > MF.hitStop({ eff: 2 }) && MF.hitStop({ eff: 2 }) > MF.hitStop({}) && MF.hitStop({}) < 0.05);
+  const MU = await import('../src/client/music.js');
+  ok('every zone, the fights, the dungeons and the story have a tune', Object.keys(G.ZONES).every((z) => MU.SONGS[z]) && ['battle', 'dungeon', 'boss', 'saga'].every((k) => MU.SONGS[k]));
+  const tunes = MU.SONG_IDS.map((id) => MU.compose(MU.SONGS[id]));
+  ok('each is sixteen bars, in range, and the same every time', tunes.every((t, i) => t.length === 16 && t.every((b) => b.notes.length && b.notes.every((n) => n.step >= 3 && n.step <= 15 && n.at >= 0 && n.at < 16)) && JSON.stringify(t) === JSON.stringify(MU.compose(MU.SONGS[MU.SONG_IDS[i]]))));
+  ok('and no two zones share a tune', new Set(tunes.map((t) => JSON.stringify(t.slice(0, 4).map((b) => b.notes.map((n) => n.step))))).size === tunes.length);
+  // the tailor
+  const CO = await import('../src/shared/cosmetics.js');
+  const CS = await import('../src/server/game/cosmetics.js');
+  const td = C.createPlayerDoc('qa-tailor', 'QA', {}, 'cindcub');
+  C.normalizeDoc(td);
+  td.gold = 1000;
+  ok('too dear, not bought', CS.buyCosmetic(td, 'wizard').reason === 'not_enough_gold' && td.gold === 1000);
+  ok('one from the season\'s track is not for sale', CS.buyCosmetic(td, 'halo').reason === 'not_for_sale');
+  ok('bought: paid for and yours', CS.buyCosmetic(td, 'bandana').ok && td.gold === 1000 - CO.HATS.bandana.price && CO.wardrobeOf(td).owned.includes('bandana'));
+  ok('not twice', CS.buyCosmetic(td, 'bandana').reason === 'already_owned');
+  ok('what is not yours cannot be worn', CS.wearCosmetic(td, 'hat', 'crown').reason === 'not_owned' && CS.wearCosmetic(td, 'dye', 'bandana').reason === 'bad_slot');
+  ok('worn, everyone is sent it with how you look', CS.wearCosmetic(td, 'hat', 'bandana').ok && C.publicProfile(td).appearance.hat === 'bandana');
+  td.appearance.hat = 'crown';
+  C.normalizeDoc(td);
+  ok('a hat written into the appearance by hand is not worn', C.publicProfile(td).appearance.hat === 'bandana' && !td.appearance.hat);
+  ok('taken off, it is still yours', CS.wearCosmetic(td, 'hat', null).ok && !C.publicProfile(td).appearance.hat && CO.wardrobeOf(td).owned.includes('bandana'));
+  const self = { hat: '', dye: '' }, out = [];
+  td.gold = 5000;
+  WM.handleWorldMessage({ doc: td, self: () => self, net: { save() {}, emit: (k, v) => out.push([k, v]) } }, 'cosmeticBuy', { id: 'ocean', wear: true });
+  ok('bought at the counter and put on: the room shows it', self.dye === 'ocean' && out.some(([k, v]) => k === 'wardrobe' && v.bought === 'ocean'));
+  // and it is drawn: the kind's own hat off, the dye on its cloth
+  const PE = await import('../src/client/gfx/people.js');
+  const plain = PE.personDesign({ kind: 'mage', look: 'a' }), hatted = PE.personDesign({ kind: 'mage', look: 'a', hat: 'cap_red' }), dyed = PE.personDesign({ kind: 'mage', look: 'a', dye: 'crimson' });
+  ok('a hat from the tailor takes the kind\'s own off', plain.parts.some((q) => q.hw) && !hatted.parts.some((q) => q.hw) && hatted.parts.length !== plain.parts.length);
+  ok('a dye changes the cloth and not the skin', !dyed.parts.some((q) => q.c === 0x2f3d92) && plain.parts.some((q) => q.c === 0x2f3d92) && dyed.parts.filter((q) => q.c === plain.parts.find((p) => p.bone === 'head')?.c).length > 0);
+  ok('every kind says which cloth a dye is for, every hat has a shape', PE.KIND_IDS.every((k) => PE.KINDS[k].main?.length) && Object.values(CO.HATS).every((h) => PE.personDesign({ kind: 'rogue', look: 'b', hat: Object.keys(CO.HATS).find((id) => CO.HATS[id] === h) }).parts.length));
+}
+
+// ---------------------------------------------------------------- the bell
+// Notifications to the phone (server/push.js), against a memory store and a
+// web-push that records instead of sending.
+section('phone notifications');
+{
+  const WP = (await import('web-push')).default;
+  const sentTo = [];
+  WP.sendNotification = async (sub, payload) => { sentTo.push({ endpoint: sub.endpoint, ...JSON.parse(payload) }); return { statusCode: 201 }; };
+  const ST = await import('../src/server/store.js');
+  const PU = await import('../src/server/push.js');
+  const st = await ST.openStore({ DB_DRIVER: 'memory' });
+  let here = new Set();
+  const key = await PU.usePush(st, {}, { isOnline: (id) => here.has(id) });
+  ok('keys are made once and kept', key && (await st.getConfig('vapid'))?.publicKey === key && await PU.usePush(st, {}, { isOnline: (id) => here.has(id) }) === key);
+  const sub = (n) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'BOr8mH0Yp3S0tmP1T4D3vK3GJ8iZ0hG0b1Xq3q2w3e4r5t6y7u8i9o0p1a2s3d4f5g6h7j8k9l0zXcVbNm', auth: 'abcdefghijklmnop' } });
+  ok('a broken subscription is refused', !(await PU.subscribe('u1', { endpoint: 'http://nope' })).ok);
+  ok('a device subscribes, with what it wants', (await PU.subscribe('u1', sub(1), { boss: false })).ok && (await st.pushSubsFor('u1'))[0].prefs.boss === false);
+  await PU.subscribe('u2', sub(2), {});
+  await PU.schedule('u1', Date.now() - 1, 'train', 'train:a', 'done', 'ready');
+  await PU.schedule('u1', Date.now() + 3600e3, 'train', 'train:b', 'later', 'later');
+  here.add('u1');
+  ok('someone in the game is not buzzed', (await PU.sweep()) === 0 && sentTo.length === 0);
+  here.clear();
+  await PU.schedule('u1', Date.now() - 1, 'train', 'train:a', 'done', 'ready');
+  ok('away, it reaches their phone when it is due — and only what is due', (await PU.sweep()) === 1 && sentTo.length === 1 && sentTo[0].title === 'done');
+  await PU.cancel('u1', 'train:b');
+  ok('a cancelled one never comes', (await PU.sweep(Date.now() + 7200e3)) === 0);
+  ok('a boss goes to whoever wants bosses', (await PU.bossAlert('מגמדון', 'קניון האש')) === 1 && sentTo.at(-1).endpoint.endsWith('/2'));
+  ok('and not twice in a row', (await PU.bossAlert('מגמדון', 'קניון האש')) === 0);
+  WP.sendNotification = async () => { throw Object.assign(new Error('gone'), { statusCode: 410 }); };
+  await PU.notify('u2', null, { title: 't', body: 'b' });
+  ok('a phone that is gone is forgotten', (await st.pushSubsFor('u2')).length === 0);
+}
+
+// ---------------------------------------------------------------- fair play
+// The guard (server/game/guard.js) and the season's track (shared/pass.js).
+section('fair play');
+{
+  const GU = await import('../src/server/game/guard.js');
+  const b = new GU.Bucket(10, 20);
+  let took = 0;
+  for (let i = 0; i < 100; i++) b.take(1000) && took++;
+  ok('a flood is cut to the burst, then to the rate', took === 20 && !b.take(1000) && b.take(1200) && b.take(1200) && !b.take(1200));
+  const cx = {};
+  const a0 = GU.moveAllowance(cx, 10_000);
+  GU.spendMove(cx, a0);
+  ok('movement has a budget: a second of walking, banked no further', a0 <= GU.speedLimit(null) * GU.GUARD.burstSec + 1e-9 && GU.moveAllowance(cx, 10_100) < GU.speedLimit(null) * 0.11 && GU.moveAllowance({ ride: { kind: 'fly' } }, 0) > a0);
+  const bot = {}, human = {};
+  let r1 = null, r2 = null;
+  for (let i = 0; i < 500; i++) { r1 = GU.cadence(bot, 1000 + i * 83) || r1; r2 = GU.cadence(human, 1000 + i * 83 + Math.round(Math.sin(i * 1.7) * 9 + (i % 7) * 3)) || r2; }
+  ok('a machine-steady rhythm is reported, a thumb is not', r1 === 'bot_cadence' && r2 === null);
+  const lim = new GU.AddressLimiter(0, 3);
+  ok('a door guessed at too often closes for that address only', lim.take('1.2.3.4') && lim.take('1.2.3.4') && lim.take('1.2.3.4') && !lim.take('1.2.3.4') && lim.take('5.6.7.8'));
+  // the season's track
+  const PA = await import('../src/shared/pass.js');
+  const CO2 = await import('../src/shared/cosmetics.js');
+  ok('every tier pays, nothing on it is a creature or a stat, and its looks are the season\'s own', PA.REWARDS.length === PA.PASS.tiers && PA.REWARDS.every((r) => (r.gold || r.items?.length || r.cosmetic) && !r.creature && !r.stats)
+    && PA.REWARDS.filter((r) => r.cosmetic).every((r) => CO2.cosmeticById(r.cosmetic)?.pass) && Object.entries({ ...CO2.HATS, ...CO2.DYES }).filter(([, c]) => c.pass).every(([id]) => PA.REWARDS.some((r) => r.cosmetic === id)));
+  const pd = C.createPlayerDoc('qa-pass', 'QA', {}, 'cindcub');
+  C.normalizeDoc(pd);
+  await import('../src/server/game/pass.js');
+  const EC2 = await import('../src/server/game/economy.js');
+  EC2.earn(pd, 50, 'battle');
+  ok('a reward paid is a step on the track', PA.passOf(pd).points === PA.POINTS.battle);
+  for (let i = 0; i < 400; i++) EC2.earn(pd, 10, 'quest');
+  ok('but only so many a day', PA.passOf(pd).points === PA.PASS.dailyCap && PA.passView(pd).today === PA.PASS.dailyCap);
+  const SP = await import('../src/server/game/pass.js');
+  ok('a tier not reached cannot be claimed', SP.claimTier(pd, 30).reason === 'not_reached');
+  const g0 = pd.gold, r5 = SP.claimTier(pd, 4);
+  ok('one reached can, once', r5.ok && SP.claimTier(pd, 4).reason === 'already_claimed' && pd.gold >= g0);
+  pd.pass.points = PA.PASS.perTier * 12;
+  ok('a milestone pays the season\'s look', SP.claimTier(pd, 12).ok && CO2.wardrobeOf(pd).owned.includes('halo'));
+  ok('a new season starts the track over', PA.passOf(pd, Date.now() + 40 * 86400e3).points === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

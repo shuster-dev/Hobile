@@ -1,7 +1,7 @@
 import { Group, Mesh, PointLight, SphereGeometry, TorusGeometry } from 'three';
 import { MODELS, animateModel, attachModel } from './models.js';
 import { buildPerson } from './people.js';
-import { FIGURINES } from './figurine-designs.js';
+import { FIGURINES } from './figurine-designs-more.js';
 import { instance as figurine, setFigurineLod } from './figurine.js';
 import { HALF_PI, QUALITY, STYLE, TAU, TIER, blobGeo, finProfile, glowMat, mat, mergeByMaterial, outlineMat, profile, taperGeo, xf2 } from './core.js';
 import { UNIT_OCTA, applyElementKit, beads, buildAvian, buildBlob, buildGolem, buildInsect, buildQuad, buildSerpent, buildSprite, buildTail, curveAt, curveSampler, finPair, frills, gear, maw, petals, podGeo, puff, shellHalves, speciesPalette, spikeGeo, spines, tuft, whiskers } from './parts.js';

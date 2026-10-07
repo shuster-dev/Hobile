@@ -23,14 +23,16 @@
     "test:store": "node tools/store-test.mjs",
     "test:social": "node tools/social-test.mjs",
     "test:endgame": "node tools/endgame-test.mjs",
-    "test:duo": "node tools/build.mjs && node tools/duo-test.mjs"
+    "test:duo": "node tools/build.mjs && node tools/duo-test.mjs",
+    "test:load": "node tools/load-test.mjs"
   },
   "dependencies": {
     "@colyseus/core": "0.16.24",
     "@colyseus/schema": "3.0.76",
     "@colyseus/ws-transport": "0.16.5",
     "express": "4.21.2",
-    "mongodb": "6.12.0"
+    "mongodb": "6.12.0",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@babel/core": "7.25.2",

@@ -135,6 +135,8 @@ export function unnoticeable(world, entry, now) {
   const { p, doc, ctx } = entry;
   if (!p || !doc || !ctx) return 'gone';
   if (ctx.inside || p.status === 'inside') return 'indoors';
+  // up in the air, out of reach (shared/riding.js)
+  if (ctx.ride?.kind === 'fly') return 'flying';
   if (now < (ctx.calmUntil || 0)) return 'calm';
   if (now < (ctx.escapedUntil || 0)) return 'escaped';
   if (now < (ctx.battlePending || 0)) return 'busy';

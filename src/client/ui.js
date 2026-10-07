@@ -7,7 +7,13 @@ import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
 import { ARENA, ARENA_TIERS, DUNGEON_TIERS, TOWER, arenaTier, canEnter, seasonEnds, weekEnds } from '../shared/endgame.js';
+import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
 import { CELL, planFor } from '../shared/worldplan.js';
+import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
+import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
+import { DYES, HATS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
+import { PASS, POINTS, REWARDS } from '../shared/pass.js';
+import { itemIcon } from './icons.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -248,7 +254,7 @@ var UI = class {
     // left to the bidi algorithm the numbers wander into each other's places.
     let parts = [];
     r.gold && parts.push(`${r.gold.toLocaleString("en-US")}⛁`), r.xp && parts.push(`${r.xp} XP`);
-    for (let [id, n] of r.items || []) ITEMS[id] && parts.push(`${Ze(loc(ITEMS[id]))}${n > 1 ? ` ×${n}` : ""}`);
+    for (let [id, n] of r.items || []) ITEMS[id] && parts.push(`${itemIcon(id, "sm")}${Ze(loc(ITEMS[id]))}${n > 1 ? ` ×${n}` : ""}`);
     r.creature && SPECIES[r.creature.species] && parts.push(`🐾 ${Ze(loc(SPECIES[r.creature.species]))} · רמה ${r.creature.level}`);
     return parts.map(p => `<bdi>${p}</bdi>`).join(" · ");
   }
@@ -293,7 +299,19 @@ var UI = class {
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
     }
-    this.renderTracker(), this.renderDailyChip(), this.openPanelId && this.renderPanel(this.openPanelId);
+    this.renderTracker(), this.renderDailyChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
+  }
+  /** The ride button: shown when the team has something that can carry
+   *  you, its icon how (shared/riding.js), lit while riding. */
+  renderRide(riding = this._riding) {
+    this._riding = riding;
+    let b = $("#btn-ride");
+    if (!b) return;
+    let ms = mountsOf(this.profile?.team || []);
+    b.classList.toggle("hidden", !ms.length && !riding), b.classList.toggle("on", !!riding);
+    let k = riding?.kind || ms[0]?.kind;
+    b.textContent = riding ? "⬇" : RIDE[k]?.icon || "🐎", b.setAttribute("aria-label", riding ? "לרדת" : RIDE[k]?.he || "רכיבה");
+    b.onclick = () => this.hooks.rideToggle?.();
   }
   /** Under the vitals: a gift waiting today, or else the season that is on. */
   renderDailyChip() {
@@ -323,7 +341,7 @@ var UI = class {
         t = el("div", `daily-tile ${taken ? "taken" : ""} ${today ? "today" : ""} ${d.big ? "big" : ""}`),
         bits = [];
       d.gold && bits.push(`<span>⛁ ${ltr(d.gold.toLocaleString("en-US"))}</span>`);
-      for (let [id, q] of Object.entries(d.items || {})) bits.push(`<span>${ITEMS[id]?.icon || "📦"} ×${ltr(String(q))}</span>`);
+      for (let [id, q] of Object.entries(d.items || {})) bits.push(`<span>${itemIcon(id, "sm")} ×${ltr(String(q))}</span>`);
       for (let [kind, q] of Object.entries(d.lead || {})) {
         let it = ITEMS[`${kind}_${lead}`];
         it && bits.push(`<span>${kind === "crystal" ? "💎" : ELEMENTS[lead]?.icon || "◆"} ×${ltr(String(q))}</span>`);
@@ -357,7 +375,7 @@ var UI = class {
     }
   }
   setZone(e) {
-    this.zone = e, this.toastHtml(`<b>${Ze(loc(e))}</b> · רמות ${rangeLabel(e.levels[0], e.levels[1])}`);
+    this.zone = e, this.toastHtml(`<b>${Ze(loc(e))}</b>${e.channels > 1 ? ` · ערוץ ${ltr(e.channel)}` : ""} · רמות ${rangeLabel(e.levels[0], e.levels[1])}`);
   }
   toastHtml(e, t = "") {
     let n = el("div", `toast ${t}`, e);
@@ -639,7 +657,11 @@ var UI = class {
         clinic: "מרפאת הגאות",
         account: "החשבון שלי",
         map: "מפת האזור",
-        gm: "🛡 כלי GM"
+        gm: "🛡 כלי GM",
+        tailor: "👒 החייט",
+        notify: "🔔 התראות לטלפון",
+        channels: "📡 ערוצים",
+        pass: "🎟 מסלול העונה"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -670,6 +692,10 @@ var UI = class {
       dex: () => this.panelDex(o),
       species: () => this.panelSpecies(o),
       clinic: () => this.panelClinic(o),
+      tailor: () => this.panelTailor(o),
+      notify: () => this.panelNotify(o),
+      channels: () => this.panelChannels(o),
+      pass: () => this.panelPass(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
@@ -763,6 +789,7 @@ var UI = class {
       let prev = Object.values(SPECIES).find((s) => s.evolve?.into === id);
       let it = el("div", "empty plain");
       it.textContent = prev ? `לא חי בטבע — מתפתח מ${prev.evolve && this.dex?.rows.find((r) => r.id === prev.id)?.caught ? loc(prev) : "יצור אחר"} ברמה ${prev.evolve.level}.`
+        : SAGA_FOUND[id] ? `${SAGA_FOUND[id]}.`
         : sp.rarity === "starter" ? "אחד משלושת יצורי הפתיחה."
         : sp.rarity === "legendary" ? "מגיע למי שמשלים את יומן המינים של מארו."
         : "לא נראה בטבע.";
@@ -986,7 +1013,9 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🎟 מסלול העונה" + (this.profile?.pass?.ready ? ` (${this.profile.pass.ready})` : ""), "pass"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+    // the phone's bell and the zone's channels need the server (server/push.js, WorldRoom)
+    this.social && n.push(["🔔 התראות", "notify"], [`📡 ערוץ ${this.zone?.channel || 1}`, "channels"]);
     n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
@@ -1084,7 +1113,7 @@ var UI = class {
       let c = ITEMS[a];
       if (!c) continue;
       let h = el("div", "list-item");
-      if (h.innerHTML = `<div class="ico-lg">${c.icon || "📦"}</div>
+      if (h.innerHTML = `<div class="ico-lg">${itemIcon(a)}</div>
         <div class="grow"><b>${Ze(loc(c))}</b><span>${itemEffect(c)}</span></div>
         <div class="mono pill">${ltr(`×${l}`)}</div>`, c.kind === "heal" || c.kind === "revive" || c.kind === "gear") {
         let d = el("button", "btn small", c.kind === "gear" ? "צייד" : "השתמש");
@@ -1120,13 +1149,21 @@ var UI = class {
           <span>${c} · HP ${rangeLabel(s.hp, s.maxHp, "/")}</span>
           <div class="bar hp" style="margin-top:4px"><i style="width:${s.hp / Math.max(1, s.maxHp) * 100}%"></i></div>
         </div>
-        ${a ? "<span class=\"pill good\">בצוות</span>" : ""}`;
+        ${a ? "<span class=\"pill good\">בצוות</span>" : s.job && JOBS[s.job] ? `<span class="pill">${JOBS[s.job].icon} עובד</span>` : ""}`;
       let h = zoneMinimap(s.species);
       h && (l.querySelector(".thumb").innerHTML = `<img src="${h}" alt="" />`);
       let d = () => this.hooks.openCard?.(s.uid);
       l.onclick = d, l.onkeydown = f => {
         (f.key === "Enter" || f.key === " ") && (f.preventDefault(), d());
       };
+      // one that can carry you: a button to get on it (shared/riding.js)
+      let mk = a && this.social !== void 0 && mountKind(s.species, s.star || 1);
+      if (mk) {
+        let rb = el("button", `btn small icon-only ${this._riding?.uid === s.uid ? "primary" : ""}`, RIDE[mk].icon);
+        rb.title = RIDE[mk].he, rb.setAttribute("aria-label", RIDE[mk].he), rb.onclick = f => {
+          f.stopPropagation(), this.hooks.ride?.(this._riding?.uid === s.uid ? null : s.uid), this.closePanel();
+        }, l.appendChild(rb);
+      }
       let u = el("button", "btn small icon-only", "⬆");
       u.title = "הצב בראש הצוות", u.setAttribute("aria-label", "הצב בראש הצוות"), u.disabled = r === 0, u.onclick = f => {
         f.stopPropagation(), this.hooks.setLead?.(s.uid);
@@ -1169,6 +1206,7 @@ var UI = class {
       let s = el("button", "btn small primary", "אסוף");
       s.onclick = () => this.hooks.baseOpen?.(), n.appendChild(s), e.appendChild(n);
     }
+    this.workSection(e, t);
     e.appendChild(section("תאי אימון", `${ltr(t.freeSlots)} פנויים`));
     for (let n of t.training) {
       let s = SPECIES[n.species],
@@ -1232,6 +1270,71 @@ var UI = class {
       e.appendChild(s);
     }
     this.startCountdowns();
+  }
+  /** Creatures from the box at work on the farm (shared/farmwork.js). */
+  workSection(e, t) {
+    let w = t.work;
+    if (!w) return;
+    let fmt = o => Object.entries(o || {}).map(([k, n]) => k === "gold" ? `🪙 ${ltr(n)}` : `${itemIcon(k, "sm")} ${ltr(`×${n}`)}`).join(" · ");
+    e.appendChild(section("👷 עובדים בחווה", rangeLabel(w.workers.length, w.slots, "/")));
+    let any = w.workers.some(x => Object.keys(x.ready).length);
+    if (any) {
+      let c = el("button", "btn primary", "אסוף את מה שהעובדים הכינו");
+      c.style.width = "100%", c.onclick = () => this.hooks.baseCollectWork?.(), e.appendChild(c);
+    }
+    for (let x of w.workers) {
+      let sp = SPECIES[x.species],
+        J = JOBS[x.job],
+        r = el("div", `list-item ${x.full ? "ready" : ""}`),
+        img = zoneMinimap(x.species);
+      r.innerHTML = `
+        <div class="thumb" style="background:${oo(sp?.model.a ?? 8947848)}">${img ? `<img src="${img}" alt="" />` : ""}</div>
+        <div class="grow">
+          <b>${Ze(x.name || loc(sp))} <span class="pill">${J.icon} ${Ze(J.he)}</span></b>
+          <span>${fmt(x.perHour)} לשעה${x.full ? " · <b>הסל מלא</b>" : ""}</span>
+          ${Object.keys(x.ready).length ? `<span class="work-yield">מוכן: ${fmt(x.ready)}</span>` : ""}
+        </div>`;
+      let b = el("div", "job-btns");
+      for (let id of JOB_IDS) {
+        if (id === x.job) continue;
+        let k = el("button", `btn small ghost ${bestJob(sp?.types || []) === id ? "best" : ""}`, JOBS[id].icon);
+        k.title = JOBS[id].he, k.setAttribute("aria-label", `העבר ל${JOBS[id].he}`), k.onclick = () => this.hooks.baseWork?.(x.uid, id), b.appendChild(k);
+      }
+      let stop = el("button", "btn small danger", "הפסק");
+      stop.onclick = () => this.hooks.baseUnwork?.(x.uid), b.appendChild(stop);
+      r.querySelector(".grow").appendChild(b), e.appendChild(r);
+    }
+    let free = w.slots - w.workers.length,
+      idle = (this.profile?.box || []).filter(c => !c.job && SPECIES[c.species] && !w.workers.some(x => x.uid === c.uid));
+    if (free > 0 && idle.length) {
+      let open = !!this._hire,
+        h = el("button", `btn ${open ? "" : "ghost"}`, open ? "סגור" : `➕ הוצא יצור מהקופסה לעבודה (${free} מקומות)`);
+      h.style.width = "100%", h.onclick = () => {
+        this._hire = !open, this.renderPanel("base");
+      }, e.appendChild(h);
+      if (open) for (let c of idle.slice(0, 24)) {
+        let sp = SPECIES[c.species],
+          best = bestJob(sp.types),
+          r = el("div", "list-item"),
+          img = zoneMinimap(c.species);
+        r.innerHTML = `
+          <div class="thumb" style="background:${oo(sp.model.a)}">${img ? `<img src="${img}" alt="" />` : ""}</div>
+          <div class="grow"><b>${Ze(c.nickname || loc(sp))} <span class="pill">${lvlLabel(c.level)}</span></b>
+          <span>הכי טוב ב${Ze(JOBS[best].he)}: ${fmt(Object.fromEntries(Object.entries(workRate(best, c, sp.types)).map(([k, v]) => [k, Math.round(v * 10) / 10])))} לשעה</span></div>`;
+        let b = el("div", "job-btns");
+        for (let id of JOB_IDS) {
+          let k = el("button", `btn small ${id === best ? "primary best" : "ghost"}`, `${JOBS[id].icon}${id === best ? ` ${JOBS[id].he}` : ""}`);
+          k.title = `${JOBS[id].he} — ${JOBS[id].text}`, k.setAttribute("aria-label", JOBS[id].he), k.onclick = () => {
+            this._hire = !1, this.hooks.baseWork?.(c.uid, id);
+          }, b.appendChild(k);
+        }
+        r.querySelector(".grow").appendChild(b), e.appendChild(r);
+      }
+    } else if (!w.workers.length) e.appendChild(emptyState("👷", "אין עובדים", idle.length ? "" : "יצורים בקופסה (מעבר לשישה בצוות) יכולים לעבוד כאן בזמן שאתה בדרכים"));
+    if (w.garden > 1 || w.forge > 1) {
+      let n = el("div", "hint");
+      n.textContent = [w.garden > 1 ? `🌱 הגינה מניבה ×${(Math.round(w.garden * 100) / 100)}` : "", w.forge > 1 ? `🔥 הייצור מהיר ×${(Math.round(w.forge * 100) / 100)}` : ""].filter(Boolean).join(" · "), e.appendChild(n);
+    }
   }
   panelCard(e) {
     let t = this.card;
@@ -1301,7 +1404,7 @@ var UI = class {
     e.appendChild(section("לשדרוג הכוכב הבא"));
     for (let [x, g] of Object.entries(t.next.items)) {
       let m = el("div", `list-item ${g.have >= g.need ? "" : "lacking"}`);
-      m.innerHTML = `<div class="ico-lg">${ITEMS[x]?.icon || "📦"}</div>
+      m.innerHTML = `<div class="ico-lg">${itemIcon(x)}</div>
         <div class="grow"><b>${Ze(loc(ITEMS[x]))}</b>
         <span class="mono">${ltr(`${g.have} / ${g.need}`)}</span></div>
         ${g.have >= g.need ? "<span class=\"pill good\">✓</span>" : ""}`, e.appendChild(m);
@@ -1362,6 +1465,17 @@ var UI = class {
       }
     };
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
+    // the story's scenes already seen, to watch again (client/cutscene.js)
+    let seen = SCENE_ORDER.filter(id => (t.story?.seen || []).includes(id));
+    if (seen.length) {
+      e.appendChild(section("📽 סצנות הסיפור", `${ltr(seen.length)}`));
+      let row = el("div", "scene-list");
+      for (let id of seen) {
+        let b = el("button", "btn small ghost", `▶ ${SCENE_TITLES[id] || id}`);
+        b.onclick = () => this.hooks.replayScene?.(id), row.appendChild(b);
+      }
+      e.appendChild(row);
+    }
   }
   /** Friends: add by name, answer requests, see who is on and where, and from
    *  each row whisper, call into your party, or open them for more. */
@@ -1685,9 +1799,166 @@ var UI = class {
       m.disabled = n < p.price, m.setAttribute("aria-label", `קנה ${loc(p)}`), m.onclick = () => this.hooks.buy?.(p.id, 1), x.appendChild(m), e.appendChild(x);
     }
   }
+  /**
+   * The season's track (shared/pass.js): points from playing, thirty tiers,
+   * something on every one and the season's own looks on the milestones.
+   * The same for everyone, and nothing on it for sale.
+   */
+  panelPass(e) {
+    let v = this.profile?.pass;
+    if (!v) return e.appendChild(emptyState("🎟", "טוען…", null, "loading"));
+    let head = el("div", "pass-head");
+    head.innerHTML = `<div class="pass-tier"><b>${ltr(v.tier)}</b><span>מתוך ${ltr(v.tiers)}</span></div>
+      <div class="grow"><b>עונה ${ltr(v.season)}</b><span>נגמרת בעוד ${v.ends - Date.now() > 172800e3 ? `${ltr(Math.ceil((v.ends - Date.now()) / 86400e3))} ימים` : `<span class="mono" dir="ltr">${formatClock(v.ends - Date.now())}</span>`}</span>
+      <div class="bar xp" style="margin-top:6px"><i style="width:${v.tier >= v.tiers ? 100 : v.into / v.perTier * 100}%"></i></div>
+      <span class="mono">${v.tier >= v.tiers ? "המסלול הושלם!" : `${ltr(v.into)} / ${ltr(v.perTier)} לשלב הבא`} · היום ${ltr(v.today)}/${ltr(v.dailyCap)}</span></div>`;
+    e.appendChild(head);
+    if (v.ready > 1) {
+      let all = el("button", "btn primary", `אסוף הכול (${v.ready})`);
+      all.style.width = "100%", all.onclick = () => {
+        for (let t = 1; t <= v.tier; t++) v.claimed.includes(t) || this.hooks.passClaim?.(t);
+      }, e.appendChild(all);
+    }
+    let what = r => r.cosmetic ? (() => {
+      let c = cosmeticById(r.cosmetic);
+      return c.slot === "dye" ? `<span class="swatch sm" style="background:${oo(c.color)}"></span> צבע ${Ze(c.he)}` : `${HAT_ICON[c.shape] || "👒"} ${Ze(c.he)}`;
+    })() : [r.gold ? `🪙 ${ltr(r.gold.toLocaleString("en-US"))}` : "", ...(r.items || []).map(([id, n]) => `${itemIcon(id, "sm")} ${ltr(`×${n}`)}`)].filter(Boolean).join(" · ");
+    e.appendChild(section("השלבים"));
+    REWARDS.forEach((r, i) => {
+      let t = i + 1, got = v.claimed.includes(t), reached = t <= v.tier,
+        row = el("div", `list-item pass-row ${r.cosmetic ? "star" : ""} ${reached && !got ? "ready" : ""} ${reached ? "" : "lacking"}`);
+      row.innerHTML = `<div class="pass-n">${ltr(t)}</div><div class="grow"><span>${what(r)}${r.cosmetic ? " <span class=\"pill\" style=\"display:inline-block\">מיוחד לעונה</span>" : ""}</span></div>`;
+      if (got) row.appendChild(el("span", "pill good", "✓"));
+      else if (reached) {
+        let b = el("button", "btn small primary", "אסוף");
+        b.onclick = () => this.hooks.passClaim?.(t), row.appendChild(b);
+      } else row.appendChild(el("span", "pill", "🔒"));
+      e.appendChild(row);
+    });
+    e.appendChild(section("איך צוברים"));
+    let how = el("div", "hint");
+    how.textContent = `ניצחון ${POINTS.battle} · לכידה ${POINTS.capture} · משימה ${POINTS.quest} · פרס יומי ${POINTS.daily} · בוס ${POINTS.boss} · מבוך ${POINTS.dungeon} · דו‑קרב ${POINTS.pvp} — עד ${PASS.dailyCap} ביום.`;
+    e.appendChild(how);
+    let fair = el("div", "hint");
+    fair.textContent = "המסלול זהה לכולם ושום דבר בו לא נמכר. אם יהיה פעם מסלול לתומכים — רק מראה, אף פעם לא כוח.";
+    e.appendChild(fair);
+  }
+  /** The zone's channels (WorldRoom): a crowded zone opens another room. */
+  panelChannels(e) {
+    e.appendChild(emptyState("📡", "טוען ערוצים…", null, "loading"));
+    this.hooks.channels?.().then(d => {
+      if (this.openPanelId !== "channels") return;
+      e.innerHTML = "";
+      let list = d?.channels || [];
+      if (!list.length) return e.appendChild(emptyState("📡", "אין מידע על ערוצים"));
+      e.appendChild(section(`${Ze(loc(this.zone || {}))}`, `${ltr(list.length)}`));
+      for (let c of list) {
+        let me = c.roomId === d.mine, party = c.roomId === d.party,
+          r = el("div", `list-item ${me ? "ready" : ""}`);
+        r.innerHTML = `<div class="ico-lg">📡</div><div class="grow"><b>ערוץ ${ltr(c.channel)}${me ? " · אתה כאן" : ""}${party ? " · הקבוצה שלך" : ""}</b>
+          <span>${rangeLabel(c.players, c.max, "/")} שחקנים</span></div>`;
+        if (!me) {
+          let b = el("button", "btn small primary", c.full ? "מלא" : "עבור");
+          b.disabled = c.full, b.onclick = () => this.hooks.switchChannel?.(c.roomId), r.appendChild(b);
+        }
+        e.appendChild(r);
+      }
+      let n = el("div", "hint");
+      n.textContent = "כשאזור מתמלא נפתח לו ערוץ נוסף. כשנכנסים לאזור, נכנסים לערוץ של הקבוצה שלך אם יש בו מקום.", e.appendChild(n);
+    });
+  }
+  /** The bell (client/push.js): notifications to this phone, and which. */
+  panelNotify(e) {
+    let box = el("div", "list-item");
+    box.innerHTML = `<div class="ico-lg">🔔</div><div class="grow"><b>בודק…</b><span></span></div>`, e.appendChild(box);
+    let prefs = this.hooks.pushPrefs?.() || { train: !0, boss: !0, farm: !0 },
+      labels = { train: "✨ האימון בחווה הסתיים", boss: "⚠ בוס עולמי הופיע", farm: "🧺 הסלים של העובדים מלאים" };
+    let paint = state => {
+      let b = box.querySelector("b"), sp = box.querySelector("span");
+      b.textContent = state === "on" ? "דלוק בטלפון הזה" : state === "off" ? "כבוי" : state === "denied" ? "חסום בהגדרות הדפדפן" : state === "install" ? "קודם להוסיף למסך הבית" : "הדפדפן הזה לא תומך";
+      sp.textContent = state === "install" ? "באייפון: שיתוף ← הוסף למסך הבית, ואז לפתוח את המשחק משם." : state === "denied" ? "צריך לאפשר התראות לאתר בהגדרות, ואז לחזור לכאן." : state === "on" ? "נשלח רק כשאתה לא במשחק." : "";
+      box.querySelector("button")?.remove();
+      if (state === "on" || state === "off") {
+        let btn = el("button", `btn small ${state === "on" ? "" : "primary"}`, state === "on" ? "כבה" : "הדלק");
+        btn.onclick = async () => {
+          btn.disabled = !0;
+          try {
+            state === "on" ? await this.hooks.pushDisable?.() : await this.hooks.pushEnable?.(prefs);
+            this.toast(state === "on" ? "ההתראות כבויות" : "ההתראות דלוקות 🔔", "good");
+          } catch (x) {
+            this.toast(x?.message === "denied" ? "לא אישרת התראות" : "לא הצלחנו להדליק התראות", "bad");
+          }
+          this.hooks.pushState?.().then(paint);
+        }, box.appendChild(btn);
+      }
+      test.classList.toggle("hidden", state !== "on");
+    };
+    e.appendChild(section("על מה להודיע"));
+    for (let [k, he] of Object.entries(labels)) {
+      let r = el("label", "list-item tappable"), cb = el("input");
+      cb.type = "checkbox", cb.checked = prefs[k] !== !1, cb.onchange = () => {
+        prefs = { ...prefs, [k]: cb.checked }, this.hooks.pushSave?.(prefs);
+      };
+      r.appendChild(cb), r.appendChild(el("div", "grow", he)), e.appendChild(r);
+    }
+    let test = el("button", "btn ghost hidden", "שלח התראת ניסיון");
+    test.style.width = "100%", test.onclick = () => this.hooks.pushTest?.().then(r => this.toast(r?.ok ? "נשלחה — תבדוק את הטלפון" : "לא נשלחה", r?.ok ? "good" : "bad")), e.appendChild(test);
+    this.hooks.pushState?.().then(paint).catch(() => paint("unsupported"));
+  }
+  /**
+   * The tailor (shared/cosmetics.js): hats and dyes for gold, and the ones
+   * from the season's track. Tapping one tries it on in the picture at the
+   * top; buying puts it on.
+   */
+  panelTailor(e) {
+    let p = this.profile;
+    if (!p) return;
+    let w = p.wardrobe || { owned: [], hat: null, dye: null },
+      gold = p.gold || 0,
+      tryOn = this._tryOn || {},
+      look = { ...(p.appearance || {}), hat: "hat" in tryOn ? tryOn.hat : w.hat, dye: "dye" in tryOn ? tryOn.dye : w.dye },
+      top = el("div", "tailor-top"),
+      pic = el("div", "tailor-pic");
+    pic.innerHTML = `<div class="spin" aria-hidden="true"></div>`;
+    top.appendChild(pic);
+    let info = el("div", "grow");
+    info.innerHTML = `<b>${Ze(p.name || "")}</b><span>${look.hat ? `👒 ${Ze(HATS[look.hat]?.he || "")}` : "בלי כובע"} · ${look.dye ? `🎨 ${Ze(DYES[look.dye]?.he || "")}` : "הצבע של הדמות"}</span><span class="mono">${ltr(`${gold.toLocaleString("en-US")}⛁`)}</span>`;
+    if (this._tryOn && (tryOn.hat !== void 0 || tryOn.dye !== void 0)) {
+      let back = el("button", "btn small ghost", "בטל מדידה");
+      back.onclick = () => (this._tryOn = null, this.renderPanel("tailor")), info.appendChild(back);
+    }
+    top.appendChild(info), e.appendChild(top);
+    this.hooks.lookPortrait?.(look, url => {
+      pic.isConnected && (pic.innerHTML = `<img src="${url}" alt="איך זה נראה עליך" />`);
+    });
+    let row = (slot, id, d) => {
+      let own = w.owned.includes(id), worn = w[slot] === id, trying = tryOn[slot] === id,
+        r = el("div", `list-item tappable ${trying ? "ready" : ""} ${!own && !d.pass && gold < d.price ? "lacking" : ""}`),
+        sw = slot === "dye" ? `<div class="swatch" style="background:${oo(d.color)}"></div>` : `<div class="ico-lg">${HAT_ICON[d.shape] || "👒"}</div>`;
+      r.innerHTML = `${sw}<div class="grow"><b>${Ze(d.he)}</b><span>${worn ? "לבוש עכשיו" : own ? "שלך" : d.pass ? "🎟 ממסלול העונה" : ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span></div>`;
+      r.onclick = () => (this._tryOn = { ...(this._tryOn || {}), [slot]: id }, this.renderPanel("tailor"));
+      let b;
+      if (worn) b = el("button", "btn small", "הסר"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, null));
+      else if (own) b = el("button", "btn small primary", "לבש"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, id));
+      else if (!d.pass) b = el("button", `btn small ${gold >= d.price ? "primary" : ""}`, "קנה"), b.disabled = gold < d.price, b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticBuy?.(id));
+      else b = el("span", "pill", "🔒");
+      r.appendChild(b), e.appendChild(r);
+    };
+    e.appendChild(section("👒 כובעים", `${ltr(Object.keys(HATS).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(HATS).length)}`));
+    for (let [id, d] of Object.entries(HATS)) row("hat", id, d);
+    e.appendChild(section("🎨 צבע לבגד", `${ltr(Object.keys(DYES).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(DYES).length)}`));
+    for (let [id, d] of Object.entries(DYES)) row("dye", id, d);
+    let n = el("div", "hint");
+    n.textContent = "רק מראה — שום דבר כאן לא משנה כוח בקרב.", e.appendChild(n);
+  }
   panelShop(e) {
     let t = this.profile?.gold || 0,
       n = Object.values(ITEMS).filter(s => s.price);
+    {
+      // the tailor is next door
+      let tl = el("button", "btn", "👒 לחייט — כובעים וצבעים");
+      tl.style.width = "100%", tl.onclick = () => this.openPanel("tailor"), e.appendChild(tl);
+    }
     if (!n.length) {
       e.appendChild(emptyState("🏪", "החנות ריקה"));
       return;
@@ -1695,7 +1966,7 @@ var UI = class {
     e.appendChild(section("למכירה", ltr(`${t.toLocaleString("en-US")}⛁`)));
     for (let s of n) {
       let r = el("div", `list-item ${t >= s.price ? "" : "lacking"}`);
-      r.innerHTML = `<div class="ico-lg">${s.icon}</div>
+      r.innerHTML = `<div class="ico-lg">${itemIcon(s.id)}</div>
         <div class="grow"><b>${Ze(loc(s))}</b><span>${itemEffect(s)}</span></div>
         <div class="mono pill">${ltr(`${s.price}⛁`)}</div>`;
       let o = el("button", "btn small primary", "קנה");
@@ -2078,8 +2349,10 @@ function textInput(i) {
   return e.className = "field-input", e.placeholder = i, e.autocomplete = "off", e.spellcheck = !1, e;
 }
 
+var HAT_ICON = { cap: "🧢", bandana: "🎀", beanie: "🧶", flowers: "🌸", cowboy: "🤠", catears: "🐱", wizard: "🧙", tophat: "🎩", crown: "👑", halo: "😇", horns: "😈" };
+
 function itemList(i) {
-  return Object.entries(i || {}).map(([e, t]) => `${ITEMS[e]?.icon || "📦"} ${Ze(loc(ITEMS[e]))} ${ltr(`×${t}`)}`).join(", ");
+  return Object.entries(i || {}).map(([e, t]) => `${itemIcon(e, "sm")} ${Ze(loc(ITEMS[e]))} ${ltr(`×${t}`)}`).join(", ");
 }
 
 function costRow(i, e) {
@@ -2093,7 +2366,7 @@ function costRow(i, e) {
     let o = e?.inventory?.[s] || 0,
       a = o < r,
       l = el("span", `c ${a ? "short" : ""}`);
-    l.innerHTML = `${ITEMS[s]?.icon || "📦"} ${a ? `${o}/${r}` : r}`, l.title = loc(ITEMS[s]), t.appendChild(l);
+    l.innerHTML = `${itemIcon(s, "sm")} ${a ? `${o}/${r}` : r}`, l.title = loc(ITEMS[s]), t.appendChild(l);
   }
   return t.childElementCount || t.appendChild(el("span", "c", "חינם")), t;
 }

@@ -112,7 +112,11 @@ var Net = class {
     get client() {
       return this._client || (this._client = new Client(this.wsBase)), this._client;
     }
-    async joinWorld(e, t) {
+    async joinWorld(e, t, room = null) {
+      // a channel asked for (the party's, or one picked): that room, if it takes us
+      if (room) try {
+        return this._attach(await this.client.joinById(room, { zone: e, fromZone: t, token: this.token }));
+      } catch {}
       return this._attach(await this.client.joinOrCreate("world", {
         zone: e,
         fromZone: t,

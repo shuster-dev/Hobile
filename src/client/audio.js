@@ -63,6 +63,14 @@ var sb = 1.0594630943592953,
       bpm: 144,
       warmth: 0.26,
       pad: 0.18
+    },
+    // the story's scenes (client/cutscene.js): slow, wide, a long pad under it
+    saga: {
+      root: 50,
+      scale: "dorian",
+      bpm: 66,
+      warmth: 0.78,
+      pad: 0.6
     }
   },
   SFX = {
@@ -296,7 +304,7 @@ var sb = 1.0594630943592953,
           }
         case "attack":
           {
-            let s = SFX[t.element] || SFX.iron;
+            let s = SFX[t.element] || SFX[SFX_ALIAS[t.element]] || SFX.iron;
             this.tone(n, {
               type: s.type,
               freq: s.base,
@@ -312,6 +320,24 @@ var sb = 1.0594630943592953,
               to: s.bite * 0.3,
               q: 0.9
             });
+            break;
+          }
+        case "land":
+          {
+            // the element's own sound as its signature lands (gfx/movefx.js)
+            let k = Math.min(1.4, 0.6 + (t.power || 0.4));
+            switch (t.element) {
+              case "ember": this.noise(n, { dur: 0.45 * k, gain: 0.16 * k, type: "lowpass", freq: 1600, to: 300, q: 0.6, attack: 0.02 }); for (let i = 0; i < 4; i++) this.noise(n, { at: 0.05 + Math.random() * 0.3, dur: 0.02, gain: 0.08, type: "highpass", freq: 3500 }); break;
+              case "aqua": this.noise(n, { dur: 0.5 * k, gain: 0.18 * k, type: "bandpass", freq: 700, to: 2600, q: 0.9, attack: 0.01 }); this.tone(n, { type: "sine", freq: 520, to: 900, dur: 0.12, gain: 0.06, at: 0.05 }); break;
+              case "verdant": this.noise(n, { dur: 0.35, gain: 0.1 * k, type: "bandpass", freq: 3200, to: 1800, q: 2.5 }); this.tone(n, { type: "triangle", freq: 330, to: 440, dur: 0.18, gain: 0.07 }); break;
+              case "volt": this.tone(n, { type: "sawtooth", freq: 1400, to: 80, dur: 0.22, gain: 0.12 * k, cutoff: 5000 }); this.noise(n, { dur: 0.3, gain: 0.14 * k, type: "highpass", freq: 2500, q: 0.7 }); break;
+              case "terra": this.tone(n, { type: "sine", freq: 90, to: 38, dur: 0.4, gain: 0.22 * k }); this.noise(n, { dur: 0.35, gain: 0.12 * k, type: "lowpass", freq: 600, to: 120, q: 0.6 }); break;
+              case "gale": this.noise(n, { dur: 0.6 * k, gain: 0.14 * k, type: "bandpass", freq: 600, to: 2400, q: 3, attack: 0.08 }); break;
+              case "frost": for (let i = 0; i < 3; i++) this.tone(n, { type: "sine", freq: 2100 + i * 640, dur: 0.18, gain: 0.05, at: i * 0.05, attack: 0.002, release: 0.4 }); this.noise(n, { at: 0.42, dur: 0.12, gain: 0.12, type: "highpass", freq: 4000 }); break;
+              case "umbra": this.tone(n, { type: "sine", freq: 70, to: 140, dur: 0.45, gain: 0.16 * k, attack: 0.15 }); this.tone(n, { type: "triangle", freq: 220, to: 110, dur: 0.4, gain: 0.05, detune: 30, cutoff: 900 }); break;
+              case "lumen": for (let i = 0; i < 4; i++) this.tone(n, { type: "sine", freq: 1320 * [1, 1.25, 1.5, 2][i], dur: 0.25, gain: 0.04, at: i * 0.04, attack: 0.01, release: 0.5 }); break;
+              case "metal": this.tone(n, { type: "square", freq: 880, to: 860, dur: 0.15, gain: 0.07 * k, cutoff: 4000 }); this.tone(n, { type: "sine", freq: 2637, dur: 0.3, gain: 0.04, attack: 0.002, release: 0.5 }); break;
+            }
             break;
           }
         case "hit":
@@ -736,74 +762,17 @@ var sb = 1.0594630943592953,
         return;
       }
       if (this.currentTrack === e && !t) return;
-      this.currentTrack = e, this.pendingTrack = null, clearInterval(this.musicTimer);
-      let n = ZONE_MUSIC[e] || ZONE_MUSIC.verdant_meadow,
-        s = SCALES[n.scale],
-        r = 60 / n.bpm / 2,
-        o = 0;
+      this.currentTrack = e, this.pendingTrack = null;
+      // every zone its own tune, composed once (client/music.js)
       this.enabled.music && (this.musicBus.gain.cancelScheduledValues(this.now), this.musicBus.gain.setTargetAtTime(0.34, this.now, 0.5));
-      let a = () => {
-        if (!this.enabled.music || this.ctx.state !== "running") {
-          o += 4;
-          return;
-        }
-        let l = this.musicBus,
-          c = Math.floor(o / 8) % 4;
-        for (let h = 0; h < 4; h++) {
-          let d = o + h,
-            u = h * r;
-          if (d % 4 === 0) {
-            let f = [0, 0, 3, 4][c % 4];
-            this.tone(l, {
-              type: "triangle",
-              freq: noteHz(n.root - 12 + s[f % s.length]),
-              dur: r * 2.6,
-              gain: 0.16,
-              cutoff: 420,
-              release: r
-            });
-          }
-          if (d % 16 === 0) {
-            let f = [0, 2, 4][c % 3];
-            for (let p of [0, 4, 7]) this.tone(l, {
-              type: "sine",
-              freq: noteHz(n.root + s[f % s.length] + p),
-              dur: r * 12,
-              gain: n.pad * 0.12,
-              attack: 0.5,
-              release: r * 5,
-              cutoff: 900 + n.warmth * 2200,
-              detune: (Math.random() - 0.5) * 8
-            });
-          }
-          if (Math.random() < 0.62) {
-            let f = s[Math.floor(Math.random() * s.length)],
-              p = Math.random() < 0.3 ? 12 : 0;
-            this.tone(l, {
-              type: n.warmth > 0.5 ? "sine" : "triangle",
-              freq: noteHz(n.root + 12 + f + p),
-              dur: r * 0.9,
-              gain: 0.075,
-              at: u,
-              cutoff: 1800 + n.warmth * 3e3,
-              release: r * 1.4
-            });
-          }
-          n.bpm > 110 && d % 2 === 0 && this.noise(l, {
-            at: u,
-            dur: 0.05,
-            gain: 0.035,
-            freq: 3200,
-            to: 1800,
-            q: 1.4
-          });
-        }
-        o += 4;
-      };
-      a(), this.musicTimer = setInterval(a, r * 4 * 1e3);
+      // (the composer is a chunk of its own: fetched with the first tune)
+      if (this.sequencer) this.sequencer.play(e);
+      else (this._music || (this._music = import('./music.js'))).then(m => {
+        this.sequencer || (this.sequencer = new m.Sequencer(this)), this.currentTrack === e && this.sequencer.play(e);
+      }).catch(() => {});
     }
     stopMusic() {
-      clearInterval(this.musicTimer), this.musicTimer = null, this.currentTrack = null, this.ready && this.musicBus.gain.setTargetAtTime(0, this.now, 0.3);
+      this.sequencer?.stop(), this.currentTrack = null, this.ready && this.musicBus.gain.setTargetAtTime(0, this.now, 0.3);
     }
     setNight(e) {
       if (!this.ready) return;
@@ -812,6 +781,9 @@ var sb = 1.0594630943592953,
       this.musicBus.gain.setTargetAtTime(n, this.now, 1.5);
     }
   };
+
+// the elements were renamed after these were written (shared/gamedata ELEMENTS)
+var SFX_ALIAS = { aqua: "tide", volt: "spark", terra: "stone", umbra: "shade", metal: "iron" };
 
 function vibrate(i) {
   try {

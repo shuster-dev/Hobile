@@ -1,6 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as esbuild from 'esbuild';
+import zlib from 'node:zlib';
+
+/**
+ * The page's first script: download the game with a bar that moves (the
+ * bytes counted as they arrive, against the sizes the build wrote down), then
+ * start it — from the browser's cache, since every file is fetched first.
+ * Anything it cannot do (an old browser, a failed fetch) just starts the game.
+ */
+const LOADER = `(function(){var B=window.HOBILE_BUNDLE,w=document.getElementById('boot-bar-wrap'),bar=document.getElementById('boot-bar'),msg=document.getElementById('loading-msg');
+var total=0,got=0;B.files.forEach(function(f){total+=f[1]});
+function show(){var k=Math.min(1,got/Math.max(1,total));bar&&(bar.style.width=(k*100).toFixed(1)+'%');msg&&(msg.textContent='מוריד את המשחק… '+Math.round(k*100)+'%')}
+function go(){if(go.done)return;go.done=1;msg&&(msg.textContent='טוען את העולם…');var s=document.createElement('script');s.type='module';s.src='./'+B.main;document.head.appendChild(s)}
+if(!window.fetch||!window.ReadableStream||!window.Promise){go();return}
+w&&w.classList.remove('hidden');show();
+Promise.all(B.files.map(function(f){return fetch('./'+f[0]).then(function(r){if(!r.ok)throw 0;if(!r.body)return r.arrayBuffer().then(function(){got+=f[1];show()});var rd=r.body.getReader();return(function pump(){return rd.read().then(function(x){if(x.done)return;got+=x.value.length;show();return pump()})})()})})).then(go,go);setTimeout(go,30000)})();`;
 
 const solo = process.argv.includes('--solo');
 const artifact = process.argv.includes('--artifact');
@@ -37,10 +52,20 @@ function copyModels(dir) {
 }
 
 const entry = (solo || artifact) ? 'src/client/solo.js' : 'src/client/main.js';
+// The online build is split: what the first screen needs, and chunks loaded
+// when they are wanted (the story's scenes, the music, the bell, the model
+// loader). Names carry a hash of their content, so a browser may keep them
+// forever and a new build is a new name. The single-file builds stay whole.
+const web = !(solo || artifact);
 const result = await esbuild.build({
   entryPoints: [entry],
   bundle: true,
-  format: 'iife',
+  format: web ? 'esm' : 'iife',
+  splitting: web,
+  outdir: web ? outDir : undefined,
+  entryNames: 'main.[hash]',
+  chunkNames: 'chunk.[hash]',
+  metafile: web,
   target: ['es2020', 'safari15'],
   minify: !dev,
   sourcemap: dev ? 'inline' : false,
@@ -48,7 +73,7 @@ const result = await esbuild.build({
   legalComments: 'none',
   define: { 'process.env.NODE_ENV': dev ? '"development"' : '"production"' },
 });
-const js = result.outputFiles[0].text;
+const js = web ? '' : result.outputFiles[0].text;
 
 const shell = fs.readFileSync('src/client/index.html', 'utf8');
 if (artifact) {
@@ -82,19 +107,40 @@ if (artifact) {
   const m = copyModels('dist');
   console.log(`dist/solo.html  ${(html.length / 1024).toFixed(0)} KB  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)`);
 } else {
-  fs.writeFileSync(path.join(outDir, 'main.js'), js);
+  // the last build's files go: a hashed name nobody links to is only clutter
+  for (const f of fs.readdirSync(outDir)) if (/^(main|chunk)\.[A-Z0-9]+\.js(\.br|\.gz)?$/i.test(f) || f === 'main.js') fs.unlinkSync(path.join(outDir, f));
+  const files = [];
+  let mainFile = '', total = 0;
+  for (const o of result.outputFiles) {
+    const name = path.basename(o.path);
+    fs.writeFileSync(path.join(outDir, name), o.contents);
+    // compressed beside it, once, here — not on every request (server/index.js serves them)
+    fs.writeFileSync(path.join(outDir, `${name}.br`), zlib.brotliCompressSync(o.contents, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 } }));
+    fs.writeFileSync(path.join(outDir, `${name}.gz`), zlib.gzipSync(o.contents, { level: 9 }));
+    files.push(name);
+    total += o.contents.length;
+    if (name.startsWith('main.')) mainFile = name;
+  }
+  // what the first screen loads: the entry and the chunks it imports outright
+  const meta = result.metafile.outputs, key = Object.keys(meta).find((k) => path.basename(k) === mainFile);
+  const first = [mainFile, ...(meta[key]?.imports || []).filter((i) => i.kind === 'import-statement').map((i) => path.basename(i.path))];
+  const sizes = first.map((f) => [f, fs.statSync(path.join(outDir, f)).size]);
+  const version = mainFile.replace(/^main\.|\.js$/g, '');
+  fs.writeFileSync(path.join(outDir, 'version.json'), JSON.stringify({ version, at: new Date().toISOString() }));
+  const boot = `<script>window.HOBILE_BUNDLE=${JSON.stringify({ version, main: mainFile, files: sizes })}</script>\n<script>${LOADER}</script>`;
   // `Ib()` in ui.js reads `?server=` first and this second, so a baked default
   // can still be overridden by a query string when testing against staging.
-  const page = serverArg
-    ? shell.replace('<script type="module" src="./main.js"></script>',
-      () => `<script>window.HOBILE_SERVER=${JSON.stringify(serverArg)}</script>\n<script type="module" src="./main.js"></script>`)
-    : shell;
+  const page = shell
+    .replace('<script type="module" src="./main.js"></script>', () => (serverArg ? `<script>window.HOBILE_SERVER=${JSON.stringify(serverArg)}</script>\n` : '') + boot)
+    .replace(/(<div class="msg" id="build-stamp"[^>]*>)[^<]*(<\/div>)/, (m, a, b) => `${a}${version}${b}`);
   fs.writeFileSync(path.join(outDir, 'index.html'), page);
+  const brSize = first.reduce((a, f) => a + fs.statSync(path.join(outDir, `${f}.br`)).size, 0);
+  console.log(`${outDir}/  ${files.length} files, first load ${(sizes.reduce((a, [, n]) => a + n, 0) / 1024).toFixed(0)} KB (brotli ${(brSize / 1024).toFixed(0)} KB) of ${(total / 1024).toFixed(0)} KB`);
   // The app shell: without these on the served origin there is no Add to Home
   // Screen, and on iPhone that is the only route to a chrome-free screen.
   for (const f of ['manifest.webmanifest', 'sw.js', 'icon.svg']) {
     fs.copyFileSync(path.join('src/client', f), path.join(outDir, f));
   }
   const m = copyModels(outDir);
-  console.log(`${outDir}/  index.html + main.js  (js ${(js.length / 1024).toFixed(0)} KB)  + ${m.count} models (${m.kb} KB)${serverArg ? `  server=${serverArg}` : ''}`);
+  m.count && console.log(`  + ${m.count} models (${m.kb} KB)${serverArg ? `  server=${serverArg}` : ''}`);
 }

@@ -28,12 +28,12 @@ const camera = new PerspectiveCamera(26, W / H, 0.1, 50);
 let row = 0;
 for (const kind of kinds) {
   let col = 0;
-  for (const [look, turn, move, at] of cols) {
+  for (const [look, turn, move, at, hat = q.get('hat') || null, dye = q.get('dye') || null] of cols) {
     // cells=, ink=: bake as the creator's close-up would, or try a setting
-    const d = personDesign({ kind, look, skin: skinOf(row) });
+    const d = personDesign({ kind, look, skin: skinOf(row), hat, dye });
     if (q.get('cells')) d.cells = Number(q.get('cells'));
     if (q.get('ink')) d.ink = Number(q.get('ink'));
-    const g = buildPerson({ kind, look, skin: skinOf(row) }, { hi: true });
+    const g = buildPerson({ kind, look, skin: skinOf(row), hat, dye }, { hi: true });
     g.rotation.y = turn;
     scene.add(g);
     const m = g.userData.model;

@@ -29,6 +29,9 @@ class MemoryStore {
     this.docs = new Map();      // userId -> doc
     this.guilds = new Map();    // guildId -> guild
     this.gmLog = [];            // GM actions, newest last (server/game/gm.js)
+    this.config = {};           // server settings kept across restarts (the push keys)
+    this.pushSubs = new Map();  // endpoint -> { userId, sub, prefs, at } (server/push.js)
+    this.pushQ = [];            // notifications waiting for their time
     if (this.file && fs.existsSync(this.file)) this._load();
   }
   _load() {
@@ -38,6 +41,9 @@ class MemoryStore {
       for (const d of raw.docs || []) this.docs.set(d.id, d);
       for (const g of raw.guilds || []) this.guilds.set(g.id, g);
       this.gmLog = Array.isArray(raw.gmLog) ? raw.gmLog : [];
+      this.config = raw.config || {};
+      for (const r of raw.pushSubs || []) this.pushSubs.set(r.sub.endpoint, r);
+      this.pushQ = Array.isArray(raw.pushQ) ? raw.pushQ : [];
     } catch (e) { console.warn('[store] could not read', this.file, e.message); }
   }
   _flush() {
@@ -49,6 +55,9 @@ class MemoryStore {
         docs: [...this.docs.values()],
         guilds: [...this.guilds.values()],
         gmLog: this.gmLog,
+        config: this.config,
+        pushSubs: [...this.pushSubs.values()],
+        pushQ: this.pushQ,
       }));
     } catch (e) { console.warn('[store] could not write', this.file, e.message); }
   }
@@ -96,6 +105,20 @@ class MemoryStore {
     return row;
   }
   async adminLog(limit = 40) { return this.gmLog.slice(-limit).reverse(); }
+  // --- settings and phone notifications (server/push.js) ---------------------
+  async getConfig(key) { return this.config[key] ?? null; }
+  async setConfig(key, value) { this.config[key] = value; this._flush(); return value; }
+  async savePushSub(row) { this.pushSubs.set(row.sub.endpoint, row); this._flush(); return row; }
+  async deletePushSub(endpoint) { this.pushSubs.delete(endpoint); this._flush(); }
+  async pushSubsFor(userId) { return [...this.pushSubs.values()].filter((r) => r.userId === userId); }
+  async pushSubsWanting(pref, limit = 2000) { return [...this.pushSubs.values()].filter((r) => r.prefs?.[pref] !== false).slice(0, limit); }
+  async queuePush(row) { this.pushQ = this.pushQ.filter((q) => !(q.userId === row.userId && q.tag === row.tag)); this.pushQ.push(row); this._flush(); return row; }
+  async cancelPush(userId, tag) { this.pushQ = this.pushQ.filter((q) => !(q.userId === userId && q.tag === tag)); this._flush(); }
+  async takeDuePush(now = Date.now(), limit = 200) {
+    const due = this.pushQ.filter((q) => q.at <= now).slice(0, limit);
+    if (due.length) { const set = new Set(due); this.pushQ = this.pushQ.filter((q) => !set.has(q)); this._flush(); }
+    return due;
+  }
 }
 
 // The memory store keeps the newest GM actions; Mongo keeps them all.
@@ -137,6 +160,9 @@ class MongoStore {
     this.docsC = db.collection('docs');
     this.guildsC = db.collection('guilds');
     this.gmLogC = db.collection('gmlog');
+    this.configC = db.collection('config');
+    this.pushSubsC = db.collection('pushsubs');
+    this.pushQC = db.collection('pushq');
     await this.usersC.createIndex({ username: 1 }, { unique: true });
     await this.usersC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ id: 1 }, { unique: true });
@@ -147,6 +173,11 @@ class MongoStore {
     await this.docsC.createIndex({ 'weekly.week': 1, 'weekly.boss': -1 });
     await this.docsC.createIndex({ name: 1 });
     await this.gmLogC.createIndex({ at: -1 });
+    await this.configC.createIndex({ key: 1 }, { unique: true });
+    await this.pushSubsC.createIndex({ endpoint: 1 }, { unique: true });
+    await this.pushSubsC.createIndex({ userId: 1 });
+    await this.pushQC.createIndex({ at: 1 });
+    await this.pushQC.createIndex({ userId: 1, tag: 1 });
     return this;
   }
   async close() {
@@ -217,6 +248,20 @@ class MongoStore {
   async logAdmin(row) { await this.gmLogC.insertOne({ ...row }); return row; }
   async adminLog(limit = 40) {
     return this.gmLogC.find({}, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit).toArray();
+  }
+  // --- settings and phone notifications (server/push.js) ---------------------
+  async getConfig(key) { return (await this.configC.findOne({ key }, { projection: { _id: 0 } }))?.value ?? null; }
+  async setConfig(key, value) { await this.configC.replaceOne({ key }, { key, value }, { upsert: true }); return value; }
+  async savePushSub(row) { await this.pushSubsC.replaceOne({ endpoint: row.sub.endpoint }, { ...row, endpoint: row.sub.endpoint }, { upsert: true }); return row; }
+  async deletePushSub(endpoint) { await this.pushSubsC.deleteOne({ endpoint }); }
+  async pushSubsFor(userId) { return this.pushSubsC.find({ userId }, { projection: { _id: 0 } }).toArray(); }
+  async pushSubsWanting(pref, limit = 2000) { return this.pushSubsC.find({ [`prefs.${pref}`]: { $ne: false } }, { projection: { _id: 0 } }).limit(limit).toArray(); }
+  async queuePush(row) { await this.pushQC.replaceOne({ userId: row.userId, tag: row.tag }, { ...row }, { upsert: true }); return row; }
+  async cancelPush(userId, tag) { await this.pushQC.deleteMany({ userId, tag }); }
+  async takeDuePush(now = Date.now(), limit = 200) {
+    const due = await this.pushQC.find({ at: { $lte: now } }, { projection: { _id: 0 } }).sort({ at: 1 }).limit(limit).toArray();
+    for (const q of due) await this.pushQC.deleteOne({ userId: q.userId, tag: q.tag, at: q.at });
+    return due;
   }
 }
 

@@ -2,7 +2,7 @@ import { Combat, Combatant, inherit, acceptQuest, activateZoneQuests, swapToUid,
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
-import { engageWild, handleWorldMessage, speakTo, visitCheck } from './world-messages.js';
+import { engageWild, handleWorldMessage, restoreRide, speakTo, visitCheck } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
 import { fieldPoint, wildTarget } from '../../shared/worldplan.js';
 import { populate, tickWilds } from './wilds.js';
@@ -11,6 +11,8 @@ import { weatherAt } from '../../shared/weather.js';
 import { earn, spend } from './economy.js';
 import { PartyDungeon } from './party-dungeon.js';
 import { eventMul } from '../../shared/events.js';
+import { storyWin } from './saga.js';
+import { wardrobeOf } from '../../shared/cosmetics.js';
 
 var StoreBase = class {
     constructor() {
@@ -194,8 +196,15 @@ var StoreBase = class {
         hair: e.appearance.hair,
         outfit: e.appearance.outfit,
         kind: e.appearance.kind,
-        look: e.appearance.look
+        look: e.appearance.look,
+        hat: wardrobeOf(e).hat || "",
+        dye: wardrobeOf(e).dye || "",
+        mount: "",
+        mountKind: "",
+        mountStar: 1
       });
+      // back on whatever was carrying them (shared/riding.js)
+      restoreRide(this, this.state.players.get("me"), e);
       populate(this.wilds);
       this.scheduleBoss(), this.timer = setInterval(() => this.tick(), TICK_MS), setTimeout(() => this.welcome(), 60);
     }
@@ -469,9 +478,18 @@ var StoreBase = class {
         benched: !!this.anchor,
         gearBonus: gear
       }));
-      // How hard it fights depends on where it lives (WILD_TIERS).
+      // How hard it fights depends on where it lives (WILD_TIERS). A story
+      // foe (shared/saga.js) is a boss of its level: no sphere takes it.
       let tier = WILD_TIERS[t] || {};
-      this.foe = this.sim.add(new Combatant({
+      this.story = n.story || null;
+      this.foe = this.sim.add(new Combatant(this.story ? {
+        side: "b",
+        kind: "boss",
+        name: SPECIES[n.species].name,
+        creature: makeCreature(n.species, n.level),
+        hpScale: n.hpScale,
+        scale: n.scale
+      } : {
         side: "b",
         kind: "wild",
         name: SPECIES[n.species].name,
@@ -568,6 +586,8 @@ var StoreBase = class {
             species: foeSp,
             elements: SPECIES[foeSp]?.types || []
           });
+          // an anchor broken, or the rift's guardian down (server/game/saga.js)
+          this.story && (o.story = this.story, o.questsDone.push(...storyWin(t, this.story)));
           let c = [...this.sim.combatants.values()].find(d => d.side === "b"),
             h = SPECIES[c?.creature?.species]?.types?.[0] || "metal";
           for (let d of grantItems(t, DROPS.roll(h, t.level, "wild"))) o.items.push(d.id);
