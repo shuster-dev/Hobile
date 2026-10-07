@@ -8,7 +8,7 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import { openStore } from './store.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, validateUsername } from './auth.js';
 import { adminIds, isAdmin, reportAdmins } from './admin.js';
-import { WorldRoom } from './rooms/WorldRoom.js';
+import { WorldRoom, channelsOf, roomOfPlayer } from './rooms/WorldRoom.js';
 import { BattleRoom } from './rooms/BattleRoom.js';
 import { DungeonRoom } from './rooms/DungeonRoom.js';
 import { createPlayerDoc, normalizeDoc, publicProfile, uid } from './game/combat.js';
@@ -17,6 +17,7 @@ import * as Guilds from './guilds.js';
 import * as Arena from './arena.js';
 import * as Push from './push.js';
 import * as Social from './social.js';
+import { AddressLimiter } from './game/guard.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
 // A log pipe that closes (a supervisor restarting, a test harness that died)
@@ -37,7 +38,14 @@ Arena.useRooms((opts) => matchMaker.createRoom('battle', { store, ...opts }));
 // the phone notifications (server/push.js): keys, the queue sweep
 await Push.usePush(store, process.env, { isOnline: (id) => Social.isOnline(id) }).catch((e) => console.warn('[push] off:', e.message));
 const app = express();
+// behind Render's proxy the client's own address is the first hop
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '64kb' }));
+// the doors people guess passwords at, or make accounts by the hundred at (game/guard.js)
+// (the test harnesses make dozens of accounts from one address in seconds)
+const TESTING = process.env.NODE_ENV === 'test';
+const knock = new AddressLimiter(Number(process.env.AUTH_RATE || (TESTING ? 1000 : 0.2)), Number(process.env.AUTH_BURST || (TESTING ? 1e6 : 12)));
+const newcomer = new AddressLimiter(Number(process.env.GUEST_RATE || (TESTING ? 1000 : 0.05)), Number(process.env.GUEST_BURST || (TESTING ? 1e6 : 8)));
 app.use((req, res, next) => {
   res.setHeader('access-control-allow-origin', CORS_ORIGIN);
   res.setHeader('access-control-allow-headers', 'content-type,authorization');
@@ -71,7 +79,22 @@ app.post('/api/push/test', requireAuth, async (req, res) => {
   res.json({ ok: n > 0, sent: n });
 });
 
-app.post('/api/register', async (req, res) => {
+// --- channels: a zone's rooms, and which one to go into -----------------------
+app.get('/api/channels', requireAuth, (req, res) => {
+  const zone = String(req.query.zone || '');
+  if (!ZONES[zone]) return res.status(400).json({ error: 'bad_zone' });
+  const list = channelsOf(zone);
+  // with the party, if one of them is in this zone and there is room
+  let party = null;
+  for (const id of Social.partyOf(req.userId)?.members || []) {
+    if (id === req.userId) continue;
+    const r = roomOfPlayer(id);
+    if (r && r.zoneId === zone && r.clients.length < r.maxClients) { party = r.roomId; break; }
+  }
+  res.json({ zone, channels: list, party, mine: roomOfPlayer(req.userId)?.roomId || null });
+});
+
+app.post('/api/register', knock.middleware(), async (req, res) => {
   const name = validateUsername(req.body?.username);
   if (!name.ok) return res.status(400).json({ error: name.reason });
   const password = String(req.body?.password ?? '');
@@ -82,7 +105,7 @@ app.post('/api/register', async (req, res) => {
   res.json({ token: signToken(user.id), hasCharacter: false });
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', knock.middleware(), async (req, res) => {
   const name = validateUsername(req.body?.username);
   if (!name.ok) return res.status(400).json({ error: 'bad_credentials' });
   const user = await store.findUser(name.value);
@@ -92,7 +115,7 @@ app.post('/api/login', async (req, res) => {
   res.json({ token: signToken(user.id), hasCharacter: !!(await store.getDoc(user.id)) });
 });
 
-app.post('/api/guest', async (req, res) => {
+app.post('/api/guest', newcomer.middleware(), async (req, res) => {
   const user = await store.createUser({ id: uid(), username: `guest_${uid().slice(0, 8)}`, guest: true });
   res.json({ token: signToken(user.id), hasCharacter: false });
 });
@@ -118,7 +141,7 @@ app.get('/api/me', requireAuth, async (req, res) => {
 // its document, its level, its dex and its place in the leaderboard. This is
 // the whole point of letting anyone in without a form: the account is real from
 // the first click, and claiming it only adds a way to prove it is yours.
-app.post('/api/claim', requireAuth, async (req, res) => {
+app.post('/api/claim', knock.middleware(), requireAuth, async (req, res) => {
   const user = await store.findUserById(req.userId);
   if (!user) return res.status(401).json({ error: 'unauthorized' });
   if (!user.guest) return res.status(409).json({ error: 'already_claimed' });
@@ -169,9 +192,37 @@ app.get('/api/admin/economy', requireAuth, async (req, res) => {
 // The built client, when it is served from the same origin.
 const webRoot = path.resolve('dist/web');
 if (fs.existsSync(webRoot)) {
-  app.use(express.static(webRoot, { maxAge: '1h', index: 'index.html' }));
+  // The build writes each script brotli'd and gzipped beside it (tools/build.mjs):
+  // a quarter of the bytes, compressed once rather than on every request. A
+  // hashed name never changes its content, so the browser may keep it for a
+  // year; the page, the service worker and version.json must always be asked for.
+  const TYPES = { '.js': 'text/javascript; charset=utf-8', '.html': 'text/html; charset=utf-8', '.json': 'application/json' };
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const name = path.basename(req.path);
+    const hashed = /^(main|chunk)\.[A-Z0-9]+\.js$/i.test(name);
+    if (name === 'index.html' || req.path === '/' || name === 'sw.js' || name === 'version.json') res.setHeader('cache-control', 'no-cache');
+    if (!hashed) return next();
+    res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+    res.setHeader('vary', 'accept-encoding');
+    const file = path.join(webRoot, name);
+    for (const [enc, ext] of [['br', '.br'], ['gzip', '.gz']]) {
+      if (req.acceptsEncodings(enc) === enc && fs.existsSync(file + ext)) {
+        res.setHeader('content-encoding', enc);
+        res.setHeader('content-type', TYPES['.js']);
+        return res.sendFile(file + ext);
+      }
+    }
+    next();
+  });
+  app.use(express.static(webRoot, { maxAge: '1h', index: 'index.html', setHeaders: (res, f) => {
+    const n = path.basename(f);
+    if (n === 'index.html' || n === 'sw.js' || n === 'version.json') res.setHeader('cache-control', 'no-cache');
+    else if (/^(main|chunk)\.[A-Z0-9]+\.js$/i.test(n)) res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+  } }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
+    res.setHeader('cache-control', 'no-cache');
     res.sendFile(path.join(webRoot, 'index.html'));
   });
 }

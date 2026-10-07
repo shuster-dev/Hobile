@@ -23,7 +23,6 @@ import {
   BackSide, Box3, Color, Group, LoopOnce, LoopRepeat,
   MeshBasicMaterial, MeshToonMaterial, Quaternion, SkinnedMesh, Vector3,
 } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { QUALITY, STYLE, toonGradient } from './core.js';
 import { animateFigurine } from './figurine.js';
@@ -63,7 +62,9 @@ export const MODEL_CREDIT =
 // loading
 // ---------------------------------------------------------------------------
 
-const loader = new GLTFLoader();
+// the glTF loader comes with the first model asked for (a chunk of its own)
+let loader = null;
+const getLoader = () => loader || (loader = import('three/examples/jsm/loaders/GLTFLoader.js').then((m) => new m.GLTFLoader()));
 const cache = new Map();          // file -> Promise<gltf|null>
 let pending = 0;
 
@@ -78,7 +79,7 @@ function fetchModel(file) {
   // carries them in the document. Everywhere else they sit beside it.
   const url = INLINE?.[file] || globalThis.HOBILE_MODELS?.[file] || BASE + file;
   pending++;
-  const p = new Promise((resolve, reject) => loader.load(url, resolve, undefined, reject))
+  const p = getLoader().then((l) => new Promise((resolve, reject) => l.load(url, resolve, undefined, reject)))
     .catch((err) => {
       // A model that will not load is not something the player should ever see
       // as a failure: the procedural body is already on screen and stays there.

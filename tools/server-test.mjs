@@ -146,6 +146,16 @@ roomA.send('move', { x: before + 400, z: 0, rot: 0, moving: true });
 await wait(500);
 const after = [...roomA.state.players.values()].find((p) => p.name === 'Alice').x;
 ok('a teleport packet is clamped by the server', Math.abs(after - before) < 50, `moved ${(after - before).toFixed(1)}m`);
+{
+  // a speed hack: forty two-metre steps as fast as the socket will take them
+  const at0 = [...roomA.state.players.values()].find((p) => p.name === 'Alice');
+  const x0 = at0.x, z0 = at0.z, t0 = Date.now();
+  for (let i = 0; i < 40; i++) { roomA.send('move', { x: x0 + (i + 1) * 2 * (x0 > 0 ? -1 : 1), z: z0, rot: 0, moving: true }); await wait(5); }
+  await wait(400);
+  const at1 = [...roomA.state.players.values()].find((p) => p.name === 'Alice');
+  const went = Math.hypot(at1.x - x0, at1.z - z0), secs = (Date.now() - t0) / 1000;
+  ok('no faster than the fastest ride goes (game/guard.js)', went < 7.4 * 2.1 * 1.35 * (secs + 0.9) && went < 40, `went ${went.toFixed(1)}m in ${secs.toFixed(2)}s`);
+}
 
 // chat crosses between players
 roomA.send('chat', { ch: 'zone', text: 'שלום' });
@@ -170,7 +180,7 @@ const wild = [...roomA.state.wilds.values()]
   .sort((u, v) => Math.hypot(u.x - here().x, u.z - here().z) - Math.hypot(v.x - here().x, v.z - here().z))[0];
 // Walk there. One packet cannot cover the distance any more - that is the
 // clamp working - so this steps like a player would.
-for (let i = 0; i < 400; i++) {
+for (let i = 0; i < 1400; i++) {
   const p = here();
   if (Math.hypot(wild.x - p.x, wild.z - p.z) < 5) break;
   roomA.send('move', { x: wild.x, z: wild.z, rot: 0, moving: true });
@@ -237,10 +247,11 @@ if (gotBattle) {
   const id = Object.keys(NPCS).filter((k) => !NPCS[k].zone || NPCS[k].zone === 'aetherport')
     .sort((x, y) => { const p = me(), a = npcAt(x, phase()), b = npcAt(y, phase());
       return Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z); })[0];
-  for (let i = 0; i < 80; i++) {
+  // at a walking pace: the server cuts a faster step short (game/guard.js)
+  for (let i = 0; i < 500; i++) {
     const p = me(), at = npcAt(id, phase()), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
     if (d < 2.5) break;
-    const k = Math.min(2.5, d - 1.5) / d;
+    const k = Math.min(0.55, d - 1.5) / d;
     roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
     await wait(60);
   }
@@ -259,10 +270,10 @@ if (gotBattle) {
   const phase = () => (Date.now() % DAY_MS / DAY_MS + 1) % 1;
   const me = () => [...roomA.state.players.values()].find((p) => p.name === 'Alice');
   if (NPCS.bex) {
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 600; i++) {
       const p = me(), at = npcAt('bex', phase()), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
       if (d < 2.5) break;
-      const k = Math.min(2.5, d - 1.5) / d;
+      const k = Math.min(0.55, d - 1.5) / d;
       roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
       await wait(60);
     }
@@ -271,7 +282,7 @@ if (gotBattle) {
     roomA.send('talk', { npcId: 'bex' });
     await until(() => said.some((m) => m.npcId === 'bex'), 4000);
     const b = said.find((m) => m.npcId === 'bex');
-    ok('an NPC with an errand offers it', b?.errand?.mode === 'offer' && b.errand.id === 'n_bex_1', JSON.stringify(b?.errand));
+    ok('an NPC with an errand offers it', b?.errand?.mode === 'offer' && b.errand.id === 'n_bex_1', JSON.stringify(b?.errand) + ' ' + JSON.stringify(said.map((m) => m.npcId)) + ' d=' + (() => { const p = me(), at = npcAt('bex', phase()); return Math.hypot(at.x - p.x, at.z - p.z).toFixed(1); })());
   }
   const acc = [], got = [], errs = [];
   roomA.onMessage('questAccepted', (m) => acc.push(m));
@@ -403,13 +414,13 @@ ok('the document survives leaving the room', me2.json.hasCharacter && me2.json.p
   // whether it moved, or a patch still in flight reads as a wall.
   const walkTo = async (room, me, to, near = 0.6) => {
     let stuck = 0;
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 450; i++) {
       // a copy: the schema object is live, so "before" would read as "after"
       const live = me(), p = live && { x: live.x, z: live.z };
       if (!p) { await wait(40); continue; }
       const dx = to.x - p.x, dz = to.z - p.z, d = Math.hypot(dx, dz);
       if (d < near) return true;
-      const k = Math.min(2.4, d) / d, side = stuck > 1 ? 2 : 0;
+      const k = Math.min(1.1, d) / d, side = stuck > 1 ? 1 : 0;
       room.send('move', { x: p.x + dx * k - dz / d * side, z: p.z + dz * k + dx / d * side, rot: 0, moving: true });
       await wait(120);
       const q = me();
@@ -446,7 +457,7 @@ ok('the document survives leaving the room', me2.json.hasCharacter && me2.json.p
     // past the "!" the rest is distance, and this keeps a tree between them
     // from deciding the test.
     const d = kit ? dist(p, kit) : 0, want = w ? 1 : 4;
-    const step = kit && d > want ? Math.min(0.8, d - want) / d : 0;
+    const step = kit && d > want ? Math.min(0.42, d - want) / d : 0;
     fa.send('move', step ? { x: p.x + (kit.x - p.x) * step, z: p.z + (kit.z - p.z) * step, rot: 0, moving: true }
       : { x: p.x + (i % 2 ? 0.12 : -0.12), z: p.z, rot: 0, moving: true });
     await wait(50);

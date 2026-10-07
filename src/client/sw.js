@@ -2,7 +2,8 @@
 // "keep the last build and serve it when the network is gone" — nothing
 // cleverer is warranted, and anything cleverer would serve a stale build.
 const VERSION = 'hobile-v2';
-const SHELL = ['./', './index.html', './main.js', './manifest.webmanifest', './icon.svg'];
+// the hashed scripts are cached as they are fetched (network first, below)
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (e) => {
   // Not addAll: it rejects the whole install if any one URL 404s, and which

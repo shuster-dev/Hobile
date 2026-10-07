@@ -69,7 +69,9 @@ const openPage = async (context) => {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
-  await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
+  // the title screen, as a player taps it (generous: an earlier page is still
+  // rendering its world in software GL beside this one, and they share the CPU)
+  await page.click('#btn-play', { timeout: 90000 });
   return page;
 };
 const inWorld = (page) => page.waitForFunction(

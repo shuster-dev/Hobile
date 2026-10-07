@@ -11,7 +11,7 @@
 // reward and price tables, hour by hour, to see income against costs.
 
 /** Where gold comes from. */
-export const SOURCES = ['battle', 'capture', 'quest', 'daily', 'boss', 'dungeon', 'pvp', 'farm', 'gm'];
+export const SOURCES = ['battle', 'capture', 'quest', 'daily', 'boss', 'dungeon', 'pvp', 'farm', 'pass', 'gm'];
 /** Where it goes. */
 export const SINKS = ['shop', 'clinic', 'building', 'training', 'craft', 'guild', 'blackout', 'cosmetic', 'gm'];
 
@@ -53,8 +53,15 @@ function note(doc, dir, key, amount, now = Date.now()) {
   }
 }
 
+// Who else wants to know a player was paid for something (the season's
+// track, server/game/pass.js). Called whatever the amount: it is the deed
+// that counts there, not the gold.
+const LISTENERS = new Set();
+export function onEarn(fn) { LISTENERS.add(fn); return () => LISTENERS.delete(fn); }
+
 /** Pay a player. Returns what was paid. */
 export function earn(doc, amount, source) {
+  if (doc && LISTENERS.size) for (const fn of LISTENERS) { try { fn(doc, source); } catch {} }
   const n = Math.max(0, Math.floor(Number(amount) || 0));
   if (!doc || !n) return 0;
   doc.gold = (doc.gold || 0) + n;

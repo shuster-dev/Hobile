@@ -528,6 +528,17 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .iicon.sm{width:1.25em;height:1.25em;margin-inline:1px}
 .ico-lg:has(.iicon){width:40px}
 .ico-lg .iicon{width:40px;height:40px}
+.boot-bar{width:180px;height:6px;margin:12px auto 0;border-radius:99px;background:rgba(255,255,255,.12);overflow:hidden}
+.boot-bar i{display:block;height:100%;width:0;background:var(--aether);border-radius:99px;transition:width .2s}
+.update-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b));z-index:var(--z-toast);display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--stroke-strong);border-radius:var(--pill);padding:8px 10px 8px 16px;box-shadow:var(--e3);font-size:var(--t-sm)}
+.pass-head{display:flex;gap:var(--s3);align-items:center;margin-bottom:var(--s3)}
+.pass-head .grow{display:flex;flex-direction:column;gap:2px}
+.pass-tier{width:64px;height:64px;border-radius:var(--r3);background:radial-gradient(circle at 40% 30%,#bff7ee,var(--aether) 55%,var(--aether-deep));color:#04221e;display:flex;flex-direction:column;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:var(--e2)}
+.pass-tier b{font-size:26px;line-height:1}
+.pass-tier span{font-size:10px}
+.pass-n{width:30px;text-align:center;font-weight:700;color:var(--muted);flex:0 0 auto}
+.pass-row.star{border-color:var(--gold)}
+.swatch.sm{display:inline-block;width:14px;height:14px;vertical-align:middle;border-width:1px}
 .job-btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
 .job-btns .btn{min-width:38px;padding:4px 8px}
 .job-btns .btn.best{outline:2px solid var(--aether);outline-offset:1px}
@@ -703,6 +714,8 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
     <div style="text-align:center">
       <div class="spin" style="margin:0 auto"></div>
       <div class="msg" id="loading-msg">טוען את העולם…</div>
+      <!-- the download of the game itself, before any of it can run (the loader below) -->
+      <div class="boot-bar hidden" id="boot-bar-wrap" aria-hidden="true"><i id="boot-bar"></i></div>
       <!-- Which build is this? Without it, "did my change ship?" can only be
            answered by hunting for a symptom. -->
       <div class="msg" id="build-stamp" dir="ltr" style="opacity:.45;font-size:11px;margin-top:6px">v0.13</div>

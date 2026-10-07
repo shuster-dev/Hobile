@@ -31,6 +31,9 @@ import { mountKind, moveMode } from '../../shared/riding.js';
 import * as Social from '../social.js';
 import { sceneSeen, storyFoe } from './saga.js';
 import { buyCosmetic, wearCosmetic } from './cosmetics.js';
+import { GUARD, cadence, moveAllowance, spendMove, strike } from './guard.js';
+import { claimTier } from './pass.js';
+import { passView } from '../../shared/pass.js';
 import { wardrobeOf } from '../../shared/cosmetics.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
@@ -173,7 +176,13 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // simply believed it: the walls only stop you if you approach them.
             let dx = t.x - s.x, dz = t.z - s.z, d = Math.hypot(dx, dz);
             let tx = t.x, tz = t.z;
-            if (d > MAX_STEP) { tx = s.x + (dx / d) * MAX_STEP; tz = s.z + (dz / d) * MAX_STEP; }
+            // ...and to how far the fastest travel could have gone since the
+            // last move (guard.js): a hundred packets a second are not a sprint
+            let allow = Math.min(MAX_STEP, moveAllowance(ctx, r) + 0.05);
+            if (d > allow) {
+              tx = s.x + (dx / d) * allow, tz = s.z + (dz / d) * allow;
+              d > allow + 0.5 && strike(ctx, "speed", r) === GUARD.speedReportAt && ctx.report?.({ at: r, op: "guard", kind: "speed", who: { id: n.id, name: n.name }, zone: ctx.zoneId, detail: "moves cut short for speed, many times in a minute" });
+            }
             let half = ctx.zone.size / 2;
             tx = Math.max(-half, Math.min(half, tx));
             tz = Math.max(-half, Math.min(half, tz));
@@ -187,12 +196,31 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // wild bolts from a run and lets a creep come close (field.js).
             {
               let gap = r - (ctx.lastMoveAt || 0), went = Math.hypot(o.x - s.x, o.z - s.z);
+              spendMove(ctx, went);
+              // a rhythm no thumb keeps for minutes: told to the GM log, once (guard.js)
+              cadence(ctx, r) && ctx.report?.({ at: r, op: "guard", kind: "bot_cadence", who: { id: n.id, name: n.name }, zone: ctx.zoneId, detail: "moves at a machine-steady interval" });
               ctx.lastMoveAt = r;
               if (gap > 0 && gap < 1000) ctx.pace = (ctx.pace || 0) * 0.55 + Math.min(12, went / gap * 1000) * 0.45;
               else ctx.pace = 0;
             }
             s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, keepSpot(n, ctx.zoneId, s), ctx.checkVisits(n, s);
           }
+          break;
+        case "passView":
+          ctx.net.emit("pass", passView(n));
+          break;
+        case "passClaim":
+          {
+            // a tier of the season's track (shared/pass.js)
+            let o = claimTier(n, Number(t?.tier));
+            if (!o.ok) return ctx.net.emit("error", { code: o.reason });
+            ctx.net.save(), ctx.net.emit("pass", { ...passView(n), got: o }), ctx.net.emit("profile", publicProfile(n));
+            o.reward.cosmetic && ctx.net.emit("wardrobe", { ...wardrobeOf(n), bought: null, earned: o.reward.cosmetic });
+            break;
+          }
+        case "ping":
+          // the round trip, for the load test and the connection meter
+          ctx.net.emit("pong", { t: typeof t?.t == "number" ? t.t : 0, at: r });
           break;
         case "presence":
           // The tab went to the background (a phone locked, an app switch):

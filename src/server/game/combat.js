@@ -4,6 +4,7 @@ import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
 import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwork.js';
 import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
+import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
@@ -1243,7 +1244,9 @@ function publicProfile(i) {
     weekly: { ...weekly(i) },
     records: i.records || {},
     // the end of the story (shared/saga.js): scenes watched, anchors broken
-    story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] }
+    story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] },
+    // the season's track (shared/pass.js)
+    pass: passView(i)
   };
 }
 

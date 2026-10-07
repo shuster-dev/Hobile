@@ -11,7 +11,8 @@ import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
 import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
-import { DYES, HATS, wardrobeOf } from '../shared/cosmetics.js';
+import { DYES, HATS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
+import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 
 /**
@@ -374,7 +375,7 @@ var UI = class {
     }
   }
   setZone(e) {
-    this.zone = e, this.toastHtml(`<b>${Ze(loc(e))}</b> · רמות ${rangeLabel(e.levels[0], e.levels[1])}`);
+    this.zone = e, this.toastHtml(`<b>${Ze(loc(e))}</b>${e.channels > 1 ? ` · ערוץ ${ltr(e.channel)}` : ""} · רמות ${rangeLabel(e.levels[0], e.levels[1])}`);
   }
   toastHtml(e, t = "") {
     let n = el("div", `toast ${t}`, e);
@@ -658,7 +659,9 @@ var UI = class {
         map: "מפת האזור",
         gm: "🛡 כלי GM",
         tailor: "👒 החייט",
-        notify: "🔔 התראות לטלפון"
+        notify: "🔔 התראות לטלפון",
+        channels: "📡 ערוצים",
+        pass: "🎟 מסלול העונה"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -691,6 +694,8 @@ var UI = class {
       clinic: () => this.panelClinic(o),
       tailor: () => this.panelTailor(o),
       notify: () => this.panelNotify(o),
+      channels: () => this.panelChannels(o),
+      pass: () => this.panelPass(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
@@ -1008,9 +1013,9 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
-    // the phone's bell needs the server (server/push.js)
-    this.social && n.push(["🔔 התראות", "notify"]);
+      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🎟 מסלול העונה" + (this.profile?.pass?.ready ? ` (${this.profile.pass.ready})` : ""), "pass"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+    // the phone's bell and the zone's channels need the server (server/push.js, WorldRoom)
+    this.social && n.push(["🔔 התראות", "notify"], [`📡 ערוץ ${this.zone?.channel || 1}`, "channels"]);
     n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
@@ -1793,6 +1798,74 @@ var UI = class {
       let m = el("button", "btn small", "קנה");
       m.disabled = n < p.price, m.setAttribute("aria-label", `קנה ${loc(p)}`), m.onclick = () => this.hooks.buy?.(p.id, 1), x.appendChild(m), e.appendChild(x);
     }
+  }
+  /**
+   * The season's track (shared/pass.js): points from playing, thirty tiers,
+   * something on every one and the season's own looks on the milestones.
+   * The same for everyone, and nothing on it for sale.
+   */
+  panelPass(e) {
+    let v = this.profile?.pass;
+    if (!v) return e.appendChild(emptyState("🎟", "טוען…", null, "loading"));
+    let head = el("div", "pass-head");
+    head.innerHTML = `<div class="pass-tier"><b>${ltr(v.tier)}</b><span>מתוך ${ltr(v.tiers)}</span></div>
+      <div class="grow"><b>עונה ${ltr(v.season)}</b><span>נגמרת בעוד ${v.ends - Date.now() > 172800e3 ? `${ltr(Math.ceil((v.ends - Date.now()) / 86400e3))} ימים` : `<span class="mono" dir="ltr">${formatClock(v.ends - Date.now())}</span>`}</span>
+      <div class="bar xp" style="margin-top:6px"><i style="width:${v.tier >= v.tiers ? 100 : v.into / v.perTier * 100}%"></i></div>
+      <span class="mono">${v.tier >= v.tiers ? "המסלול הושלם!" : `${ltr(v.into)} / ${ltr(v.perTier)} לשלב הבא`} · היום ${ltr(v.today)}/${ltr(v.dailyCap)}</span></div>`;
+    e.appendChild(head);
+    if (v.ready > 1) {
+      let all = el("button", "btn primary", `אסוף הכול (${v.ready})`);
+      all.style.width = "100%", all.onclick = () => {
+        for (let t = 1; t <= v.tier; t++) v.claimed.includes(t) || this.hooks.passClaim?.(t);
+      }, e.appendChild(all);
+    }
+    let what = r => r.cosmetic ? (() => {
+      let c = cosmeticById(r.cosmetic);
+      return c.slot === "dye" ? `<span class="swatch sm" style="background:${oo(c.color)}"></span> צבע ${Ze(c.he)}` : `${HAT_ICON[c.shape] || "👒"} ${Ze(c.he)}`;
+    })() : [r.gold ? `🪙 ${ltr(r.gold.toLocaleString("en-US"))}` : "", ...(r.items || []).map(([id, n]) => `${itemIcon(id, "sm")} ${ltr(`×${n}`)}`)].filter(Boolean).join(" · ");
+    e.appendChild(section("השלבים"));
+    REWARDS.forEach((r, i) => {
+      let t = i + 1, got = v.claimed.includes(t), reached = t <= v.tier,
+        row = el("div", `list-item pass-row ${r.cosmetic ? "star" : ""} ${reached && !got ? "ready" : ""} ${reached ? "" : "lacking"}`);
+      row.innerHTML = `<div class="pass-n">${ltr(t)}</div><div class="grow"><span>${what(r)}${r.cosmetic ? " <span class=\"pill\" style=\"display:inline-block\">מיוחד לעונה</span>" : ""}</span></div>`;
+      if (got) row.appendChild(el("span", "pill good", "✓"));
+      else if (reached) {
+        let b = el("button", "btn small primary", "אסוף");
+        b.onclick = () => this.hooks.passClaim?.(t), row.appendChild(b);
+      } else row.appendChild(el("span", "pill", "🔒"));
+      e.appendChild(row);
+    });
+    e.appendChild(section("איך צוברים"));
+    let how = el("div", "hint");
+    how.textContent = `ניצחון ${POINTS.battle} · לכידה ${POINTS.capture} · משימה ${POINTS.quest} · פרס יומי ${POINTS.daily} · בוס ${POINTS.boss} · מבוך ${POINTS.dungeon} · דו‑קרב ${POINTS.pvp} — עד ${PASS.dailyCap} ביום.`;
+    e.appendChild(how);
+    let fair = el("div", "hint");
+    fair.textContent = "המסלול זהה לכולם ושום דבר בו לא נמכר. אם יהיה פעם מסלול לתומכים — רק מראה, אף פעם לא כוח.";
+    e.appendChild(fair);
+  }
+  /** The zone's channels (WorldRoom): a crowded zone opens another room. */
+  panelChannels(e) {
+    e.appendChild(emptyState("📡", "טוען ערוצים…", null, "loading"));
+    this.hooks.channels?.().then(d => {
+      if (this.openPanelId !== "channels") return;
+      e.innerHTML = "";
+      let list = d?.channels || [];
+      if (!list.length) return e.appendChild(emptyState("📡", "אין מידע על ערוצים"));
+      e.appendChild(section(`${Ze(loc(this.zone || {}))}`, `${ltr(list.length)}`));
+      for (let c of list) {
+        let me = c.roomId === d.mine, party = c.roomId === d.party,
+          r = el("div", `list-item ${me ? "ready" : ""}`);
+        r.innerHTML = `<div class="ico-lg">📡</div><div class="grow"><b>ערוץ ${ltr(c.channel)}${me ? " · אתה כאן" : ""}${party ? " · הקבוצה שלך" : ""}</b>
+          <span>${rangeLabel(c.players, c.max, "/")} שחקנים</span></div>`;
+        if (!me) {
+          let b = el("button", "btn small primary", c.full ? "מלא" : "עבור");
+          b.disabled = c.full, b.onclick = () => this.hooks.switchChannel?.(c.roomId), r.appendChild(b);
+        }
+        e.appendChild(r);
+      }
+      let n = el("div", "hint");
+      n.textContent = "כשאזור מתמלא נפתח לו ערוץ נוסף. כשנכנסים לאזור, נכנסים לערוץ של הקבוצה שלך אם יש בו מקום.", e.appendChild(n);
+    });
   }
   /** The bell (client/push.js): notifications to this phone, and which. */
   panelNotify(e) {

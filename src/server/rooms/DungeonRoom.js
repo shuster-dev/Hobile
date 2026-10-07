@@ -1,3 +1,4 @@
+import { GUARD, admitMessage, strike } from '../game/guard.js';
 import { Room } from '@colyseus/core';
 import { BattleState, syncCombatants } from '../state.js';
 import { PartyDungeon } from '../game/party-dungeon.js';
@@ -28,6 +29,20 @@ export class DungeonRoom extends Room {
     return claims;
   }
 
+  /** Whether a message from this client may be handled now (game/guard.js). */
+  admit(client) {
+    const g = this._guards || (this._guards = new Map());
+    let e = g.get(client.sessionId);
+    if (!e) g.set(client.sessionId, e = {});
+    if (admitMessage(e)) return true;
+    if (strike(e, 'flood') >= GUARD.kickAt && !e.kicked) {
+      e.kicked = true;
+      console.warn('[guard] flood: letting go of', client.sessionId);
+      try { client.leave(4008, 'flood'); } catch {}
+    }
+    return false;
+  }
+
   onCreate(options = {}) {
     this.store = options.store;
     this.opts = options;
@@ -53,6 +68,8 @@ export class DungeonRoom extends Room {
       syncCombatants(this.state, this.run.sim);
     };
     this.onMessage('*', (client, type, payload) => {
+      // a session flooding the room is slowed, and if it keeps on, let go (game/guard.js)
+      if (!this.admit(client)) return;
       const id = this.idBySession.get(client.sessionId);
       if (!id) return;
       try { this.run.handle(id, String(type), payload || {}); }

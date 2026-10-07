@@ -23,7 +23,8 @@
     "test:store": "node tools/store-test.mjs",
     "test:social": "node tools/social-test.mjs",
     "test:endgame": "node tools/endgame-test.mjs",
-    "test:duo": "node tools/build.mjs && node tools/duo-test.mjs"
+    "test:duo": "node tools/build.mjs && node tools/duo-test.mjs",
+    "test:load": "node tools/load-test.mjs"
   },
   "dependencies": {
     "@colyseus/core": "0.16.24",

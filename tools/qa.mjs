@@ -2025,5 +2025,46 @@ section('phone notifications');
   ok('a phone that is gone is forgotten', (await st.pushSubsFor('u2')).length === 0);
 }
 
+// ---------------------------------------------------------------- fair play
+// The guard (server/game/guard.js) and the season's track (shared/pass.js).
+section('fair play');
+{
+  const GU = await import('../src/server/game/guard.js');
+  const b = new GU.Bucket(10, 20);
+  let took = 0;
+  for (let i = 0; i < 100; i++) b.take(1000) && took++;
+  ok('a flood is cut to the burst, then to the rate', took === 20 && !b.take(1000) && b.take(1200) && b.take(1200) && !b.take(1200));
+  const cx = {};
+  const a0 = GU.moveAllowance(cx, 10_000);
+  GU.spendMove(cx, a0);
+  ok('movement has a budget: a second of walking, banked no further', a0 <= GU.speedLimit(null) * GU.GUARD.burstSec + 1e-9 && GU.moveAllowance(cx, 10_100) < GU.speedLimit(null) * 0.11 && GU.moveAllowance({ ride: { kind: 'fly' } }, 0) > a0);
+  const bot = {}, human = {};
+  let r1 = null, r2 = null;
+  for (let i = 0; i < 500; i++) { r1 = GU.cadence(bot, 1000 + i * 83) || r1; r2 = GU.cadence(human, 1000 + i * 83 + Math.round(Math.sin(i * 1.7) * 9 + (i % 7) * 3)) || r2; }
+  ok('a machine-steady rhythm is reported, a thumb is not', r1 === 'bot_cadence' && r2 === null);
+  const lim = new GU.AddressLimiter(0, 3);
+  ok('a door guessed at too often closes for that address only', lim.take('1.2.3.4') && lim.take('1.2.3.4') && lim.take('1.2.3.4') && !lim.take('1.2.3.4') && lim.take('5.6.7.8'));
+  // the season's track
+  const PA = await import('../src/shared/pass.js');
+  const CO2 = await import('../src/shared/cosmetics.js');
+  ok('every tier pays, nothing on it is a creature or a stat, and its looks are the season\'s own', PA.REWARDS.length === PA.PASS.tiers && PA.REWARDS.every((r) => (r.gold || r.items?.length || r.cosmetic) && !r.creature && !r.stats)
+    && PA.REWARDS.filter((r) => r.cosmetic).every((r) => CO2.cosmeticById(r.cosmetic)?.pass) && Object.entries({ ...CO2.HATS, ...CO2.DYES }).filter(([, c]) => c.pass).every(([id]) => PA.REWARDS.some((r) => r.cosmetic === id)));
+  const pd = C.createPlayerDoc('qa-pass', 'QA', {}, 'cindcub');
+  C.normalizeDoc(pd);
+  await import('../src/server/game/pass.js');
+  const EC2 = await import('../src/server/game/economy.js');
+  EC2.earn(pd, 50, 'battle');
+  ok('a reward paid is a step on the track', PA.passOf(pd).points === PA.POINTS.battle);
+  for (let i = 0; i < 400; i++) EC2.earn(pd, 10, 'quest');
+  ok('but only so many a day', PA.passOf(pd).points === PA.PASS.dailyCap && PA.passView(pd).today === PA.PASS.dailyCap);
+  const SP = await import('../src/server/game/pass.js');
+  ok('a tier not reached cannot be claimed', SP.claimTier(pd, 30).reason === 'not_reached');
+  const g0 = pd.gold, r5 = SP.claimTier(pd, 4);
+  ok('one reached can, once', r5.ok && SP.claimTier(pd, 4).reason === 'already_claimed' && pd.gold >= g0);
+  pd.pass.points = PA.PASS.perTier * 12;
+  ok('a milestone pays the season\'s look', SP.claimTier(pd, 12).ok && CO2.wardrobeOf(pd).owned.includes('halo'));
+  ok('a new season starts the track over', PA.passOf(pd, Date.now() + 40 * 86400e3).points === 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -19,9 +19,7 @@ import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
 import { RIDE, mountsOf } from '../shared/riding.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
-import { Cutscene } from './cutscene.js';
 import { cosmeticById } from '../shared/cosmetics.js';
-import { disablePush, enablePush, pushState, savedPrefs, testPush } from './push.js';
 const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -35,7 +33,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = new Cutscene(this), this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       if (this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
         return;
@@ -437,9 +435,15 @@ var Game = class {
     // decides on every arrival, so nothing is carried over from the last one.
     this.ui.gm = null;
     this.mode = "loading", this.ui.setLoading(!0, "נכנס לעולם…"), await this.net.leaveRoom(!0);
-    let n = !1;
+    let n = !1,
+      // which of the zone's channels: the one picked, or the party's (server /api/channels)
+      want = this._wantRoom || null;
+    this._wantRoom = null;
+    if (!want && !this.solo) try {
+      want = (await Sp(this.net.api(`/channels?zone=${encodeURIComponent(e)}`, null, "GET"), 3e3))?.party || null;
+    } catch {}
     for (let s = 0; s < 3 && !n; s++) try {
-      await Sp(this.net.joinWorld(e, t), 18e3), n = !0;
+      await Sp(this.net.joinWorld(e, t, s === 0 ? want : null), 18e3), n = !0;
     } catch {
       s < 2 && (this.ui.setLoading(!0, "מתחבר מחדש…"), await new Promise(r => setTimeout(r, 700)));
     }
@@ -647,6 +651,12 @@ var Game = class {
           q && t.errand.mode !== "active" && this.ui.errandCard(q, t.errand.mode, t.he || t.name);
         }
       });
+    }), e.on("pass", t => {
+      if (t.got) {
+        let r = t.got.reward || {};
+        audio.sfx(r.cosmetic ? "quest" : "loot"), r.cosmetic ? this.ui.celebrate(`${loc(cosmeticById(r.cosmetic) || {})} — שלך!`, "quest") : this.ui.toast(`שלב ${t.got.tier} נאסף`, "good");
+      }
+      this.profile && (this.profile.pass = t), this.ui.openPanelId === "pass" && this.ui.renderPanel("pass");
     }), e.on("wardrobe", t => {
       t.bought && (audio.sfx("coin"), this.ui.toast(`נקנה: ${loc(cosmeticById(t.bought) || {})}`, "good")), this.ui.openPanelId === "tailor" && this.ui.renderPanel("tailor");
     }), e.on("questDone", t => {
@@ -1074,12 +1084,26 @@ var Game = class {
       cosmeticWear: (t, n) => e("cosmeticWear", { slot: t, id: n }),
       lookPortrait: (t, n) => (this.lookPainter || (this.lookPainter = new PortraitPainter(180, 220))).want(t, n),
       // the bell: notifications to this phone (client/push.js)
-      pushState: () => this.solo ? Promise.resolve("unsupported") : pushState(),
-      pushPrefs: () => savedPrefs(),
-      pushEnable: t => enablePush(this.net, t),
-      pushDisable: () => disablePush(this.net),
-      pushSave: t => pushState().then(s => s === "on" ? enablePush(this.net, t) : (localStorage.setItem("hobile.push.prefs", JSON.stringify(t)), !0)).catch(() => {}),
-      pushTest: () => testPush(this.net).catch(() => ({ ok: !1 })),
+      // (a chunk of its own: fetched when the bell is opened)
+      pushState: () => this.solo ? Promise.resolve("unsupported") : import("./push.js").then(m => m.pushState()),
+      pushPrefs: () => {
+        try {
+          return { train: !0, boss: !0, farm: !0, ...JSON.parse(localStorage.getItem("hobile.push.prefs") || "{}") };
+        } catch {
+          return { train: !0, boss: !0, farm: !0 };
+        }
+      },
+      pushEnable: t => import("./push.js").then(m => m.enablePush(this.net, t)),
+      pushDisable: () => import("./push.js").then(m => m.disablePush(this.net)),
+      pushSave: t => import("./push.js").then(m => m.pushState().then(s => s === "on" ? m.enablePush(this.net, t) : (localStorage.setItem("hobile.push.prefs", JSON.stringify(t)), !0))).catch(() => {}),
+      pushTest: () => import("./push.js").then(m => m.testPush(this.net)).catch(() => ({ ok: !1 })),
+      // the season's track (shared/pass.js)
+      passClaim: t => e("passClaim", { tier: t }),
+      // the zone's channels: which there are, and going to another
+      channels: () => this.solo ? Promise.resolve(null) : this.net.api(`/channels?zone=${encodeURIComponent(this.zone?.id || "")}`, null, "GET").catch(() => null),
+      switchChannel: t => {
+        this.ui.closePanel(), this._wantRoom = t, this.enterWorld(this.zone?.id || HOME_ZONE);
+      },
       // a scene of the story, again (client/cutscene.js)
       replayScene: t => {
         this.ui.closePanel(), setTimeout(() => this.storyScene(t), 350);
@@ -1511,6 +1535,12 @@ var Game = class {
     if (!id || this.cutscene.active || this.mode !== "world" || this.transitioning || !this.spawned || this.world._inside) return;
     if (!force && (this.ui.openPanelId || this.ui._dialogue || document.querySelector("#ceremony:not(.hidden)") || document.body.classList.contains("talking"))) return;
     this.ui.closePanel?.();
+    // the scene player is a chunk of its own, fetched with the first scene
+    if (!this.cutscene.play) {
+      if (this._cutsceneLoading) return;
+      this._cutsceneLoading = import("./cutscene.js").then(m => (this.cutscene = new m.Cutscene(this), this._cutsceneLoading = null, this.storyScene(force))).catch(() => (this._cutsceneLoading = null));
+      return;
+    }
     let credits = id === "credits" ? this.creditsFor() : null;
     this.cutscene.play(id, {
       credits,

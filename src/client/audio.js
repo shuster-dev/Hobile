@@ -1,4 +1,3 @@
-import { Sequencer } from './music.js';
 var sb = 1.0594630943592953,
   noteHz = i => 440 * sb ** (i - 69),
   SCALES = {
@@ -766,7 +765,11 @@ var sb = 1.0594630943592953,
       this.currentTrack = e, this.pendingTrack = null;
       // every zone its own tune, composed once (client/music.js)
       this.enabled.music && (this.musicBus.gain.cancelScheduledValues(this.now), this.musicBus.gain.setTargetAtTime(0.34, this.now, 0.5));
-      (this.sequencer || (this.sequencer = new Sequencer(this))).play(e);
+      // (the composer is a chunk of its own: fetched with the first tune)
+      if (this.sequencer) this.sequencer.play(e);
+      else (this._music || (this._music = import('./music.js'))).then(m => {
+        this.sequencer || (this.sequencer = new m.Sequencer(this)), this.currentTrack === e && this.sequencer.play(e);
+      }).catch(() => {});
     }
     stopMusic() {
       this.sequencer?.stop(), this.currentTrack = null, this.ready && this.musicBus.gain.setTargetAtTime(0, this.now, 0.3);

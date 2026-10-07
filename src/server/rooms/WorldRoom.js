@@ -1,3 +1,4 @@
+import { GUARD, admitMessage, strike } from '../game/guard.js';
 import { wardrobeOf } from '../../shared/cosmetics.js';
 import * as Push from '../push.js';
 import { Room } from '@colyseus/core';
@@ -65,6 +66,30 @@ function reachPlayer(id) {
   return null;
 }
 
+/**
+ * Channels: a zone that fills (maxClients) gets a second room, a third — each
+ * a channel with its own number. Where a player goes into a zone: where their
+ * party already is, if there is room; otherwise wherever Colyseus puts them.
+ */
+export function channelsOf(zoneId) {
+  return [...WORLDS].filter((r) => r.zoneId === zoneId && !r.disposed)
+    .map((r) => ({ roomId: r.roomId, channel: r.channel, players: r.clients.length, max: r.maxClients, full: r.clients.length >= r.maxClients }))
+    .sort((a, b) => a.channel - b.channel);
+}
+
+/** The room a player is in now, if any. */
+export function roomOfPlayer(id) {
+  for (const room of WORLDS) for (const doc of room.docsBySession.values()) if (doc.id === id) return room;
+  return null;
+}
+
+function freeChannel(zoneId) {
+  const used = new Set([...WORLDS].filter((r) => r.zoneId === zoneId).map((r) => r.channel));
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
+
 function broadcastAll(msg) {
   let reached = 0;
   for (const room of WORLDS) {
@@ -82,6 +107,20 @@ export class WorldRoom extends Room {
     const claims = verifyToken(options.token);
     if (!claims) throw new Error('unauthorized');
     return claims;
+  }
+
+  /** Whether a message from this client may be handled now (game/guard.js). */
+  admit(client) {
+    const g = this._guards || (this._guards = new Map());
+    let e = g.get(client.sessionId);
+    if (!e) g.set(client.sessionId, e = {});
+    if (admitMessage(e)) return true;
+    if (strike(e, 'flood') >= GUARD.kickAt && !e.kicked) {
+      e.kicked = true;
+      console.warn('[guard] flood: letting go of', client.sessionId);
+      try { client.leave(4008, 'flood'); } catch {}
+    }
+    return false;
   }
 
   onCreate(options = {}) {
@@ -112,6 +151,8 @@ export class WorldRoom extends Room {
     // Every world message goes through the shared protocol module. Registering
     // a wildcard keeps this list from drifting away from world-messages.js.
     this.onMessage('*', (client, type, payload) => {
+      // a session flooding the room is slowed, and if it keeps on, let go (game/guard.js)
+      if (!this.admit(client)) return;
       const ctx = this.ctxBySession.get(client.sessionId);
       if (!ctx) return;
       try {
@@ -135,6 +176,8 @@ export class WorldRoom extends Room {
 
     this.setSimulationInterval(() => this.tick(), TICK_MS);
     this.lastSave = Date.now();
+    this.channel = freeChannel(this.zoneId);
+    this.setMetadata({ zone: this.zoneId, channel: this.channel });
     WORLDS.add(this);
   }
 
@@ -154,6 +197,11 @@ export class WorldRoom extends Room {
     const doc = await this.store.getDoc(userId);
     if (!doc) { client.send('error', { code: 'no_character' }); client.leave(4000); return; }
     const user = await this.store.findUserById(userId).catch(() => null);
+    // a zone is entered the way travel enters it (world-messages "travel"): not
+    // by naming it, or a room of it, from a level too low for it (game/guard.js)
+    if (doc.zone !== this.zoneId && (doc.level || 1) < (this.zone.levels?.[0] || 0) - 2 && !isAdmin(user)) {
+      client.send('error', { code: 'level_too_low' }); client.leave(4003); return;
+    }
     normalizeDoc(doc);
     activateZoneQuests(doc, this.zoneId);
     doc.zone = this.zoneId;
@@ -205,6 +253,7 @@ export class WorldRoom extends Room {
 
   async onDispose() {
     WORLDS.delete(this);
+    this.disposed = true;
     for (const doc of this.docsBySession.values()) await this.store.saveDoc(doc).catch(() => {});
   }
 
@@ -279,6 +328,8 @@ export class WorldRoom extends Room {
       id: this.zoneId, name: this.zone.name, he: this.zone.he,
       ground: this.zone.ground, accent: this.zone.accent, sky: this.zone.sky,
       size: this.zone.size, landmarks: this.zone.landmarks, levels: this.zone.levels,
+      // which of the zone's rooms this is, and how many there are now
+      channel: this.channel, channels: channelsOf(this.zoneId).length,
     });
     client.send('guild', Guilds.view(Guilds.guildOf(doc), doc.id));
     client.send('party', Social.partyView(Social.partyOf(doc.id)));
