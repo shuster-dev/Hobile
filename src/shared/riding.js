@@ -30,11 +30,17 @@ export function mountKind(species, star = 1) {
   return null;
 }
 
-/** The creatures in a team that can be ridden, best first (air, water, land). */
+/** The creatures in a team that can be ridden — big enough, and wearing a
+ *  saddle (shared/saddles.js) — best first (air, water, land). */
 export function mountsOf(team = []) {
   const rank = { fly: 0, swim: 1, land: 2 };
-  return team.filter(Boolean).map((c) => ({ uid: c.uid, species: c.species, star: c.star || 1, kind: mountKind(c.species, c.star || 1) }))
+  return team.filter((c) => c && c.saddle).map((c) => ({ uid: c.uid, species: c.species, star: c.star || 1, kind: mountKind(c.species, c.star || 1) }))
     .filter((m) => m.kind).sort((a, b) => rank[a.kind] - rank[b.kind]);
+}
+
+/** Big enough to carry you, but no saddle yet: what the workbench is for. */
+export function saddleWanted(team = []) {
+  return team.filter((c) => c && !c.saddle && mountKind(c.species, c.star || 1));
 }
 
 /** What `stepWithin` should let a body cross, for how it is travelling. */

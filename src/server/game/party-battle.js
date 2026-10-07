@@ -26,6 +26,7 @@ import { earn, spend } from './economy.js';
 import { eventMul } from '../../shared/events.js';
 import { FIELD } from './field.js';
 import { storyWin } from './saga.js';
+import { huntMaterial } from './saddles.js';
 
 export const PARTY_BATTLE = {
   tickMs: 100,
@@ -306,10 +307,12 @@ export class PartyBattle {
         const el = SPECIES[sp]?.types?.[0] || 'metal';
         for (const d of grantItems(t, DROPS.roll(el, t.level, 'wild'))) o.items.push(d.id);
         if (Math.random() < 0.2) { giveItem(t, 'potion_s', 1); o.items.push('potion_s'); }
+        // a piece toward a saddle for its family (game/saddles.js)
+        o.mat = huntMaterial(t, sp);
       }
       if (mine) {
         const c = makeCreature(part.capture.species, part.capture.level, part.capture.traits);
-        addCreature(t, c); t.stats.captures += 1; o.captured = c;
+        addCreature(t, c); t.stats.captures += 1; o.captured = c; o.mat = huntMaterial(t, c.species);
         const dex = dexRecord(t, c.species, c);
         o.newSpecies = dex.isNew; o.dexCount = dex.caught; o.card = creatureCard(t, c.uid);
         if (!dex.isNew) o.duplicate = duplicateReward(t, c.species);
