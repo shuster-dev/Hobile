@@ -7,7 +7,7 @@ import { KINDS } from './gfx/people.js';
 import { WorldView } from './gfx/world.js';
 import { CameraRig, Joystick, Keyboard } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
-import { $, Ib, SOCIAL, UI, kb, loc, wp, zb } from './ui.js';
+import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
 import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
@@ -26,7 +26,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       if (this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
         return;
@@ -493,7 +493,7 @@ var Game = class {
       this.ui.setLoading(!1), this.ui.toast("החדר נסגר", "bad"), this.transitioning = !1, await this.enterWorld(this.zone?.id);
       return;
     }
-    this.mode = t === "dungeon" ? "dungeon" : "battle", this.cooldowns = {}, this.battle = {
+    this.ui.battleTarget = null, this.mode = t === "dungeon" ? "dungeon" : "battle", this.cooldowns = {}, this.battle = {
       youId: null,
       combatants: [],
       inventory: {}
@@ -514,7 +514,7 @@ var Game = class {
     }), e.on("chat", t => {
       t.fromId && t.fromId !== this.profile?.id && audio.sfx("chat"), this.ui.pushChat(t);
     }), e.on("party", t => {
-      this.ui.party = t, this.ui.openPanelId === "party" && this.ui.renderPanel("party");
+      this.ui.party = t, this.ui.renderPartyStrip(), this.ui.openPanelId === "party" && this.ui.renderPanel("party");
     }), e.on("friends", t => {
       this.ui.friends = t || {
         friends: [],
@@ -531,11 +531,45 @@ var Game = class {
     }), e.on("guildList", t => {
       this._guildListResolve?.(t);
     }), e.on("partyInvite", t => {
-      this.ui.toast(`${t.fromName} הזמין אותך לקבוצה — פתח את חלון הקבוצה`, "good"), this.pendingPartyInvite = t.partyId, this.ui.openPanel("party"), setTimeout(() => this.renderInvitePrompt(t), 0);
-    }), e.on("friendRequest", t => this.ui.toast(`${t.fromName} שלח בקשת חברות`, "good")), e.on("duelRequest", t => {
-      this.pendingDuel = t.fromId, this.ui.toast(`${t.fromName} מזמין אותך לדו-קרב — לחץ על כפתור הפעולה לקבל`, "good"), setTimeout(() => {
-        this.pendingDuel === t.fromId && (this.pendingDuel = null);
-      }, 12e3);
+      // Someone asks; the answer is right there, not in a panel to go and find.
+      this.ui.offer({
+        key: `party:${t.fromId}`, icon: "⚔", title: `${t.fromName} מזמין/ה אותך לקבוצה`, sub: t.size > 1 ? `${t.size} כבר בקבוצה` : "קבוצה של שניים", until: t.until,
+        yes: "הצטרף", no: "לא עכשיו",
+        onYes: () => this.net.send("partyAccept", { inviteId: t.inviteId }), onNo: () => this.net.send("partyDecline", { inviteId: t.inviteId })
+      }), vibrate([20, 40, 20]);
+    }), e.on("friendRequest", t => {
+      this.ui.offer({
+        key: `friend:${t.fromId}`, icon: "👥", title: `${t.fromName} רוצה להיות חבר שלך`, sub: `Lv ${t.level || 1}`, until: Date.now() + 6e4,
+        yes: "אשר", no: "לא",
+        onYes: () => this.net.send("friendRespond", { fromId: t.fromId, accept: !0 }), onNo: () => this.net.send("friendRespond", { fromId: t.fromId, accept: !1 })
+      });
+    }), e.on("duelRequest", t => {
+      this.ui.offer({
+        key: `duel:${t.fromId}`, icon: t.pair ? "⚔⚔" : "🗡", title: t.pair ? `${t.fromName} ו${(t.allies || []).join(", ")} מזמינים אתכם לקרב זוגות` : `${t.fromName} מזמין/ה אותך לדו‑קרב`,
+        sub: t.pair ? "2 נגד 2 · אף אחד לא מאבד כלום" : `Lv ${t.level || 1} · בבריאות מלאה, בלי לאבד כלום`, until: t.until,
+        yes: "לקרב!", no: "לא",
+        onYes: () => this.net.send("duelAccept", { inviteId: t.inviteId }), onNo: () => this.net.send("duelDecline", { inviteId: t.inviteId })
+      }), vibrate([30, 40, 30]);
+    }), e.on("coopOffer", t => {
+      let sp = SPECIES[t.species];
+      this.ui.offer({
+        key: `coop:${t.roomId}`, icon: "🤝", title: `${t.fromName} נלחם/ת ב${loc(sp)} — הצטרף!`, sub: `Lv ${t.level} · שניכם מקבלים ניסיון`, until: t.until,
+        yes: "הצטרף לקרב", no: "לא",
+        onYes: () => this.mode === "world" && this.net.send("coopJoin", { roomId: t.roomId })
+      }), vibrate([20, 30, 20]);
+    }), e.on("partySent", t => this.ui.toast(`הזמנה לקבוצה נשלחה ל${t.name}`, "good")), e.on("duelSent", t => this.ui.toast(t.pair ? `הזמנה לקרב זוגות נשלחה ל${t.name}` : `הזמנה לדו‑קרב נשלחה ל${t.name}`, "good")), e.on("friendResult", t => {
+      t.added ? this.ui.toast(`${t.name} ואתה חברים עכשיו 👥`, "good") : t.pending && this.ui.toast(`בקשת חברות נשלחה ל${t.name}`, "good");
+    }), e.on("reported", () => this.ui.toast("הדיווח נשלח. תודה.", "good")), e.on("allyJoined", t => {
+      this.battle.players = t.players || this.battle.players, this.applyBattlePlayers(), t.id !== this.profile?.id && (this.ui.battleBanner(t.side === this.battle.mySide ? `🤝 ${t.name} הצטרף/ה לקרב!` : `${t.name} נכנס/ה לזירה`, 1500), audio.sfx("quest"));
+    }), e.on("allyLeft", t => {
+      this.battle.players = t.players || this.battle.players, this.applyBattlePlayers(), t.id !== this.profile?.id && this.ui.battleBanner(t.side === this.battle.mySide ? `${t.name} יצא/ה מהקרב` : `${t.name} פרש/ה!`, 1300);
+    }), e.on("battleCountdown", t => {
+      this.battle.players = t.players || this.battle.players, this.applyBattlePlayers();
+      let step = () => {
+        let left = Math.ceil((t.until - Date.now()) / 1e3);
+        left > 0 && (this.ui.battleBanner(String(left), 700), audio.sfx("ui"), setTimeout(step, 1e3));
+      };
+      step();
     }), e.on("base", t => {
       this.ui.base = t, t.fiber && (audio.sfx("loot"), this.ui.toast(`🌿 +${t.fiber} סיבים מהגינה`, "good"));
       // the pods at the farm: whoever is in them, and one coming out
@@ -595,7 +629,8 @@ var Game = class {
         }
       }
     }), e.on("battleInit", t => {
-      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
+      this.battle.players = t.players || [], this.battle.duel = !!t.duel, this.battle.side = t.side || null, this.applyBattlePlayers(),
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = t.side || this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
       let zd = ZONES[this.zone?.id] || {};
       this.battleView.setTheme(n || this.zoneElement(), !1, {
@@ -631,9 +666,10 @@ var Game = class {
       // and the bench is behind you — out of a portrait frame — so without a
       // word the only sign was a creature quietly walking off screen.
       this.battleView.onFaint || (this.battleView.onFaint = a => {
-        a.side === this.battle.mySide && a.kind === "creature" && SPECIES[a.species] && this.ui.battleBanner(`${loc(SPECIES[a.species])} התעלף! 💫`, 1500);
+        // the view always has my side as "a" (see tickBattle)
+        a.side === "a" && a.kind === "creature" && SPECIES[a.species] && this.ui.battleBanner(`${loc(SPECIES[a.species])} התעלף! 💫`, 1500);
       });
-      this.battleView.playEvent(t);
+      this.battleView.playEvent(this.battle.mySide === "b" && t.side ? { ...t, side: t.side === "a" ? "b" : "a" } : t);
       let n = t.actor && t.actor === this.battle.youId;
       if (t.kind === "hit") {
         let s = this.battleView.actorScreenPos(t.target);
@@ -671,7 +707,7 @@ var Game = class {
       for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "evolve" && n.push(`${loc(SPECIES[r.from])} התפתח ל${loc(SPECIES[r.into])}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`);
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
       for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level")), r.kind === "evolve" && (audio.sfx("evolve"), this.ui.celebrate(`${loc(SPECIES[r.into])}!`, "evolve"));
-      this.ui.battleBanner(t.won ? "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא");
+      this.ui.battleBanner(t.outcome === "cancelled" ? "הקרב בוטל — לא כולם הגיעו" : t.pvp ? t.won ? "ניצחתם! 🏆" : t.outcome === "draw" ? "תיקו" : t.forfeit ? "פרשת" : "הפסדתם — בפעם הבאה" : t.won ? t.coop ? "ניצחון משותף!" : "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא"), t.pvp && !t.won && t.outcome !== "cancelled" && n.push("בדו‑קרב לא מאבדים כלום");
       // A first catch of a species opens its card; a duplicate says what it
       // refined into. Catching the same thing twice should not feel identical.
       if (t.captured && t.duplicate && Object.keys(t.duplicate).length) {
@@ -912,12 +948,37 @@ var Game = class {
       addFriend: t => e("friendAdd", {
         name: t
       }),
+      addFriendId: t => e("friendAdd", {
+        id: t
+      }),
+      removeFriend: t => e("friendRemove", {
+        id: t
+      }),
+      block: (t, n = !0) => (e("block", {
+        id: t,
+        on: n
+      }), n && this.ui.toast("נחסם/ה — לא תקבל ממנו/ה הודעות והזמנות", "good")),
+      report: (t, n) => e("report", {
+        id: t,
+        reason: `reported ${n || ""}`
+      }),
+      partyKick: t => e("partyKick", {
+        id: t
+      }),
+      partyPromote: t => e("partyPromote", {
+        id: t
+      }),
+      duel: (t, n) => e("duel", {
+        targetId: t,
+        pair: !!n
+      }),
+      aim: () => audio.sfx("ui"),
       respondFriend: (t, n) => e("friendRespond", {
         fromId: t,
         accept: n
       }),
       partyInvite: t => e("partyInvite", {
-        name: t
+        id: t
       }),
       partyLeave: () => e("partyLeave"),
       guildCreate: (t, n) => e("guildCreate", {
@@ -976,7 +1037,8 @@ var Game = class {
       },
       useSkill: t => {
         this.net.send("skill", {
-          skill: t
+          skill: t,
+          target: this.ui.battleTarget || void 0
         }), MOVES[t] && (this.cooldowns[t] = Date.now() + MOVES[t].cd);
       },
       swapCreature: t => {
@@ -1011,19 +1073,15 @@ var Game = class {
   doAction(e) {
     let t = this.worldState();
     if (!t) return;
-    if (this.pendingDuel) {
-      this.net.send("duelAccept", {
-        fromId: this.pendingDuel
-      }), this.pendingDuel = null;
-      return;
-    }
     let n = this.world.selfPosition();
     if (t.boss?.active && dist2d(t.boss, n) < 15) {
       this.attackBoss(e);
       return;
     }
-    let s = this.nearestNpc(n);
-    if (s && s.d < 4.2) {
+    let s = this.nearestNpc(n),
+      // a player standing closer than the NPC is the one you mean
+      pc = this.ui.social ? this.nearestPlayer(n) : null;
+    if (s && s.d < 4.2 && !(pc && pc.d < s.d)) {
       this.net.send("talk", {
         npcId: s.id
       });
@@ -1036,9 +1094,10 @@ var Game = class {
     // pointing at.
     let r = this.nearestLandmark(n),
       o = this.nearestWild(n),
-      // Standing by another player offered a duel the server always refuses
-      // (see SOCIAL); the button looks past them instead.
-      a = SOCIAL ? this.nearestPlayer(n) : null,
+      // Standing by another player opens them: friend, party, duel, two
+      // against two, whisper. Offline (the single-player build) there is
+      // nobody there to open.
+      a = this.ui.social ? this.nearestPlayer(n) : null,
       l = [];
     r && r.d < (r.r ? r.r + 1 : 9) && l.push({
       d: r.d,
@@ -1067,11 +1126,7 @@ var Game = class {
       }
     }), a && a.d < 6 && l.push({
       d: a.d,
-      go: () => {
-        this.net.send("duel", {
-          targetId: a.id
-        }), this.ui.toast("נשלחה הזמנה לדו-קרב");
-      }
+      go: () => this.ui.showPlayer({ id: a.id, name: a.p.name, level: a.p.level, partyId: a.p.partyId, online: !0, near: !0 })
     });
     if (l.length) {
       l.sort((c, h) => c.d - h.d)[0].go();
@@ -1396,7 +1451,12 @@ var Game = class {
       return;
     }
     if (this.interiorPrompt()) return;
-    let n = this.nearestNpc(t);
+    let n = this.nearestNpc(t),
+      pl = this.ui.social ? this.nearestPlayer(t) : null;
+    if (pl && pl.d < 4 && !(n && n.d < pl.d)) {
+      this.ui.setPrompt(`👤 ${pl.p.name} · Lv ${pl.p.level} — חברות, קבוצה, דו‑קרב`), $("#btn-action").textContent = "שחקן", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
     if (n && n.d < 4.2) {
       this.ui.setPrompt(`${n.npc.icon} דבר עם ${n.npc.he}`), $("#btn-action").textContent = "דבר", $("#btn-action").onclick = () => this.doAction();
       return;
@@ -1444,9 +1504,17 @@ var Game = class {
     for (let t of ["sphere_ultra", "sphere_great", "sphere_basic"]) if ((e[t] || 0) > 0) return t;
     return "sphere_basic";
   }
+  /** Who else is in this fight: their names for the rows, their looks for
+   *  the trainers standing in the arena. */
+  applyBattlePlayers() {
+    let ps = this.battle.players || [];
+    this.ui.battlePlayers = Object.fromEntries(ps.map(p => [p.id, p.name]));
+    this.battleView.setPlayers?.(ps, this.profile?.id);
+  }
   liveTeam(e) {
     let t = new Map((this.battle.team || []).map(n => [n.id, n]));
-    return e.filter(n => n.kind === "creature" && n.side === this.battle.mySide).sort((n, s) => (n.slot ?? 0) - (s.slot ?? 0)).map(n => ({
+    let me = this.profile?.id;
+    return e.filter(n => n.kind === "creature" && n.side === this.battle.mySide && (!me || !n.ownerId || n.ownerId === me)).sort((n, s) => (n.slot ?? 0) - (s.slot ?? 0)).map(n => ({
       uid: t.get(n.id)?.uid || n.id,
       id: n.id,
       species: n.species,
@@ -1470,6 +1538,8 @@ var Game = class {
         hp: r.hp,
         maxHp: r.maxHp,
         stamina: r.stamina,
+        ownerId: r.ownerId || "",
+        star: r.star || 1,
         benched: !!r.benched,
         slot: r.slot,
         frozenUntil: r.frozenUntil,
@@ -1478,11 +1548,25 @@ var Game = class {
           kind: o.kind,
           until: o.until
         }))
-      })), this.battle.combatants = s, this.ui.battleTeam = this.liveTeam(s), this.ui.bestSphere = this.bestSphere(), this.ui.capture = {
+      }));
+      // Who I am in it: my own creature on the field, or my trainer once the
+      // team is down. With other players in the fight, "the one on my side"
+      // is not enough to tell; the owner is.
+      let me = this.profile?.id;
+      if (me && s.some(r => r.ownerId === me)) {
+        let mine = s.find(r => r.ownerId === me && r.kind === "creature" && !r.benched && r.hp > 0) || s.find(r => r.ownerId === me && r.kind === "trainer");
+        mine && (this.battle.youId = mine.id, this.battle.mySide = mine.side);
+      }
+      this.ui.battleMe = me;
+      // The screen always has my side near and theirs far: on side b, the
+      // picture is turned round (the numbers and rows are not).
+      let flip = this.battle.mySide === "b",
+        view = flip ? s.map(r => ({ ...r, side: r.side === "a" ? "b" : "a" })) : s;
+      this.battle.combatants = s, this.ui.battleTeam = this.liveTeam(s), this.ui.bestSphere = this.bestSphere(), this.ui.capture = {
         target: n.captureTarget || "",
         until: n.captureUntil || 0,
         chance: n.captureChance || 0
-      }, this.battleView.sync(s, this.battle.youId), this.ui.renderBattle(s, this.battle.youId, this.battle.inventory);
+      }, this.battleView.sync(view, this.battle.youId), this.ui.renderBattle(s, this.battle.youId, this.battle.inventory);
     }
     this.battleView.update(e, t);
   }
@@ -1527,7 +1611,23 @@ function Oc(i) {
     offline: "השחקן לא מחובר",
     no_portal: "אין שער כאן",
     solo_mode: "זה מצב אימון לשחקן יחיד — המערכות החברתיות פועלות בגרסה עם השרת",
-    pvp_offline: "דו-קרב דורש שחקן אמיתי נוסף"
+    pvp_offline: "דו-קרב דורש שחקן אמיתי נוסף",
+    player_not_found: "לא נמצאה דמות בשם הזה",
+    already_friends: "אתם כבר חברים",
+    not_yourself: "זה אתה 🙂",
+    too_many_friends: "רשימת החברים מלאה",
+    player_offline: "השחקן לא מחובר כרגע",
+    party_full: "הקבוצה מלאה (4)",
+    already_in_party: "הוא/היא כבר בקבוצה שלך",
+    invite_expired: "ההזמנה כבר לא בתוקף",
+    not_in_party: "אינך בקבוצה",
+    not_same_zone: "צריך לעמוד באותו אזור",
+    need_pair: "לקרב זוגות צריך קבוצה של בדיוק שניים",
+    they_need_pair: "הם צריכים להיות זוג — קבוצה של שניים",
+    pair_not_here: "כל הארבעה צריכים להיות באותו אזור, לא בקרב",
+    fight_over: "הקרב כבר נגמר",
+    chat_too_fast: "לאט — יותר מדי הודעות",
+    not_invited: "הקרב הזה לא שלך"
   }[i] || i || "שגיאה";
 }
 

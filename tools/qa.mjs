@@ -1356,16 +1356,20 @@ section('the first fight');
   ok('coming back from a fight keeps the zone that is standing', wv.zoneGroup.children[0] === kept && plates === 1);
   // What the server cannot do yet is not offered.
   const U = await import('../src/client/ui.js');
-  const opened = (id) => {
+  const opened = (id, social) => {
     const u = Object.create(U.UI.prototype);
-    Object.assign(u, { openPanelId: null, closeDialogue() {}, panelHost: { classList: { add() {} } }, renderPanel() {}, hooks: {} });
+    Object.assign(u, { social, openPanelId: null, closeDialogue() {}, panelHost: { classList: { add() {} } }, renderPanel() {}, hooks: {} });
     u.openPanel(id);
     return u.openPanelId;
   };
-  ok('friends, party and guild stay shut until the server has them',
-    U.SOCIAL === false && ['friends', 'party', 'guild'].every((id) => opened(id) === null) && opened('bag') === 'bag');
+  ok('online, friends, party and another player\'s sheet open',
+    ['friends', 'party', 'player'].every((id) => opened(id, true) === id));
+  ok('guilds, not built for real yet, stay shut everywhere', opened('guild', true) === null && U.GUILDS === false);
+  ok('the single-player build has nobody to be friends with: they stay shut',
+    ['friends', 'party', 'player'].every((id) => opened(id, false) === null) && opened('bag', false) === 'bag');
   const gameSrc = fs.readFileSync('src/client/game.js', 'utf8');
-  ok('and standing next to a player offers no duel', /a = SOCIAL \? this\.nearestPlayer\(n\) : null/.test(gameSrc));
+  ok('standing next to a player opens them, online only',
+    /a = this\.ui\.social \? this\.nearestPlayer\(n\) : null/.test(gameSrc) && /this\.ui\.social = !this\.solo/.test(gameSrc));
 }
 
 // ---------------------------------------------------------------- people

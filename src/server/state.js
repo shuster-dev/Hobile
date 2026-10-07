@@ -68,7 +68,7 @@ export class CombatantState extends Schema {
 defineTypes(CombatantState, {
   id: 'string', side: 'string', kind: 'string', name: 'string',
   species: 'string', level: 'number', hp: 'number', maxHp: 'number',
-  stamina: 'number', ownerId: 'string',
+  stamina: 'number', ownerId: 'string', star: 'number',
   benched: 'boolean', slot: 'number', frozenUntil: 'number',
   skills: ['string'], effects: [EffectState],
 });
@@ -110,6 +110,7 @@ export function syncCombatants(state, sim) {
     s.maxHp = c.maxHp;
     s.stamina = Math.round(c.stamina);
     s.ownerId = c.ownerId || '';
+    s.star = c.star || 1;
     s.benched = !!c.benched;
     s.slot = Number.isFinite(c.slot) ? c.slot : 0;
     s.frozenUntil = c.frozenUntil || 0;

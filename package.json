@@ -13,14 +13,16 @@
     "qa": "node tools/qa.mjs",
     "shot": "node tools/shot.mjs",
     "start": "node src/server/index.js",
-    "test": "npm run qa && npm run test:server",
+    "test": "npm run qa && npm run test:server && npm run test:social",
     "test:browser": "node tools/build.mjs --solo && node tools/smoke.mjs",
     "test:camera": "node tools/build.mjs --solo && node tools/camera-test.mjs",
     "test:live": "node tools/session-test.mjs",
     "test:play": "node tools/build.mjs --solo && node tools/play.mjs",
     "test:server": "node tools/server-test.mjs",
     "test:session": "node tools/build.mjs && node tools/session-test.mjs",
-    "test:store": "node tools/store-test.mjs"
+    "test:store": "node tools/store-test.mjs",
+    "test:social": "node tools/social-test.mjs",
+    "test:duo": "node tools/build.mjs && node tools/duo-test.mjs"
   },
   "dependencies": {
     "@colyseus/core": "0.16.24",

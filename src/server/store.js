@@ -53,6 +53,13 @@ class MemoryStore {
   }
   async getDoc(userId) { return this.docs.get(userId) || null; }
   async saveDoc(doc) { this.docs.set(doc.id, doc); this._flush(); return doc; }
+  /** A character by its name, any case (for "add friend" by name). */
+  async findDocIdByName(name) {
+    const n = String(name || '').trim().toLowerCase();
+    if (!n) return null;
+    for (const d of this.docs.values()) if (String(d.name || '').toLowerCase() === n) return d.id;
+    return null;
+  }
   async leaderboard(kind = 'level', limit = 50, exclude = []) {
     const key = kind === 'gold' ? 'gold' : kind === 'captures' ? null : 'level';
     const skip = new Set(exclude);
@@ -118,6 +125,7 @@ class MongoStore {
     await this.docsC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ level: -1 });
     await this.docsC.createIndex({ gold: -1 });
+    await this.docsC.createIndex({ name: 1 });
     await this.gmLogC.createIndex({ at: -1 });
     return this;
   }
@@ -167,6 +175,13 @@ class MongoStore {
     write.finally(() => { if (this.writes.get(doc.id) === write) this.writes.delete(doc.id); }).catch(() => {});
     await write;
     return doc;
+  }
+  async findDocIdByName(name) {
+    const n = String(name || '').trim();
+    if (!n) return null;
+    const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const d = await this.docsC.findOne({ name: { $regex: `^${esc}$`, $options: 'i' } }, { projection: { _id: 0, id: 1 } });
+    return d?.id || null;
   }
   async leaderboard(kind = 'level', limit = 50, exclude = []) {
     const sort = kind === 'gold' ? { gold: -1 } : kind === 'captures' ? { 'stats.captures': -1 } : { level: -1 };

@@ -882,6 +882,7 @@ function syncBattleState(i, e) {
     maxHp: n.maxHp,
     stamina: Math.round(n.stamina),
     ownerId: n.ownerId || "",
+    star: n.star || 1,
     // The v0.7 team-battle fields. Combatant has carried these since the model
     // changed from "the player fights" to "the team fights", but they were
     // never copied into the synced state — so the client read benched=false and

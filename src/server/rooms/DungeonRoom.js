@@ -4,6 +4,7 @@ import { DungeonSim } from '../game/base.js';
 import { normalizeDoc } from '../game/combat.js';
 import { DUNGEONS } from '../../shared/gamedata.js';
 import { verifyToken } from '../auth.js';
+import * as Social from '../social.js';
 
 /** A dungeon run. Same shape as BattleRoom; a party of up to four shares it. */
 export class DungeonRoom extends Room {
@@ -51,9 +52,11 @@ export class DungeonRoom extends Room {
       syncCombatants(this.state, this.sim.sim);
     };
     this.sim.start();
+    Social.attach(doc, `dungeon:${this.roomId}`, { send: (e, d) => client.send(e, d), where: 'dungeon', zone: this.def?.id || '' });
   }
 
   async onLeave() {
+    this.doc && Social.detach(this.doc.id, `dungeon:${this.roomId}`);
     this.sim?.stop();
     if (this.doc) await this.store.saveDoc(this.doc).catch(() => {});
   }
