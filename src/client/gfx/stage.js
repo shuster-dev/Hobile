@@ -507,6 +507,9 @@ export async function portraits(speciesIds, size = 176) {
       const dist = (fit * 0.6) / Math.tan((camera.fov * Math.PI) / 360) + s.z * 0.5;
       camera.position.set(mid.x, mid.y + fit * 0.2, mid.z + dist);
       camera.lookAt(mid);
+      // a raid boss is built twenty metres tall: reach past it
+      camera.far = Math.max(60, dist + fit * 2);
+      camera.updateProjectionMatrix();
       renderer.render(scene, camera);
       out[id] = canvas.toDataURL('image/png');
       scene.remove(g);

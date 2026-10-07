@@ -9,7 +9,7 @@
 // same call dresses a creature anywhere it is drawn — the battle, the pet at
 // your heel, the pod at the farm.
 import {
-  CanvasTexture, Color, ConeGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial,
+  Box3, CanvasTexture, Color, ConeGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial,
   PlaneGeometry, SphereGeometry, TorusGeometry,
 } from 'three';
 import { ELEMENTS, SPECIES } from '../../shared/gamedata.js';
@@ -84,6 +84,31 @@ function measure(group) {
 
 function dispose(o) {
   o.traverse((c) => { c.geometry?.dispose(); if (c.material && !c.material.userData?.shared) c.material.dispose(); });
+}
+
+/**
+ * At most `maxH` metres tall, whatever its species. The bosses are built to
+ * fill a raid (twenty metres and more); one a player keeps — given by a GM,
+ * or caught — walks beside them, stands in their fights and sits in their
+ * cards at a size that leaves the rest of the screen to see. Kept through a
+ * change of stars (it lowers the base the stars scale from).
+ */
+export function capHeight(group, maxH) {
+  if (!group || !(maxH > 0)) return group;
+  const ud = group.userData;
+  if (ud.baseScale === undefined) ud.baseScale = group.scale.x;
+  const k = STAR_SCALE[Math.max(1, Math.min(5, ud.star || 1))];
+  let h = group.userData.model?.height;
+  if (!h) {
+    // no measurements on it: what it actually spans, back in its own frame
+    const box = new Box3().setFromObject(group);
+    h = Number.isFinite(box.max.y) ? (box.max.y - Math.min(0, box.min.y)) / (group.scale.x || 1) : 0;
+  }
+  const tall = h * ud.baseScale * k;
+  if (!(tall > maxH)) return group;
+  ud.baseScale *= maxH / tall;
+  group.scale.setScalar(ud.baseScale * k);
+  return group;
 }
 
 /**

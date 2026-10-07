@@ -38,6 +38,10 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   SLOT_POS = [[-1.95, 1.85], [1.95, 1.85], [-1, 2.8], [1, 2.8], [0, 3.5]],
   ip = [1.75, 1.15],
   sp = 0.78,
+  // the tallest each kind stands in the arena, in metres (heroScale)
+  HERO_MAX_H = { boss: 8.6, wild: 5.2, creature: 3.2 },
+  // and a creature waiting on the bench, near the camera
+  BENCH_MAX_H = 2.3,
   TRAINER_ID = "__trainer",
   // Point lights the fight keeps in its scene at all times (see lightFor).
   POOL_LIGHTS = 3,
@@ -574,6 +578,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         downK: e.hp <= 0 ? 1 : 0,
         downApplied: -1,
         height: r,
+        // how far it reaches sideways (a wingspan counts against the frame too)
+        span: Number.isFinite(ir.max.x) ? Math.max(ir.max.x - ir.min.x, ir.max.z - ir.min.z) : 1,
         lock: 0,
         react: 0,
         walking: 0,
@@ -613,8 +619,12 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       if (e.kind === "trainer") return 1;
       // Small creatures are drawn up toward a readable size, and the far side
       // a little larger again, so a pebble-sized foe is not a speck.
-      let t = e.height || 1.6;
-      return Math.min(1.9, Math.max(1, (1.6 / t) ** 0.5)) * (e.side === "b" ? 1.18 : 1);
+      let t = e.height || 1.6,
+        up = Math.min(1.9, Math.max(1, (1.6 / t) ** 0.5)) * (e.side === "b" ? 1.18 : 1);
+      // ...and the giants brought in to what the camera can frame. A boss
+      // still fills it; a boss someone owns (a GM's gift) is one of theirs,
+      // not a wall between them and the fight.
+      return Math.min(up, HERO_MAX_H[e.kind] / Math.max(t, (e.span || 0) * 0.55) || up);
     }
     relayout() {
       for (let s of SIDES) {
@@ -645,7 +655,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         }
         for (let u = 0; u < o.length; u++) {
           let f = o[u];
-          slotPosition(u, nt), f.home.set(nt.x + SIDE_X[s] * 0.6, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = sp * this.heroScale(f), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
+          slotPosition(u, nt), f.home.set(nt.x + SIDE_X[s] * 0.6, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = Math.min(sp * this.heroScale(f), BENCH_MAX_H / Math.max(f.height || 1.6, (f.span || 0) * 0.55)), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
         }
         a.sort((x, y) => (y.id === this.myTrainerId) - (x.id === this.myTrainerId));
         a.forEach((f, k) => {
@@ -661,7 +671,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       for (let s of this.actors.keys()) {
         let r = this.actors.get(s),
           o = !r.benched && !r.downed;
-        o && r.height > t && (t = r.height), o !== r.shadowOn && (r.shadowOn = o, r.group.traverse(a => {
+        o && r.height * (r.targetScale || 1) > t && (t = r.height * (r.targetScale || 1)), o !== r.shadowOn && (r.shadowOn = o, r.group.traverse(a => {
           a.isMesh && !a.userData.noOutline && (a.castShadow = o);
         }));
       }

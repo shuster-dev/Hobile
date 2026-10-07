@@ -734,6 +734,8 @@ var Game = class {
     }), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
       this.battle.inventory = t;
     }), e.on("battleEvent", t => {
+      // a switch you chose starts the wait before the next one: the chips count it down
+      t.kind === "switch" && t.wait > 0 && this.battle.combatants?.find(c => c.id === t.in)?.ownerId === this.profile?.id && (this.cooldowns.swap = Date.now() + t.wait);
       // Say it when one of yours goes down. It gets benched in the same beat,
       // and the bench is behind you — out of a portrait frame — so without a
       // word the only sign was a creature quietly walking off screen.
@@ -768,8 +770,17 @@ var Game = class {
       })() : t.kind === "heal" ? (audio.sfx("heal"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `+${t.amount}`, "heal")) : t.kind === "miss" ? (audio.sfx("miss"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), "החטאה", "")) : t.kind === "capture" && this.ui.battleBanner(t.success ? "✨ נלכד!" : `הכדור נפתח… (${t.chance}%)`, 1400);
       t.actor && this.battle.youId === t.actor && t.skill && MOVES[t.skill] && (this.cooldowns[t.skill] = Date.now() + MOVES[t.skill].cd);
     }), e.on("actionRejected", t => {
-      let n = {
+      let secs = Math.ceil((t.wait || 0) / 1e3);
+      // a switch refused for the wait: start counting it on the chips too
+      t.reason === "cooldown" && t.uid && t.wait > 0 && (this.cooldowns.swap = Date.now() + t.wait);
+      let n = t.reason === "cooldown" && t.uid ? secs ? `אפשר להחליף שוב בעוד ${secs} שנ׳` : "עוד רגע אפשר להחליף" : t.reason === "cooldown" && t.skill && MOVES[t.skill] ? `${loc(MOVES[t.skill])} עוד לא מוכן${secs ? ` (${secs} שנ׳)` : ""}` : {
         cooldown: "עוד לא מוכן",
+        switch_forced: "קודם צריך לשלוח יצור במקום זה שהתעלף",
+        fainted: "היצור הזה מעולף",
+        already_active: "היצור הזה כבר בזירה",
+        frozen: "רגע — משהו קורה בזירה",
+        benched: "היצור הזה לא בזירה",
+        dead: "היצור מעולף",
         stamina: "אין מספיק מרץ",
         stunned: "הדמות מסוחררת",
         no_sphere: "אין כדורי לכידה",
@@ -834,6 +845,13 @@ var Game = class {
       audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
       let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : "משאבים בלי סוף";
       this.ui.celebrate(t.from ? "🎁 מתנה!" : "🎁 נוסף!", "quest"), this.ui.toast(t.from ? `${t.from} (GM) שלח לך: ${what}` : `נוסף לך: ${what}`, "good"), t.what === "creature" && this.wantFaces(this.profile?.team);
+    }), e.on("gmTake", t => {
+      // a GM took something back (a mistake fixed) — or gave back what was taken
+      let back = t.undo === "take",
+        n = Math.abs(Number(t.amount ?? t.qty ?? 0)),
+        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : "";
+      what && this.ui.toast(back ? `${t.from ? `${t.from} (GM) החזיר לך` : "הוחזר לך"}: ${what}` : `${t.from ? `${t.from} (GM) הוריד לך` : "הוסר לך"}: ${what}`, back ? "good" : "");
+      t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmAnnounce", t => {
       audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
@@ -893,9 +911,12 @@ var Game = class {
     if (t.kind === "players") return this.ui.gmPlayers = t.players || [], this.ui.gmRefresh("players");
     if (t.kind === "log") return this.ui.gmLog = t.rows || [], this.ui.gmRefresh("log");
     if (t.kind === "economy") return this.ui.gmEconomy = t.report || null, this.ui.gmRefresh("economy");
+    if (t.kind === "creatures") return this.ui.gmCreatures = { to: t.to, list: t.list || [] }, this.ui.gmRefresh("creatures");
     if (t.kind === "done") {
       audio.sfx("ui"), this.ui.toast(`✔ ${this.ui.gmSummary(t.op, t.detail, t.to)}`, "good");
       t.op !== "teleport" && this.net.send("gm", { op: "log" });
+      // a creature came or went: the list shown is out of date
+      (t.op === "take" || t.op === "undo" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
       return;
     }
     t.kind === "error" && (audio.sfx("deny"), this.ui.toast({
@@ -907,8 +928,16 @@ var Game = class {
       bad_zone: "אזור לא מוכר",
       too_many_summons: "יש כבר יותר מדי יצורים מזומנים באזור",
       empty: "ההודעה ריקה",
-      log_unavailable: "היומן לא זמין כרגע"
-    }[t.code] || t.code, "bad"));
+      log_unavailable: "היומן לא זמין כרגע",
+      last_creature: "זה היצור האחרון שיכול להילחם — אי אפשר להסיר אותו",
+      no_creature: "היצור כבר לא אצל השחקן",
+      nothing_to_take: "אין לשחקן מה להוריד",
+      not_found: "השורה לא נמצאה ביומן",
+      already_undone: "כבר בוטל",
+      cannot_undo: "את הפעולה הזו אי אפשר לבטל",
+      already_there: "היצור כבר אצל השחקן",
+      bad_gift: "פעולה לא מוכרת"
+    }[t.code] || t.code, "bad"), this.ui.gmRefresh("log"));
   }
   /** A wild coming for me: say it once when it starts, and once if I got
    *  away. The "!" over its head is drawn with the nameplates. */
@@ -1229,9 +1258,16 @@ var Game = class {
         }), MOVES[t] && (this.cooldowns[t] = Date.now() + MOVES[t].cd);
       },
       swapCreature: t => {
+        // still waiting since the last switch: say for how long, here, rather
+        // than ask the server and stack "not ready" for every tap
+        let wait = (this.cooldowns.swap || 0) - Date.now();
+        if (wait > 0) {
+          audio.sfx("deny"), this.ui.toast(`אפשר להחליף שוב בעוד ${Math.ceil(wait / 1e3)} שנ׳`, "bad");
+          return;
+        }
         this.net.send("swap", {
           uid: t
-        }), this.cooldowns = {};
+        }), this.cooldowns = { swap: this.cooldowns.swap };
       },
       trainerAction: t => {
         let n = {

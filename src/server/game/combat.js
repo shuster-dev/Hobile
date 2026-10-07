@@ -360,7 +360,8 @@ var Combatant = class {
       };
       if ((s.cooldowns[t] || 0) > o) return {
         ok: !1,
-        reason: "cooldown"
+        reason: "cooldown",
+        wait: s.cooldowns[t] - o
       };
       if (s.stamina < r.cost) return {
         ok: !1,
@@ -573,12 +574,15 @@ var Combatant = class {
     sendOut(e, t = null) {
       let n = t ? this.combatants.get(t) : null;
       n && (n.benched = !0, n.entered = !1), e.benched = !1, e.entered = !1, e.fought = !0, e.aiNext = Date.now() + e.aiDelay;
-      let s = this.teamOf(e).find(r => r.kind === "trainer");
+      let s = this.teamOf(e).find(r => r.kind === "trainer"),
+        // a switch you chose: how long until the next (the chips count it down)
+        wait = Math.max(0, (this.switchReady.get(ownerKey(e)) || 0) - Date.now());
       s && s !== e && !s.benched && (s.benched = !0), this.emit({
         kind: "switch",
         side: e.side,
         out: t || null,
-        in: e.id
+        in: e.id,
+        ...(wait ? { wait } : {})
       });
     }
     switchTo(e) {
@@ -613,7 +617,8 @@ var Combatant = class {
       let o = ownerKey(t);
       return (this.switchReady.get(o) || 0) > n ? {
         ok: !1,
-        reason: "cooldown"
+        reason: "cooldown",
+        wait: this.switchReady.get(o) - n
       } : (this.switchReady.set(o, n + SWITCH_COOLDOWN_MS), this.pendingSwitch.delete(o), this.sendOut(t, r?.id || null), {
         ok: !0,
         in: t.id,
@@ -878,6 +883,30 @@ function activeCreature(i) {
   return creatureOf(i, i.team?.[0]);
 }
 
+/**
+ * What each of a player's creatures has left goes home with it — each its
+ * own, by uid. It used to be written onto "the lead": switch your strongest
+ * in, win, and the one at the front of the team came home with the strong
+ * one's health (423 of 86). A fight's health can run past the card's (gear
+ * adds to it), so what comes home is capped at the card's.
+ */
+function settleHp(sim, owner, doc) {
+  if (!sim || !owner || !doc?.creatures) return;
+  const key = ownerKey(owner);
+  for (const c of sim.combatants.values()) {
+    if (c.kind !== "creature" || c.side !== owner.side || ownerKey(c) !== key) continue;
+    const cr = doc.creatures[c.creature?.uid];
+    if (!cr) continue;
+    cr.hp = Math.max(0, Math.min(cr.maxHp || c.maxHp, Math.round(c.hp)));
+  }
+}
+
+/** The creature that finished the fight (it earns the fight's XP), or the lead. */
+function fieldCreature(doc, you) {
+  const c = you?.kind === "creature" ? creatureOf(doc, you.creature?.uid) : null;
+  return c && c.hp > 0 ? c : activeCreature(doc);
+}
+
 function teamCreatures(i) {
   return (i.team || []).map(e => creatureOf(i, e)).filter(Boolean);
 }
@@ -1066,7 +1095,20 @@ function normalizeDoc(i) {
       else if (b >= 0) i.box.splice(b, 1), t.from = "box", t.pos = b;
       else if (k < 0) t.from = "box", t.pos = 0;
     }
+    // However one got there, a creature in a pod is at the farm — not also
+    // in the team, walking beside you (it was seen doing both). The last one
+    // able to fight stays, as startTraining allows.
+    const away = new Set(i.base.training.map(t => t.uid));
+    const box = i.box.filter(u => !away.has(u)), team = i.team.filter(u => !away.has(u));
+    if (!team.length) {
+      const k = box.findIndex(u => creatureOf(i, u) && !isWorker(i, u));
+      k >= 0 && team.push(box.splice(k, 1)[0]);
+    }
+    team.length && (i.team = team), i.box = box;
   }
+  // each creature once: in the team, or else in the box
+  if (i.team) i.team = [...new Set(i.team)];
+  if (i.box) i.box = [...new Set(i.box)].filter(u => !(i.team || []).includes(u));
   if (i.creatures && i.team) {
     const placed = new Set([...(i.team || []), ...(i.box || []), ...((i.base?.training || []).map(t => t.uid))]);
     for (const u of Object.keys(i.creatures)) placed.has(u) || (i.box ||= []).push(u);
@@ -1077,6 +1119,9 @@ function normalizeDoc(i) {
     if (!c) continue;
     NATURES[c.nature] || (c.nature = rollNature(null, c.uid));
     ABILITIES[c.ability] || (c.ability = rollAbility(SPECIES[c.species]?.types, null, c.uid));
+    // health that came home onto the wrong creature (settleHp) back inside its card
+    c.maxHp > 0 && c.hp > c.maxHp && (c.hp = c.maxHp);
+    c.hp < 0 && (c.hp = 0);
   }
   // Characters from before there were kinds get the one nearest their outfit.
   i.appearance = avatarLook(i.appearance || {});
@@ -1416,6 +1461,8 @@ function startTraining(i, e, t = Date.now()) {
   };
   if (from === "team") {
     team.splice(pos, 1);
+    // (and any second copy of it: one creature, one place)
+    for (let k; (k = team.indexOf(e)) >= 0;) team.splice(k, 1);
     // someone has to walk beside you: the first in the box steps up (one
     // that is not at work if there is one; a worker leaves its job, paid)
     if (!team.length && box.length) {
@@ -1830,4 +1877,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { WEATHER_BOOST, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, settleHp, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

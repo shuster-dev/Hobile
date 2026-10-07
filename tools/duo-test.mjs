@@ -64,14 +64,16 @@ for (const u of ['alice', 'bob']) {
 ok('both are in the world', await until(async () => (await g(A, () => window.__hobile?.mode)) === 'world' && (await g(B, () => window.__hobile?.mode)) === 'world', 60000));
 await wait(1500);
 
-// walk Bob over to Alice, the way the client moves: small steps the server accepts
+// walk Bob over to Alice, the way the client moves: small steps the server
+// accepts — at a walking pace, or the server cuts each one short (game/guard.js)
+// and Alice never sees him arrive
 const walkTo = async (page, target) => {
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 400; i++) {
     const d = await page.evaluate(async (t) => {
       const h = window.__hobile, w = h.world, p = w.selfPosition();
       const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz);
       if (d < 2.2) return d;
-      const s = Math.min(2, d - 1.8), nx = p.x + dx / d * s, nz = p.z + dz / d * s;
+      const s = Math.min(0.5, d - 1.8), nx = p.x + dx / d * s, nz = p.z + dz / d * s;
       h.net.send('move', { x: nx, z: nz, rot: Math.atan2(dx, dz), moving: true }); w.snapSelf(nx, nz);
       await new Promise((r) => setTimeout(r, 60));
       return d;

@@ -2066,5 +2066,103 @@ section('fair play');
   ok('a new season starts the track over', PA.passOf(pd, Date.now() + 40 * 86400e3).points === 0);
 }
 
+// ---------------------------------------------------------------- from the phone (v0.35)
+// What two screen recordings showed: a creature's health landing on another,
+// a boss kept as a pet, a creature both training and walking with you, and
+// "not ready" piling up on a switch that had no way to say how long.
+section('from the phone');
+{
+  const d = C.createPlayerDoc('qa-phone', 'QA', {}, 'cindcub');
+  C.normalizeDoc(d);
+  const lead = C.creatureOf(d, d.team[0]), big = C.makeCreature('stormcaller', 30);
+  C.addCreature(d, big);
+  const seen = [];
+  const pn = { doc: d, guilds: [], emit: (k, v) => seen.push([k, v]), save: () => {}, pendingRooms: new Map() };
+  const bs = new B.BattleSim(pn, { zoneId: 'verdant_meadow', wild: { species: 'sparkit', level: 5 } });
+  const sw = C.swapToUid(bs.sim, bs.anchor, big.uid);
+  const swEv = seen.filter(([k, v]) => k === 'battleEvent' && v.kind === 'switch').pop()?.[1];
+  ok('a switch you chose says how long until the next', sw.ok && swEv?.wait > 5000);
+  const again = C.swapToUid(bs.sim, bs.anchor, lead.uid);
+  ok('and a switch too soon says how long is left', again.reason === 'cooldown' && again.wait > 0 && again.wait <= C.SWITCH_COOLDOWN_MS);
+  bs.you.hp = 400;
+  const leadHp = lead.hp, leadXp = lead.xp, bigXp = big.xp;
+  bs.resolve({ kind: 'end', outcome: 'a' });
+  ok('each creature takes its own health home (not the lead: 423 of 86)', lead.hp === leadHp && big.hp === Math.min(400, big.maxHp) && lead.hp <= lead.maxHp, `${lead.hp}/${lead.maxHp} ${big.hp}/${big.maxHp}`);
+  ok('the one that finished the fight earns its XP', big.xp > bigXp && lead.xp === leadXp);
+  // what is already wrong in a save is put right on load
+  const d2 = C.createPlayerDoc('qa-phone2', 'QA', {}, 'cindcub');
+  C.normalizeDoc(d2);
+  const a2 = C.creatureOf(d2, d2.team[0]), b2c = C.makeCreature('sproutle', 8), c2 = C.makeCreature('puddlet', 8);
+  C.addCreature(d2, b2c); C.addCreature(d2, c2);
+  a2.hp = a2.maxHp * 5;
+  C.baseOf(d2).training.push({ id: 'p1', uid: b2c.uid, star: 2, startedAt: 0, readyAt: 1, from: 'team', pos: 1 });
+  d2.team.push(a2.uid);
+  C.normalizeDoc(d2);
+  ok('health past the card is brought back inside it', a2.hp === a2.maxHp);
+  ok('a creature in a pod is not also in the team', !d2.team.includes(b2c.uid) && !d2.box.includes(b2c.uid));
+  ok('nor anyone in it twice', new Set(d2.team).size === d2.team.length);
+}
+{
+  // the GM's eraser: what can be given can be taken, and the log undoes
+  const GM = await import('../src/server/game/gm.js');
+  const d = C.createPlayerDoc('qa-gm', 'GM', {}, 'cindcub');
+  C.normalizeDoc(d);
+  const log = [], out = [];
+  const ctx = {
+    admin: true, doc: d, zoneId: 'aetherport', self: () => null,
+    net: { emit: (k, v) => out.push([k, v]), save: () => {} },
+    gm: { audit: (e) => log.unshift({ id: `r${log.length + 1}`, at: Date.now(), gm: { id: d.id, name: d.name }, ...e }), recent: async () => log, reach: () => null, online: () => [] },
+  };
+  const last = () => out.filter(([k]) => k === 'gm').pop()?.[1];
+  const g0 = d.gold;
+  GM.handleGm(ctx, { op: 'give', what: 'gold', amount: 500 });
+  GM.handleGm(ctx, { op: 'take', what: 'gold', amount: 450 });
+  ok('gold given by mistake can be taken back', d.gold === g0 + 50 && last()?.kind === 'done');
+  GM.handleGm(ctx, { op: 'take', what: 'gold', amount: 9e8 });
+  ok('never below nothing', d.gold === 0);
+  GM.handleGm(ctx, { op: 'give', what: 'item', item: 'potion_s', qty: 30 });
+  const pot = d.inventory.potion_s;
+  GM.handleGm(ctx, { op: 'take', what: 'item', item: 'potion_s', qty: 25 });
+  ok('an item too', d.inventory.potion_s === pot - 25);
+  GM.handleGm(ctx, { op: 'give', what: 'creature', species: 'stormcaller', level: 20 });
+  const given = log.find((r) => r.op === 'give' && r.detail?.what === 'creature');
+  ok('a creature given is in the log with its uid', !!d.creatures[given?.detail?.uid]);
+  GM.handleGm(ctx, { op: 'undo', id: given.id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('undoing the gift takes that creature back', !d.creatures[given.detail.uid] && log[0].op === 'undo');
+  GM.handleGm(ctx, { op: 'undo', id: given.id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('and only once', last()?.code === 'already_undone');
+  const only = d.team[0];
+  GM.handleGm(ctx, { op: 'take', what: 'creature', uid: only });
+  ok('the last creature that can fight is not taken', !!d.creatures[only] && last()?.code === 'last_creature');
+  const extra = C.makeCreature('sproutle', 9);
+  C.addCreature(d, extra);
+  d.riding = extra.uid;
+  GM.handleGm(ctx, { op: 'take', what: 'creature', uid: extra.uid });
+  ok('any other can be, from wherever it is (and off its back)', !d.creatures[extra.uid] && !d.team.includes(extra.uid) && d.riding === null);
+  const took = log.find((r) => r.op === 'take' && r.detail?.what === 'creature');
+  GM.handleGm(ctx, { op: 'undo', id: took.id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('and undoing the take brings that same creature back', d.creatures[extra.uid]?.level === 9 && d.team.includes(extra.uid));
+  const before = { gold: d.gold, sph: d.inventory.sphere_basic || 0 };
+  GM.handleGm(ctx, { op: 'fill' });
+  const fill = log.find((r) => r.op === 'fill');
+  GM.handleGm(ctx, { op: 'undo', id: fill.id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('"fill" undone takes back just what it added', d.gold === before.gold && (d.inventory.sphere_basic || 0) === before.sph);
+  const lv = d.level;
+  GM.handleGm(ctx, { op: 'give', what: 'level', level: 55 });
+  GM.handleGm(ctx, { op: 'undo', id: log.find((r) => r.op === 'give' && r.detail?.what === 'level').id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('a trainer level set by mistake goes back', d.level === lv);
+  GM.handleGm(ctx, { op: 'creatures' });
+  ok('the GM can see a player\'s creatures to pick one', Array.isArray(last()?.list) && last().list.every((c) => c.uid && c.where));
+  const notGm = { ...ctx, admin: false };
+  const g1 = d.gold;
+  GM.handleGm(notGm, { op: 'take', what: 'gold', amount: 1 });
+  ok('and none of it for anyone else', d.gold === g1 && out.pop()?.[1]?.code === 'forbidden');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

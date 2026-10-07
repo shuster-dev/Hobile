@@ -237,6 +237,37 @@ if (gotBattle) {
     roomA.state.wilds.get(wild.id)?.engagedBy || '(gone or released)');
 }
 
+/**
+ * Walk Alice up to a (moving) spot at a legal pace. A wall in the straight
+ * line used to leave her stuck twenty metres short, and the NPC tests failed
+ * one run in three: when a step makes no headway she goes round — a few
+ * steps to one side, then the other — and tries again.
+ */
+async function walkTo(me, target, near = 5) {
+  let best = Infinity, stuck = 0, side = 1, round = 0;
+  for (let i = 0; i < 900; i++) {
+    const p = me(), at = target(), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
+    if (d < near) return true;
+    if (d < best - 0.05) best = d, stuck = 0;
+    else if (++stuck > 8) {
+      // a little further round each time
+      round++;
+      for (let j = 0; j < Math.min(24, 6 + round * 3); j++) {
+        const q = me();
+        roomA.send('move', { x: q.x - (dz / d) * 0.5 * side, z: q.z + (dx / d) * 0.5 * side, rot: 0, moving: true });
+        await wait(60);
+      }
+      round % 2 || (side = -side), stuck = 0, best = Infinity;
+      continue;
+    }
+    const k = Math.min(0.55, d - 1.5) / d;
+    roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
+    await wait(60);
+  }
+  if (process.env.WALK_DEBUG) { const p = me(), at = target(); console.log('walkTo gave up at', p.x.toFixed(1), p.z.toFixed(1), '->', at.x.toFixed(1), at.z.toFixed(1)); }
+  return false;
+}
+
 // NPCs speak — online, not just in the offline build, whose copy of this was
 // the only one that worked: the server answered every NPC with no lines.
 {
@@ -248,13 +279,7 @@ if (gotBattle) {
     .sort((x, y) => { const p = me(), a = npcAt(x, phase()), b = npcAt(y, phase());
       return Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z); })[0];
   // at a walking pace: the server cuts a faster step short (game/guard.js)
-  for (let i = 0; i < 500; i++) {
-    const p = me(), at = npcAt(id, phase()), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
-    if (d < 2.5) break;
-    const k = Math.min(0.55, d - 1.5) / d;
-    roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
-    await wait(60);
-  }
+  await walkTo(me, () => npcAt(id, phase()));
   const said = [];
   roomA.onMessage('dialogue', (m) => said.push(m));
   roomA.send('talk', { npcId: id });
@@ -270,13 +295,7 @@ if (gotBattle) {
   const phase = () => (Date.now() % DAY_MS / DAY_MS + 1) % 1;
   const me = () => [...roomA.state.players.values()].find((p) => p.name === 'Alice');
   if (NPCS.bex) {
-    for (let i = 0; i < 600; i++) {
-      const p = me(), at = npcAt('bex', phase()), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
-      if (d < 2.5) break;
-      const k = Math.min(0.55, d - 1.5) / d;
-      roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
-      await wait(60);
-    }
+    await walkTo(me, () => npcAt('bex', phase()));
     const said = [];
     roomA.onMessage('dialogue', (m) => said.push(m));
     roomA.send('talk', { npcId: 'bex' });
@@ -344,6 +363,23 @@ if (gotBattle) {
     return log.some((r) => r.op === 'give' && r.to?.name === 'Bob' && r.gm?.username === 'alice' && r.detail?.amount === 1234)
       && log.some((r) => r.op === 'announce');
   }, 4000), JSON.stringify(gmA.filter((m) => m.kind === 'log').at(-1)?.rows?.slice(0, 2)));
+  // a mistake fixed: what was given can be taken back, from the GM's side
+  // of the server, and a row of the log undone
+  const takesB = [];
+  roomB.onMessage('gmTake', (m) => takesB.push(m));
+  roomA.send('gm', { op: 'take', to: bobId, what: 'gold', amount: 1000 });
+  ok('a GM can take gold back', await until(async () => (await api('/api/me', null, b.json.token)).json.profile.gold === goldB + 234, 4000)
+    && await until(() => takesB.some((m) => m.what === 'gold' && m.amount === 1000 && m.from === 'Alice'), 2000), JSON.stringify(takesB));
+  roomA.send('gm', { op: 'creatures', to: bobId });
+  ok('and see a player\'s creatures to pick one', await until(() => gmA.some((m) => m.kind === 'creatures' && m.list.some((c) => c.species === 'duskmaw')), 4000));
+  roomA.send('gm', { op: 'log' });
+  await until(() => (gmA.filter((m) => m.kind === 'log').at(-1)?.rows || []).some((r) => r.op === 'take'), 4000);
+  const gift = (gmA.filter((m) => m.kind === 'log').at(-1)?.rows || []).find((r) => r.op === 'give' && r.detail?.species === 'duskmaw');
+  roomA.send('gm', { op: 'undo', id: gift?.id });
+  ok('a gift in the log can be undone (the creature goes)', !!gift?.id && await until(async () => {
+    const pr = (await api('/api/me', null, b.json.token)).json.profile;
+    return !pr.team.concat(pr.box).some((c) => c.species === 'duskmaw');
+  }, 4000), JSON.stringify(gift || {}).slice(0, 120));
   const board = (await api('/api/leaderboard', null, b.json.token)).json;
   ok('a GM is left off the leaderboard',
     Array.isArray(board) && board.some((r) => r.name === 'Bob') && !board.some((r) => r.name === 'Alice'));

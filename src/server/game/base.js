@@ -1,4 +1,4 @@
-import { Combat, Combatant, inherit, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { Combat, Combatant, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
@@ -561,8 +561,9 @@ var StoreBase = class {
     resolve(e) {
       if (this.resolved) return;
       this.resolved = !0, this.state.phase = "over";
-      let t = this.net.doc,
-        n = activeCreature(t),
+      let t = this.net.doc;
+      settleHp(this.sim, this.you, t);
+      let n = fieldCreature(t, this.you),
         s = e.outcome === "a",
         r = e.outcome === "captured",
         o = {
@@ -574,7 +575,7 @@ var StoreBase = class {
           events: [],
           questsDone: []
         };
-      if (n && (n.hp = Math.max(0, Math.round(this.you.hp))), s || r) {
+      if (s || r) {
         // the season pays its share (shared/events.js)
         let a = Math.round(creaturePower(this.foe, t.level) * eventMul("xp")),
           l = Math.round(creatureScore(this.foe) * eventMul("gold"));
@@ -633,7 +634,8 @@ var StoreBase = class {
         let s = swapToUid(this.sim, this.you, t.uid);
         s.ok || this.net.emit("actionRejected", {
           reason: s.reason,
-          uid: t.uid
+          uid: t.uid,
+          wait: s.wait
         }), this.sync();
         return;
       }
@@ -641,7 +643,8 @@ var StoreBase = class {
         let s = this.sim.useSkill(this.you.id, t.skill, this.foe.id);
         s.ok || this.net.emit("actionRejected", {
           reason: s.reason,
-          skill: t.skill
+          skill: t.skill,
+          wait: s.wait
         }), this.sync();
       } else if (e === "trainer") {
         if (t.action === "sphere") {

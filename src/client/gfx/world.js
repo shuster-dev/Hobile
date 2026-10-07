@@ -2,7 +2,10 @@ import { Box3, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferG
 import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
-import { setStarLook } from './starlook.js';
+import { capHeight, setStarLook } from './starlook.js';
+
+/** The tallest the creature walking behind you is drawn (a boss is built for raids). */
+const PET_MAX_H = 2.1;
 import { Incubators } from './incubator.js';
 import { FarmWorkers } from './farmworkers.js';
 import { SagaStage } from './saga-fx.js';
@@ -5171,6 +5174,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         r = t.kind === "player" ? buildAvatar(t.appearance) : buildCreature(t.species, {
           outline: t.kind !== "wild"
         });
+      // a world boss towers, but stays a thing the camera can hold
+      t.kind !== "player" && capHeight(r, t.kind === "boss" ? 10 : 5.5);
       s.add(r);
       let o = softShadowTexture(t.kind === "boss" ? 3.6 : 0.62, t.kind === "boss" ? 0.42 : 0.3);
       return s.add(o), this.scene.add(s), n = {
@@ -5200,7 +5205,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         s = buildCreature(t, {
           outline: !1
         });
-      s.scale.multiplyScalar(0.6), setStarLook(s, star), n.add(s, softShadowTexture(0.38, 0.24)), n.position.set(-1.35, 0, -1.45), e.holder.add(n), e.pet = {
+      // the one that walks behind you: never taller than you can see past
+      s.scale.multiplyScalar(0.6), setStarLook(s, star), capHeight(s, PET_MAX_H), n.add(s, softShadowTexture(0.38, 0.24)), n.position.set(-1.35, 0, -1.45), e.holder.add(n), e.pet = {
         species: t,
         star,
         holder: n,
@@ -5225,7 +5231,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         h = Math.max(0.3, box.max.y), len = Math.max(box.max.z - box.min.z, box.max.x - box.min.x, 0.4),
         // big enough to carry a person: about a metre and a half at the back
         want = kind === "fly" ? 1.9 : kind === "swim" ? 2.1 : 2.2,
-        k = Math.min(3, Math.max(0.6, want / len));
+        // (a boss is brought all the way down: it is built twenty metres long)
+        k = Math.min(3, Math.max(Math.min(0.6, 3.2 / len), want / len));
       g.scale.multiplyScalar(k);
       let holder = new Group();
       holder.add(g), e.holder.add(holder);

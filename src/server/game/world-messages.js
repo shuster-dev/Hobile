@@ -610,7 +610,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "setTeam":
           {
-            let o = (t.team || []).filter(l => typeof l == "string" && n.creatures[l] && !atFarm(n, l)).slice(0, 6);
+            let o = [...new Set((t.team || []).filter(l => typeof l == "string" && n.creatures[l] && !atFarm(n, l)))].slice(0, 6);
             if (!o.length) return;
             // a worker called into the team leaves its job (and is paid for it)
             for (let l of o) isWorker(n, l) && unassignWorker(n, l);

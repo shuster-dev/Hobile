@@ -289,12 +289,12 @@ export class PartyDungeon {
     const doc = part.doc, you = this.you(part);
     if (type === 'swap') {
       const r = swapToUid(this.sim, you, t.uid);
-      r.ok || part.emit('actionRejected', { reason: r.reason, uid: t.uid });
+      r.ok || part.emit('actionRejected', { reason: r.reason, uid: t.uid, wait: r.wait });
       return this.sync();
     }
     if (type === 'skill') {
       const r = this.sim.useSkill(you.id, t.skill, typeof t.target === 'string' ? t.target : null);
-      r.ok || part.emit('actionRejected', { reason: r.reason, skill: t.skill });
+      r.ok || part.emit('actionRejected', { reason: r.reason, skill: t.skill, wait: r.wait });
       return this.sync();
     }
     if (type !== 'trainer') return;
