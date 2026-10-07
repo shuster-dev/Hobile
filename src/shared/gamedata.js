@@ -3185,19 +3185,19 @@ var DAILY_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "daily
       name: "Great Hall",
       he: "אולם ראשי",
       cost: 8e3,
-      effect: "Raises member cap to 60"
+      effect: "מקום ל‑60 חברים"
     }, {
       id: "gh_garden",
       name: "Aether Garden",
       he: "גן האתר",
       cost: 22e3,
-      effect: "Passive creature stamina regen +25%"
+      effect: "המרץ של היצורים מתמלא מהר יותר ב‑25% בקרבות"
     }, {
       id: "gh_forge",
       name: "Guild Forge",
       he: "נפחיית גילדה",
       cost: 55e3,
-      effect: "Gear upgrades cost 20% less"
+      effect: "אימון כוכבים זול ב‑15% בזהב"
     }],
     warZones: ["emberfall_canyon", "tidal_hollow", "frostpeak_ridge", "umbral_grove"],
     warDayUTC: 6,

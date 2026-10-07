@@ -15,6 +15,8 @@ import { weatherAt } from '../shared/weather.js';
 import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
 import { HOURS, howOf, rowFor } from '../shared/habitats.js';
 import { abilityInfo } from '../shared/traits.js';
+import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
+const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
 
@@ -564,6 +566,23 @@ var Game = class {
         yes: "הצטרף לקרב", no: "לא",
         onYes: () => this.mode === "world" && this.net.send("coopJoin", { roomId: t.roomId })
       }), vibrate([20, 30, 20]);
+    }), e.on("dungeonOffer", t => {
+      this.ui.offer({
+        key: `dungeon:${t.roomId}`, icon: t.endless ? "🗼" : "🕳", title: `${t.fromName} נכנס/ת ל${t.he} — הצטרף!`, sub: t.endless ? "טיפוס במגדל ביחד" : `דרגה: ${loc(tierOf(t.tier))} · ניסיון ושלל לכולם`, until: t.until,
+        yes: "הצטרף", no: "לא",
+        onYes: () => this.mode === "world" && this.net.send("coopJoin", { roomId: t.roomId })
+      }), vibrate([20, 30, 20]);
+    }), e.on("arena", t => {
+      this.ui.arena = t, this.ui.openPanelId === "arena" && this.ui.renderPanel("arena");
+    }), e.on("arenaQueue", t => {
+      this.ui.arena = { ...(this.ui.arena || {}), queued: !!t.queued, since: t.since || 0 }, this.ui.openPanelId === "arena" && this.ui.renderPanel("arena");
+      !t.queued && t.why === "unavailable" && this.ui.toast("הזירה לא זמינה כרגע", "bad");
+    }), e.on("arenaMatch", t => {
+      audio.sfx("encounter"), vibrate([40, 30, 40]), this.ui.toast(`⚔ נמצא יריב: ${t.foe} (${t.foeRating})`, "good");
+    }), e.on("arenaReward", t => {
+      audio.sfx("daily"), this.ui.celebrate(`${arenaTierInfo(t.tier).icon} פרס עונה`, "quest"), this.ui.toast(`+${t.gold.toLocaleString("en-US")}⛁ · דרגת ${arenaTierInfo(t.tier).he} בעונה ${t.season}`, "good");
+    }), e.on("guildKicked", t => this.ui.toast(`הוצאת מהגילדה ${t.name}`, "bad")), e.on("guildBuff", t => {
+      audio.sfx("quest"), this.ui.celebrate(`🛡 באף גילדה ${t.level}!`, "quest");
     }), e.on("partySent", t => this.ui.toast(`הזמנה לקבוצה נשלחה ל${t.name}`, "good")), e.on("duelSent", t => this.ui.toast(t.pair ? `הזמנה לקרב זוגות נשלחה ל${t.name}` : `הזמנה לדו‑קרב נשלחה ל${t.name}`, "good")), e.on("friendResult", t => {
       t.added ? this.ui.toast(`${t.name} ואתה חברים עכשיו 👥`, "good") : t.pending && this.ui.toast(`בקשת חברות נשלחה ל${t.name}`, "good");
     }), e.on("reported", () => this.ui.toast("הדיווח נשלח. תודה.", "good")), e.on("allyJoined", t => {
@@ -647,7 +666,19 @@ var Game = class {
         zone: zd.id
       });
     }), e.on("dungeonInit", t => {
-      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer)), this.battleView.setTheme(t.dungeon.element, !0), this.ui.battleBanner(`${loc(t.dungeon)} — קומה 1`, 1800);
+      // a run with a party in it is a fight with players in it: the same
+      // seat-finding as battleInit (game/party-dungeon.js)
+      this.battle.players = t.players || [], this.battle.duel = !1, this.battle.side = "a", this.applyBattlePlayers(),
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = null, this.battle.mySide = "a", this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
+      let first = !this._dungeonThemed;
+      this._dungeonThemed = !0, first && this.battleView.setTheme(t.dungeon.element, !0), first && this.ui.battleBanner(t.dungeon.endless ? `🗼 ${loc(t.dungeon)}` : `${loc(t.dungeon)}${t.dungeon.tier && t.dungeon.tier !== "normal" ? ` · ${loc(tierOf(t.dungeon.tier))}` : ""}`, 1800);
+    }), e.on("dungeonLobby", t => {
+      this.ui.battleBanner("ממתינים לחברי הקבוצה…", Math.max(1500, t.until - Date.now()));
+    }), e.on("towerChest", t => {
+      audio.sfx("loot"), this.ui.celebrate(`🎁 תיבת קומה ${t.floor}`, "quest");
+      let parts = [`+${t.chest.gold.toLocaleString("en-US")}⛁`];
+      for (let [id, q] of Object.entries(t.chest.items || {})) parts.push(`${ITEMS[id]?.icon || ""} ×${q}`);
+      this.ui.toast(`בסוף הטיפוס: ${parts.join(" · ")}`, "good");
     }), e.on("battleStart", () => {
       // "A wild Pebblin appeared!" says what this fight is; "the battle
       // begins" said nothing the screen did not.
@@ -666,7 +697,11 @@ var Game = class {
         // replaced by the forecast a third of a second before it could be read.
         setTimeout(() => this.ui.battleBanner(`${el.icon} ${w.he} · מהלכי ${el.he} מתחזקים`, 1600), 1550);
       }
-    }), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
+    }), e.on("floor", t => {
+      // the tower turns through the elements: each floor its own ground
+      t.endless && t.element && this.battleView.setTheme(t.element, !0);
+      this.ui.battleBanner(t.endless ? t.boss ? `🗼 קומה ${t.floor} · שומר המגדל!` : `🗼 קומה ${t.floor} · Lv ${t.level}` : t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400);
+    }), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
       this.battle.inventory = t;
     }), e.on("battleEvent", t => {
       // Say it when one of yours goes down. It gets benched in the same beat,
@@ -724,6 +759,7 @@ var Game = class {
       for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
       for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level"));
+      t.ranked && setTimeout(() => (this.ui.toast(`${arenaTierInfo(t.ranked.tier).icon} דירוג ${t.ranked.after} (${t.ranked.delta >= 0 ? "+" : ""}${t.ranked.delta})`, t.ranked.delta >= 0 ? "good" : "bad"), t.ranked.tierUp && this.ui.celebrate(`${arenaTierInfo(t.ranked.tier).icon} ${arenaTierInfo(t.ranked.tier).he}!`, "quest")), 900);
       this.ui.battleBanner(t.outcome === "cancelled" ? "הקרב בוטל — לא כולם הגיעו" : t.pvp ? t.won ? "ניצחתם! 🏆" : t.outcome === "draw" ? "תיקו" : t.forfeit ? "פרשת" : "הפסדתם — בפעם הבאה" : t.won ? t.coop ? "ניצחון משותף!" : "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא"), t.pvp && !t.won && t.outcome !== "cancelled" && n.push("בדו‑קרב לא מאבדים כלום");
       // A first catch of a species opens its card; a duplicate says what it
       // refined into. Catching the same thing twice should not feel identical.
@@ -744,8 +780,10 @@ var Game = class {
         this.ui.openPanel("card");
       }, s + 700);
     }), e.on("dungeonEnd", async t => {
-      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile)), this.ui.battleBanner(t.success ? "המבוך נוקה!" : "הקבוצה הובסה", 1800);
+      this._dungeonThemed = !1;
+      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile)), this.ui.battleBanner(t.endless ? `🗼 הגעת לקומה ${t.floors}${t.best === t.floors && t.floors > 0 ? " — שיא אישי!" : ""}` : t.success ? t.players > 1 ? "המבוך נוקה — ביחד!" : "המבוך נוקה!" : "הקבוצה הובסה", 1800);
       let n = [`+${t.xp} XP`, `+${t.gold}⛁`];
+      t.endless && n.push(`השבוע: קומה ${t.weekBest || 0}`);
       for (let s of t.items || []) n.push(loc(ITEMS[s]));
       let evo = (t.events || []).filter(r => r.kind === "evolve" && SPECIES[r.from] && SPECIES[r.into]);
       setTimeout(() => this.ui.toast(n.join(" · "), t.success ? "good" : ""), 400);
@@ -957,6 +995,13 @@ var Game = class {
       },
       openSpecies: t => e("card", { species: t }),
       dailyClaim: () => e("dailyClaim"),
+      arenaView: () => e("arenaView"),
+      arenaQueue: () => e("arenaQueue"),
+      arenaCancel: () => e("arenaCancel"),
+      arenaClaim: () => e("arenaClaim"),
+      guildKick: t => e("guildKick", { id: t }),
+      guildRank: (t, n) => e("guildRank", { id: t, rank: n }),
+      guildSettings: t => e("guildSettings", t),
       gm: (op, data = {}) => e("gm", { ...data, op }),
       gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" })),
       clinicHeal: () => e("clinicHeal"),
@@ -991,8 +1036,9 @@ var Game = class {
         zone: t,
         token: this.net.token
       }),
-      dungeon: t => e("dungeonEnter", {
-        dungeonId: t
+      dungeon: (t, n = "normal") => e("dungeonEnter", {
+        dungeonId: t,
+        tier: n
       }),
       useItem: t => e("useItem", {
         itemId: t
@@ -1068,7 +1114,7 @@ var Game = class {
           team: [t, ...s.filter(r => r !== t)].slice(0, 6)
         });
       },
-      leaderboard: () => this.net.leaderboard("level").catch(() => []),
+      leaderboard: (k = "level") => this.net.leaderboard(k).catch(() => []),
       logout: () => {
         this.net.logout(), location.reload();
       },
@@ -1173,9 +1219,7 @@ var Game = class {
         r.kind === "portal" ? this.net.send("travel", {
           zone: r.to,
           token: this.net.token
-        }) : r.kind === "dungeon" ? this.net.send("dungeonEnter", {
-          dungeonId: r.to
-        }) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
+        }) : r.kind === "dungeon" ? (this.ui.gate = r.to, this.ui.openPanel("gate")) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
           target: r.id || r.kind
         });
       }

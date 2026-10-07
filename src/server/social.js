@@ -43,6 +43,8 @@ export function useStore(store) { STORE = store; }
 // ---------------------------------------------------------------- presence
 
 function entryOf(id) { return ONLINE.get(id) || null; }
+/** The live document of someone online (for changes that must reach them now). */
+export function liveDoc(id) { return ONLINE.get(id)?.doc || null; }
 export function isOnline(id) { const e = ONLINE.get(id); return !!e && e.sinks.size > 0; }
 
 /** Where someone is right now, as their friends see it. */
@@ -282,7 +284,7 @@ export function clean(text) {
  * A chat line from a player. Zone chat stays in the room (`roomBroadcast`);
  * world, party and whisper go through here. Returns an error code, or null.
  */
-export function chat(doc, { ch, text, to, toId } = {}, roomBroadcast) {
+export function chat(doc, { ch, text, to, toId } = {}, roomBroadcast, members = null) {
   const e = ONLINE.get(doc.id), now = Date.now();
   const body = clean(text).trim();
   if (!body) return null;
@@ -296,6 +298,12 @@ export function chat(doc, { ch, text, to, toId } = {}, roomBroadcast) {
   const msg = { ch, from: doc.name, fromId: doc.id, text: body, t: now };
   if (ch === 'world') {
     for (const o of ONLINE.values()) if (o.sinks.size && !o.doc?.blocked?.includes(doc.id)) sendTo(o.id, 'chat', msg);
+    return null;
+  }
+  if (ch === 'guild') {
+    // guilds.js hands over who is in it
+    if (!members) return 'no_guild';
+    for (const id of members) if (!ONLINE.get(id)?.doc?.blocked?.includes(doc.id)) sendTo(id, 'chat', msg);
     return null;
   }
   if (ch === 'party') {
@@ -543,15 +551,34 @@ export function offerCoop({ roomId, doc, zone, wild, near, allowed }) {
   return n;
 }
 
-/** Someone said yes to joining a party member's fight. */
+/**
+ * A party member is going into a dungeon (or up the tower): the rest of the
+ * party, wherever they are in the world, are asked along. Unlike a fight in
+ * the field, nearness does not matter — the door is the meeting place.
+ */
+export function offerDungeon({ roomId, doc, def, tier, allowed, waitMs = 30_000 }) {
+  const p = partyOf(doc.id);
+  if (!p) return 0;
+  const offer = { roomId, kind: 'dungeon', partyId: p.id, zone: null, allowed, until: Date.now() + waitMs, from: doc.id };
+  let n = 0;
+  for (const id of p.members) {
+    if (id === doc.id || !worldSink(id)) continue;
+    sendTo(id, 'dungeonOffer', { roomId, fromId: doc.id, fromName: doc.name, dungeon: def.id, he: def.he, tier, endless: !!def.endless, until: offer.until });
+    n++;
+  }
+  if (n) COOP.set(roomId, offer);
+  return n;
+}
+
+/** Someone said yes to joining a party member's fight, or their dungeon. */
 export function joinCoop(doc, roomId, zone) {
   const o = COOP.get(roomId);
   if (!o || Date.now() > o.until) return { ok: false, code: 'fight_over' };
-  if (o.zone !== zone) return { ok: false, code: 'not_same_zone' };
+  if (o.zone && o.zone !== zone) return { ok: false, code: 'not_same_zone' };
   const p = partyOf(doc.id);
   if (!p || p.id !== o.partyId) return { ok: false, code: 'not_in_party' };
   o.allowed.add(doc.id);
-  return { ok: true, roomId };
+  return { ok: true, roomId, kind: o.kind || 'battle' };
 }
 
 export function endCoop(roomId) { COOP.delete(roomId); }

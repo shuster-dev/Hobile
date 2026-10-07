@@ -18,7 +18,8 @@ import {
   duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
   statsOf, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
 } from './combat.js';
-import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES } from '../../shared/gamedata.js';
+import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES, skillsFor, statsFor } from '../../shared/gamedata.js';
+import { ARENA } from '../../shared/endgame.js';
 import { weatherAt } from '../../shared/weather.js';
 import { earn, spend } from './economy.js';
 import { eventMul } from '../../shared/events.js';
@@ -31,8 +32,12 @@ export const PARTY_BATTLE = {
 };
 
 export class PartyBattle {
-  constructor({ mode = 'pve', zoneId, wild = null, onEnd = null, broadcast = null } = {}) {
+  constructor({ mode = 'pve', zoneId, wild = null, onEnd = null, broadcast = null, ranked = false, rate = null } = {}) {
     this.mode = mode === 'pvp' ? 'pvp' : 'pve';
+    // a ranked fight (server/arena.js): everyone at the arena's level, and the
+    // result moves both ratings through `rate`
+    this.ranked = this.mode === 'pvp' && !!ranked;
+    this.rate = rate;
     this.zoneId = zoneId;
     this.onEnd = onEnd || (() => {});
     this.broadcast = broadcast || (() => {});
@@ -56,19 +61,25 @@ export class PartyBattle {
   }
 
   /** A player steps in: their team, and their trainer behind it. */
-  addPlayer(doc, side, emit) {
+  addPlayer(doc, side, emit, { guildBonus = null } = {}) {
     const was = this.parts.get(doc.id);
     if (was && !was.left) { was.emit = emit; return was; }
     const gear = sumStats(doc);
     // A duel is fought at full health and leaves the team as it was: it fights
     // with copies, so nothing it does is written back.
-    const team = teamCreatures(doc).map((c) => (this.mode === 'pvp' ? { ...c, hp: statsOf(c).hp } : c));
+    const team = teamCreatures(doc).map((c) => {
+      if (this.ranked) {
+        const lv = ARENA.level, st = statsFor(c.species, lv, c.iv, c.star || 1, c.nature);
+        return { ...c, level: lv, hp: st.hp, maxHp: st.hp, skills: skillsFor(c.species, lv) };
+      }
+      return this.mode === 'pvp' ? { ...c, hp: statsOf(c).hp } : c;
+    });
     const lead = team.find((c) => c.hp > 0) || team[0] || null;
     const roster = [];
     team.forEach((creature, i) => {
       const c = this.sim.add(new Combatant({
         side, kind: 'creature', name: SPECIES[creature.species]?.name || creature.species,
-        creature, ownerId: doc.id, slot: i, benched: creature !== lead, gearBonus: gear,
+        creature, ownerId: doc.id, slot: i, benched: creature !== lead, gearBonus: gear, guildBonus,
       }));
       roster.push({ id: c.id, uid: creature.uid });
     });
@@ -116,6 +127,7 @@ export class PartyBattle {
     return {
       mode: this.mode,
       duel: this.mode === 'pvp',
+      ranked: this.ranked,
       side: part.side,
       you: this.you(part).id,
       team: part.roster,
@@ -250,6 +262,11 @@ export class PartyBattle {
     this.resolved = true;
     this.phase = 'over';
     clearInterval(this.timer);
+    // ranked: both ratings move, the one who walked out included
+    if (this.ranked && this.rate) {
+      const a = [...this.parts.values()].find((p) => p.side === 'a'), b = [...this.parts.values()].find((p) => p.side === 'b');
+      if (a && b) this.ratings = this.rate(a.doc, b.doc, e.outcome === 'a' || e.outcome === 'b' ? e.outcome : 'draw');
+    }
     for (const part of this.parts.values()) {
       if (part.left) continue;
       part.emit('battleEnd', this.mode === 'pvp' ? this.settlePvp(part, e) : this.settleWild(part, e));
@@ -267,7 +284,8 @@ export class PartyBattle {
     const o = { outcome: captured && !mine ? 'a' : e.outcome, won: won || (captured && !mine), xp: 0, gold: 0, items: [], events: [], questsDone: [], coop: [...this.parts.values()].filter((p) => !p.left).length > 1 };
     if (n && you?.creature) n.hp = Math.max(0, Math.round(you.hp));
     if (won || captured) {
-      const a = Math.round(creaturePower(this.foe, t.level) * eventMul('xp')), l = Math.round(creatureScore(this.foe) * eventMul('gold'));
+      // the season and the guild's fortune each pay their share
+      const a = Math.round(creaturePower(this.foe, t.level) * eventMul('xp') * (1 + (t.guildPerks?.xp || 0))), l = Math.round(creatureScore(this.foe) * eventMul('gold') * (1 + (t.guildPerks?.gold || 0)));
       earn(t, l, captured ? 'capture' : 'battle'); o.xp = a; o.gold = l;
       n && o.events.push(...grantXpTo(n, a, t));
       o.events.push(...grantXp(t, Math.floor(a * 0.6)));
@@ -302,7 +320,7 @@ export class PartyBattle {
     const won = e.outcome === part.side, draw = e.outcome === 'draw';
     const foes = [...this.parts.values()].filter((p) => p.side !== part.side);
     const lvl = foes.length ? foes.reduce((s, p) => s + (p.doc.level || 1), 0) / foes.length : 1;
-    const o = { outcome: won ? 'a' : draw ? 'draw' : 'b', won, pvp: true, xp: 0, gold: 0, items: [], events: [], questsDone: [] };
+    const o = { outcome: won ? 'a' : draw ? 'draw' : 'b', won, pvp: true, xp: 0, gold: 0, items: [], events: [], questsDone: [], ranked: this.ratings?.[t.id] || null };
     t.stats.pvpWins = t.stats.pvpWins || 0; t.stats.pvpLosses = t.stats.pvpLosses || 0;
     if (won) {
       o.gold = Math.round(30 + 5 * lvl); o.xp = Math.round(20 + 4 * lvl);

@@ -13,6 +13,8 @@ import { BattleRoom } from './rooms/BattleRoom.js';
 import { DungeonRoom } from './rooms/DungeonRoom.js';
 import { createPlayerDoc, normalizeDoc, publicProfile, uid } from './game/combat.js';
 import { economyReport } from './game/economy.js';
+import * as Guilds from './guilds.js';
+import * as Arena from './arena.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
 // A log pipe that closes (a supervisor restarting, a test harness that died)
@@ -27,6 +29,9 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const store = await openStore(process.env);
 await reportAdmins(store);
+await Guilds.useStore(store);
+// the arena opens its fights as any duel is opened (server/arena.js)
+Arena.useRooms((opts) => matchMaker.createRoom('battle', { store, ...opts }));
 const app = express();
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {

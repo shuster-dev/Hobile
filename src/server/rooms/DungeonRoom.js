@@ -1,34 +1,61 @@
 import { Room } from '@colyseus/core';
 import { BattleState, syncCombatants } from '../state.js';
-import { DungeonSim } from '../game/base.js';
+import { PartyDungeon } from '../game/party-dungeon.js';
 import { normalizeDoc } from '../game/combat.js';
 import { DUNGEONS } from '../../shared/gamedata.js';
+import { TOWER } from '../../shared/endgame.js';
 import { verifyToken } from '../auth.js';
 import * as Social from '../social.js';
+import * as Guilds from '../guilds.js';
 
-/** A dungeon run. Same shape as BattleRoom; a party of up to four shares it. */
+const LOBBY_MS = 12_000;   // a party member who said yes has this long to arrive before the first floor
+
+/**
+ * A dungeon run (or a climb of the tower) for whoever it was opened for: the
+ * player who went in, and the party members who said yes (`allowed`, shared
+ * by reference with the world room and social.js). The run itself is
+ * PartyDungeon (game/party-dungeon.js); this room mirrors it into schema
+ * state, routes each client to their own seat, and writes each document back.
+ */
 export class DungeonRoom extends Room {
   // Instance onAuth, not the static one: this client sends its token in the
   // join options (see client/net.js), not as an Authorization header.
   onAuth(client, options = {}) {
     const claims = verifyToken(options.token);
     if (!claims) throw new Error('unauthorized');
+    if (this.run?.resolved) throw new Error('fight_over');
+    if (this.allowed && !this.allowed.has(claims.sub)) throw new Error('not_invited');
     return claims;
   }
 
   onCreate(options = {}) {
     this.store = options.store;
-    this.def = DUNGEONS[options.def?.id] || options.def;
-    this.maxClients = 4;
+    this.opts = options;
+    this.def = options.def?.id === TOWER.id ? TOWER : DUNGEONS[options.def?.id] || options.def;
+    this.allowed = options.allowed instanceof Set ? options.allowed : (options.ownerId ? new Set([options.ownerId]) : null);
+    this.maxClients = this.def?.partyMax || 4;
     this.autoDispose = true;
+    this.docs = new Map();
+    this.idBySession = new Map();
     this.setState(new BattleState());
     this.state.mode = 'dungeon';
     this.state.phase = 'waiting';
     this.state.dungeon = this.def?.id || '';
-    this.state.floors = this.def?.floors || 1;
+    this.state.floors = this.def?.endless ? 0 : this.def?.floors || 1;
+    this.run = new PartyDungeon({
+      def: this.def, tier: options.tier,
+      broadcast: (event, data) => this.broadcast(event, data),
+      onEnd: () => { Social.endCoop(this.roomId); this.saveAll(); },
+    });
+    this.run.onSync = () => {
+      this.state.phase = this.run.phase;
+      this.state.floor = this.run.floor || 1;
+      syncCombatants(this.state, this.run.sim);
+    };
     this.onMessage('*', (client, type, payload) => {
-      if (!this.sim) return;
-      try { this.sim.handle(String(type), payload || {}); }
+      const id = this.idBySession.get(client.sessionId);
+      if (!id) return;
+      try { this.run.handle(id, String(type), payload || {}); }
       catch (err) { console.error('[dungeon]', type, err); client.send('error', { code: 'server_error' }); }
     });
   }
@@ -37,32 +64,38 @@ export class DungeonRoom extends Room {
     const doc = await this.store.getDoc(auth?.sub);
     if (!doc) { client.send('error', { code: 'no_character' }); return client.leave(4000); }
     normalizeDoc(doc);
-    this.doc = doc;
-    const net = {
-      doc, guilds: [], pendingRooms: new Map(),
-      emit: (event, data) => this.broadcast(event, data),
-      save: () => { this.dirty = true; },
-    };
-    this.sim = new DungeonSim(net, { def: this.def, allies: [] });
-    const sync = this.sim.sync.bind(this.sim);
-    this.sim.sync = () => {
-      sync();
-      this.state.phase = this.sim.state.phase;
-      this.state.floor = this.sim.state.floor || 1;
-      syncCombatants(this.state, this.sim.sim);
-    };
-    this.sim.start();
+    this.docs.set(doc.id, doc);
+    this.idBySession.set(client.sessionId, doc.id);
+    this.run.addPlayer(doc, (event, data) => client.send(event, data), { guildBonus: Guilds.buffsFor(doc) });
     Social.attach(doc, `dungeon:${this.roomId}`, { send: (e, d) => client.send(e, d), where: 'dungeon', zone: this.def?.id || '' });
+    // The one who opened it goes in at once if nobody else was asked; with a
+    // party asked along, the first floor waits a little for them.
+    if (this.run.started) return;
+    const asked = this.opts.asked || 0;
+    if (!asked || this.docs.size > asked) this.run.start();
+    else if (!this._lobby) {
+      this.broadcast('dungeonLobby', { until: Date.now() + LOBBY_MS });
+      this._lobby = setTimeout(() => this.run.start(), LOBBY_MS);
+    }
   }
 
-  async onLeave() {
-    this.doc && Social.detach(this.doc.id, `dungeon:${this.roomId}`);
-    this.sim?.stop();
-    if (this.doc) await this.store.saveDoc(this.doc).catch(() => {});
+  async onLeave(client) {
+    const id = this.idBySession.get(client.sessionId);
+    this.idBySession.delete(client.sessionId);
+    if (!id) return;
+    this.run.leave(id, 'gone');
+    Social.detach(id, `dungeon:${this.roomId}`);
+    const doc = this.docs.get(id);
+    if (doc) await this.store.saveDoc(doc).catch(() => {});
+  }
+
+  saveAll() {
+    for (const doc of this.docs.values()) this.store.saveDoc(doc).catch(() => {});
   }
 
   async onDispose() {
-    this.sim?.stop();
-    if (this.doc) await this.store.saveDoc(this.doc).catch(() => {});
+    clearTimeout(this._lobby);
+    this.run.stop();
+    for (const doc of this.docs.values()) await this.store.saveDoc(doc).catch(() => {});
   }
 }

@@ -26,6 +26,7 @@ import { FIELD, calmWild, keepSpot } from './field.js';
 import { handleGm } from './gm.js';
 import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
+import { TIER_IDS, TOWER, canEnter, weekly } from '../../shared/endgame.js';
 import * as Social from '../social.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
@@ -198,8 +199,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let ch = PLAYER_CHANNELS.has(t.ch) ? t.ch : "zone";
             // Online: world, party and whispers reach across zones, blocks
             // hold, and nobody floods (social.js). Guild chat stays the room's.
-            if (ctx.online && ch !== "guild") {
-              let err = Social.chat(n, { ch, text: t.text, to: t.to, toId: t.toId }, ctx.roomChat);
+            if (ctx.online) {
+              let err = ch === "guild" ? ctx.guilds ? ctx.guilds.chat(n, t.text) : "no_guild" : Social.chat(n, { ch, text: t.text, to: t.to, toId: t.toId }, ctx.roomChat);
               err && ctx.net.emit("error", { code: err });
               break;
             }
@@ -251,7 +252,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = Social.joinCoop(n, String(t.roomId || ""), ctx.zoneId);
             if (!o.ok) return ctx.net.emit("error", { code: o.code });
             ctx.battlePending = r + FIELD.pendingMs;
-            ctx.net.emit("goto", { roomId: o.roomId, kind: "battle", coop: !0 });
+            ctx.net.emit("goto", { roomId: o.roomId, kind: o.kind || "battle", coop: !0 });
             break;
           }
         case "bossAttack":
@@ -272,7 +273,13 @@ export function handleWorldMessage(ctx, e, t = {}) {
               c = MOVES[t.skill] || MOVES[a.skills[0]],
               h = c?.kind === "special" ? l.spa : l.atk,
               d = Math.max(1, Math.floor(((2 * a.level / 5 + 2) * (c?.power || 34) * (h / 120) / 50 + 2) * (0.85 + Math.random() * 0.3)));
-            if (o.hp = Math.max(0, o.hp - d), ctx.bossContribution.set(n.name, (ctx.bossContribution.get(n.name) || 0) + d), ctx.refreshBossBoard(), ctx.net.emit("bossHit", {
+            // The online room keeps the board by player id with the name beside it
+            // (WorldRoom.endBoss pays by it); this kept it by name, so online
+            // nobody was ever found on the board and nobody was paid.
+            let bc = ctx.bossContribution;
+            ctx.online ? bc.set(n.id, { name: n.name, damage: (bc.get(n.id)?.damage || 0) + d }) : bc.set(n.name, (bc.get(n.name) || 0) + d);
+            weekly(n).boss += d;
+            if (o.hp = Math.max(0, o.hp - d), ctx.refreshBossBoard(), ctx.net.emit("bossHit", {
               by: n.name,
               dmg: d,
               hp: o.hp,
@@ -306,18 +313,20 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "dungeonEnter":
           {
-            let o = DUNGEONS[t.dungeonId];
+            // a dungeon at a tier, or the tower (shared/endgame.js); a party
+            // member's team comes along if they say yes (social.js)
+            let o = t.dungeonId === TOWER.id ? TOWER : DUNGEONS[t.dungeonId];
             if (!o) return;
-            if (n.level < o.minLevel) {
-              ctx.net.emit("error", {
-                code: "level_too_low",
-                need: o.minLevel
-              });
-              return;
-            }
+            let tier = TIER_IDS.includes(t.tier) ? t.tier : "normal",
+              can = canEnter(n, o, o.endless ? "normal" : tier);
+            if (!can.ok) return ctx.net.emit("error", { code: can.code, need: can.need });
+            let a = activeCreature(n);
+            if (!a || teamCreaturesOf(n).every(c => c.hp <= 0)) return ctx.net.emit("error", { code: "no_healthy_creature" });
+            if (r < (ctx.battlePending || 0)) return;
+            ctx.battlePending = r + FIELD.pendingMs;
             ctx.startDungeon({
               def: o,
-              allies: []
+              tier
             });
             break;
           }
@@ -549,89 +558,68 @@ export function handleWorldMessage(ctx, e, t = {}) {
         case "partyLeave":
           ctx.online ? Social.leaveParty(n) : ctx.net.emit("party", null);
           break;
+        case "arenaView":
+        case "arenaQueue":
+        case "arenaCancel":
+        case "arenaClaim":
+          {
+            // the ranked arena is online (server/arena.js)
+            if (!ctx.online || !ctx.arena) return ctx.net.emit("error", { code: "solo_mode" });
+            let A = ctx.arena;
+            if (e === "arenaQueue") {
+              let a = activeCreature(n);
+              if (!a) return ctx.net.emit("error", { code: "no_healthy_creature" });
+              let q = A.enqueue(n);
+              if (!q.ok) return ctx.net.emit("error", { code: q.code });
+            } else if (e === "arenaCancel") A.dequeue(n.id);
+            else if (e === "arenaClaim") {
+              let c = A.claimSeason(n);
+              if (!c.ok) return ctx.net.emit("error", { code: c.code });
+              ctx.net.save(), ctx.net.emit("arenaReward", c), ctx.net.emit("profile", publicProfile(n));
+            }
+            ctx.net.emit("arena", { ...A.arenaView(n), queued: A.queued(n.id) });
+          }
+          break;
         case "guildList":
-          ctx.net.emit("guildList", ctx.net.guilds.map(o => ({
-            id: o.id,
-            name: o.name,
-            tag: o.tag,
-            members: 1,
-            buffLevel: o.buffLevel,
-            territories: o.territories
-          })));
-          break;
         case "guildCreate":
-          {
-            if (n.gold < GUILD.createCost) {
-              ctx.net.emit("error", {
-                code: "not_enough_gold"
-              });
-              return;
-            }
-            spend(n, GUILD.createCost, "guild");
-            let o = {
-              id: "g" + uid().slice(0, 6),
-              name: t.name || "Guild",
-              tag: (t.tag || t.name || "GLD").slice(0, 4).toUpperCase(),
-              masterId: n.id,
-              buffLevel: 1,
-              contribution: 0,
-              myContribution: 0,
-              house: [],
-              territories: [],
-              warScore: 0,
-              log: [{
-                t: Date.now(),
-                text: `${n.name} founded the guild`
-              }]
-            };
-            ctx.net.guilds.unshift(o), n.guildId = o.id, s.guildTag = o.tag, ctx.net.save(), ctx.net.emit("guild", ctx.guildView()), ctx.net.emit("profile", publicProfile(n));
-            break;
-          }
         case "guildJoin":
-          {
-            let o = ctx.net.guilds.find(a => a.id === t.guildId);
-            if (!o) return;
-            n.guildId = o.id, s.guildTag = o.tag, ctx.net.save(), ctx.net.emit("guild", ctx.guildView()), ctx.net.emit("profile", publicProfile(n));
-            break;
-          }
         case "guildLeave":
-          n.guildId = null, s.guildTag = "", ctx.net.save(), ctx.net.emit("guild", null), ctx.net.emit("profile", publicProfile(n));
-          break;
         case "guildContribute":
-          {
-            let o = ctx.net.guilds.find(l => l.id === n.guildId),
-              a = Math.max(1, Number(t.gold) || 0);
-            if (!o || n.gold < a) {
-              ctx.net.emit("error", {
-                code: "not_enough_gold"
-              });
-              return;
-            }
-            spend(n, a, "guild"), o.contribution += a, o.myContribution = (o.myContribution || 0) + a;
-            for (let l of GUILD.buffs) l.level > o.buffLevel && o.contribution >= l.cost && (o.buffLevel = l.level);
-            ctx.net.save(), ctx.net.emit("guild", ctx.guildView()), ctx.net.emit("profile", publicProfile(n));
-            break;
-          }
         case "guildUpgrade":
-          {
-            let o = ctx.net.guilds.find(l => l.id === n.guildId),
-              a = GUILD.houseUpgrades.find(l => l.id === t.upgradeId);
-            if (!o || !a || o.house.includes(a.id)) return;
-            if (o.contribution < a.cost) {
-              ctx.net.emit("error", {
-                code: "not_enough_contribution"
-              });
-              return;
-            }
-            o.contribution -= a.cost, o.house.push(a.id), ctx.net.emit("guild", ctx.guildView());
-            break;
-          }
+        case "guildKick":
+        case "guildRank":
+        case "guildSettings":
+          // guilds are online (server/guilds.js); the offline build has none
+          if (!ctx.online || !ctx.guilds) return ctx.net.emit("error", { code: "solo_mode" });
+          guildMessage(ctx, e, t);
+          break;
         default:
           break;
       }
     
 }
 
+
+/** Guild messages (server/guilds.js, handed in as ctx.guilds so this file
+ *  stays free of server-only modules). Each answers with the guild as its
+ *  sender now sees it, or why nothing changed. */
+function guildMessage(ctx, type, t = {}) {
+  const G = ctx.guilds, doc = ctx.doc, me = ctx.self();
+  if (type === "guildList") return ctx.net.emit("guildList", G.list());
+  const r = type === "guildCreate" ? G.create(doc, { name: t.name, tag: t.tag })
+    : type === "guildJoin" ? G.join(doc, t.guildId)
+    : type === "guildLeave" ? G.leave(doc)
+    : type === "guildContribute" ? G.contribute(doc, t.gold)
+    : type === "guildUpgrade" ? G.upgrade(doc, t.upgradeId)
+    : type === "guildKick" ? G.kick(doc, t.id)
+    : type === "guildRank" ? G.setRank(doc, t.id, t.rank)
+    : G.settings(doc, { motd: t.motd, open: t.open });
+  if (!r.ok) return ctx.net.emit("error", { code: r.code });
+  const g = G.guildOf(doc);
+  me && (me.guildTag = g?.tag || "");
+  ctx.net.save(), ctx.net.emit("guild", g ? G.view(g, doc.id) : null), ctx.net.emit("profile", publicProfile(doc));
+  r.levelUp && ctx.net.emit("guildBuff", { level: g?.buffLevel });
+}
 
 /** Friends, party, blocking and reports — online only (social.js). Each
  *  answers its sender with what changed, or why nothing did. */

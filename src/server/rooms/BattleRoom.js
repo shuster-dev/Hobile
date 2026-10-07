@@ -4,6 +4,8 @@ import { PartyBattle } from '../game/party-battle.js';
 import { normalizeDoc } from '../game/combat.js';
 import { verifyToken } from '../auth.js';
 import * as Social from '../social.js';
+import * as Guilds from '../guilds.js';
+import * as Arena from '../arena.js';
 
 const PVP_WAIT_MS = 12_000;   // everyone invited to a duel has this long to arrive
 
@@ -57,6 +59,8 @@ export class BattleRoom extends Room {
       mode: this.mode,
       zoneId: options.zoneId,
       wild: options.wild,
+      ranked: !!options.ranked,
+      rate: Arena.rate,
       broadcast: (event, data) => this.broadcast(event, data),
       // Straight through to the world room that started this fight.
       onEnd: (taken) => {
@@ -88,7 +92,8 @@ export class BattleRoom extends Room {
     this.docs.set(doc.id, doc);
     this.idBySession.set(client.sessionId, doc.id);
     const side = this.mode === 'pvp' ? (this.sides.b.includes(doc.id) ? 'b' : 'a') : 'a';
-    this.battle.addPlayer(doc, side, (event, data) => client.send(event, data));
+    // guild buffs in the field; a ranked fight is fought even (shared/endgame.js)
+    this.battle.addPlayer(doc, side, (event, data) => client.send(event, data), { guildBonus: this.opts.ranked ? null : Guilds.buffsFor(doc) });
     Social.attach(doc, `battle:${this.roomId}`, { send: (e, d) => client.send(e, d), where: 'battle', zone: this.opts.zoneId || '' });
     if (this.mode === 'pve') this.battle.start();
     else this.startPvp(false);

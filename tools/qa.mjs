@@ -1368,9 +1368,9 @@ section('the first fight');
   };
   ok('online, friends, party and another player\'s sheet open',
     ['friends', 'party', 'player'].every((id) => opened(id, true) === id));
-  ok('guilds, not built for real yet, stay shut everywhere', opened('guild', true) === null && U.GUILDS === false);
+  ok('online, the guild and the ranked arena open', opened('guild', true) === 'guild' && opened('arena', true) === 'arena' && U.GUILDS === true);
   ok('the single-player build has nobody to be friends with: they stay shut',
-    ['friends', 'party', 'player'].every((id) => opened(id, false) === null) && opened('bag', false) === 'bag');
+    ['friends', 'party', 'player', 'guild', 'arena'].every((id) => opened(id, false) === null) && opened('bag', false) === 'bag');
   const gameSrc = fs.readFileSync('src/client/game.js', 'utf8');
   ok('standing next to a player opens them, online only',
     /a = this\.ui\.social \? this\.nearestPlayer\(n\) : null/.test(gameSrc) && /this\.ui\.social = !this\.solo/.test(gameSrc));
@@ -1704,6 +1704,78 @@ section('daily reward and seasons');
   ok('no upgrade is out of reach or handed out', !em.flags.length, em.flags.join(' | '));
   ok('a daily errand pays by level', G.questGold(G.QUESTS.q_daily_hunt, 1) < G.questGold(G.QUESTS.q_daily_hunt, 40));
   ok('the clinic charges by the team', G.clinicCost([{ level: 10, hp: 5 }, { level: 10, hp: 0 }]) === 10 * 7 * 2 + 90);
+}
+
+
+// ---------------------------------------------------------------- endgame
+section('endgame');
+{
+  const EG = await import('../src/shared/endgame.js');
+  const PD = await import('../src/server/game/party-dungeon.js');
+  const G2 = await import('../src/shared/gamedata.js');
+  const at = (y, m, d, h = 12) => Date.UTC(y, m - 1, d, h);
+  ok('weeks are ISO weeks', EG.weekStamp(at(2026, 10, 7)) === '2026-W41' && EG.weekStamp(at(2027, 1, 1)) === '2026-W53');
+  ok('a week ends at Monday midnight UTC', new Date(EG.weekEnds(at(2026, 10, 7))).toISOString() === '2026-10-12T00:00:00.000Z');
+  const e1 = EG.eloAfter(1000, 1000, 1, 99, 99);
+  ok('Elo: an even win moves both by half the K, the other way', e1.a === 1016 && e1.b === 984);
+  const e2 = EG.eloAfter(1000, 1400, 1, 99, 99), e3 = EG.eloAfter(1400, 1000, 1, 99, 99);
+  ok('beating someone far above is worth more than beating someone far below', e2.a - 1000 > e3.a - 1400);
+  ok('a new player moves faster', EG.eloAfter(1000, 1000, 1, 0, 99).a > e1.a);
+  const ad = { };
+  const a0 = EG.arenaOf(ad, at(2026, 10, 7));
+  a0.rating = 1520; a0.best = 1610; a0.games = 30;
+  const a1 = EG.arenaOf(ad, at(2026, 11, 2));
+  ok('a new season: half the way back, and last season\'s best tier waiting to be claimed', a1.season === '2026-11' && a1.rating === 1260 && a1.pending?.tier === 'platinum' && a1.games === 0);
+  ok('tiers by rating', EG.arenaTier(1099).id === 'bronze' && EG.arenaTier(1100).id === 'silver' && EG.arenaTier(2400).id === 'legend');
+  ok('the tower climbs', EG.towerLevel(10, 20) > EG.towerLevel(1, 20) && EG.towerLevel(1, 20) >= 8);
+  ok('every floor\'s creatures are of the floor\'s element', Array.from({ length: 10 }, (_, k) => k + 1).every((f) => EG.towerPool(f).length > 0 && EG.towerPool(f).every((sp) => G2.SPECIES[sp].types[0] === EG.towerElement(f))));
+  ok('a guardian every fifth floor, each a real boss', [5, 10, 15, 20].every((f) => G2.SPECIES[EG.towerBoss(f)]));
+  const low = { level: 3, records: {} }, mid = { level: 12, records: {} }, done = { level: 30, records: { dungeons: { undercity_cistern: 0 } } };
+  const cis = G2.DUNGEONS.undercity_cistern;
+  ok('a dungeon asks for its level', EG.canEnter(low, cis).code === 'level_too_low' && EG.canEnter(mid, cis).ok);
+  ok('a harder tier asks for the one before it, cleared', EG.canEnter(mid, cis, 'hard').code === 'tier_locked' && EG.canEnter(done, cis, 'hard').ok && EG.canEnter(done, cis, 'mythic').code === 'tier_locked');
+
+  // a run, by hand: one player, floor by floor
+  const dd = C.createPlayerDoc('t-dun', 'Dun', {}, 'cindcub');
+  C.normalizeDoc(dd);
+  C.addCreature(dd, C.makeCreature('pyrelynx', 40));
+  dd.level = 20;
+  const sent = [];
+  const run = new PD.PartyDungeon({ def: cis, tier: 'normal', broadcast: (e, d) => sent.push([e, d]) });
+  run.addPlayer(dd, (e, d) => sent.push([e, d]));
+  ok('the whole team comes in, with the trainer behind it', run.sim.all().filter((c) => c.ownerId === dd.id && c.kind === 'creature').length === 2 && run.sim.all().some((c) => c.kind === 'trainer'));
+  const clearFloor = () => { for (const c of run.sim.all()) if (c.side === 'b') c.hp = 0; run.sim.checkEnd(); clearTimeout(run._next); };
+  run.nextFloor();
+  ok('floor one: the dungeon\'s own creatures', run.sim.all().filter((c) => c.side === 'b').every((c) => cis.trash.includes(c.species)));
+  clearFloor();
+  ok('cleared: the haul grows and the party catches its breath', run.loot.xp > 0 && sent.some(([e]) => e === 'floorCleared'));
+  run.nextFloor();
+  ok('the last floor is its keeper', run.sim.all().filter((c) => c.side === 'b').length === 1 && run.sim.all().find((c) => c.side === 'b').species === cis.boss);
+  clearFloor();
+  const end = sent.find(([e]) => e === 'dungeonEnd')?.[1];
+  ok('the run ends, cleared, and pays', end?.success && end.xp > 0 && end.gold > 0 && end.items.length >= 1);
+  ok('and the next tier opens', dd.records.dungeons.undercity_cistern === 0 && EG.canEnter(dd, cis, 'hard').ok);
+  run.stop();
+
+  // the same in a party: they stand up to more
+  const d2 = C.createPlayerDoc('t-dun2', 'Dun2', {}, 'puddlet');
+  C.normalizeDoc(d2);
+  const solo = new PD.PartyDungeon({ def: cis }), duo = new PD.PartyDungeon({ def: cis });
+  solo.addPlayer(dd, () => {}); duo.addPlayer(dd, () => {}); duo.addPlayer(d2, () => {});
+  const hpOf = (r) => { r.floor = 0; r.nextFloor(); const h = r.sim.all().filter((c) => c.side === 'b').reduce((s, c) => s + c.maxHp / c.level, 0); clearTimeout(r._next); r.stop(); return h; };
+  ok('two players face a tougher floor than one', hpOf(duo) > hpOf(solo) * 1.3);
+
+  // the tower, a climb walked out of
+  const tw = new PD.PartyDungeon({ def: EG.TOWER });
+  const tsent = [];
+  tw.addPlayer(dd, (e, d) => tsent.push([e, d]));
+  for (let f = 0; f < 5; f++) { tw.nextFloor(); for (const c of tw.sim.all()) if (c.side === 'b') c.hp = 0; tw.sim.checkEnd(); clearTimeout(tw._next); }
+  ok('the fifth floor is a guardian, and leaves a chest', tw.chests.length === 1);
+  tw.handle(dd.id, 'trainer', { action: 'flee' });
+  tw.phase === 'active' || (tw.nextFloor(), tw.handle(dd.id, 'trainer', { action: 'flee' }));
+  const tend = tsent.find(([e]) => e === 'dungeonEnd')?.[1];
+  ok('walking out of the tower pays what was reached, chest and all', tend?.endless && tend.floors === 5 && tend.gold > 0 && dd.records.towerBest === 5 && dd.weekly.tower === 5, JSON.stringify(tend && { f: tend.floors, g: tend.gold }));
+  tw.stop();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

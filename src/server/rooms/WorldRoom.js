@@ -18,6 +18,8 @@ import { GM_LIMITS } from '../game/gm.js';
 import { isAdmin } from '../admin.js';
 import { verifyToken } from '../auth.js';
 import * as Social from '../social.js';
+import * as Guilds from '../guilds.js';
+import * as Arena from '../arena.js';
 
 const TICK_MS = 50;
 const SAVE_EVERY_MS = 20_000;
@@ -153,6 +155,8 @@ export class WorldRoom extends Room {
     normalizeDoc(doc);
     activateZoneQuests(doc, this.zoneId);
     doc.zone = this.zoneId;
+    // still in their guild? (server/guilds.js)
+    const guild = Guilds.check(doc);
 
     // Back from a fight, a dungeon or a dropped connection: where you were.
     // From another zone: its camp.
@@ -163,7 +167,7 @@ export class WorldRoom extends Room {
     Object.assign(p, {
       id: doc.id, name: doc.name, level: doc.level,
       x: spawn.x, y: 0, z: spawn.z, rot: 0, moving: false, status: 'idle',
-      guildTag: '', partyId: '',
+      guildTag: guild?.tag || '', partyId: '',
       petSpecies: activeCreature(doc)?.species || '', petStar: activeCreature(doc)?.star || 1, hpRatio: hpRatio(doc),
       body: doc.appearance.body, skin: doc.appearance.skin,
       hair: doc.appearance.hair, outfit: doc.appearance.outfit,
@@ -186,6 +190,8 @@ export class WorldRoom extends Room {
   async onLeave(client, consented) {
     const doc = this.docsBySession.get(client.sessionId);
     doc && Social.detach(doc.id, `world:${this.roomId}:${client.sessionId}`);
+    // out of the world is out of the arena queue (unless it was a match)
+    doc && Arena.queued(doc.id) && !Social.worldSink(doc.id) && Arena.dequeue(doc.id, 'left');
     if (doc) await this.store.saveDoc(doc).catch(() => {});
     this.state.players.delete(client.sessionId);
     this.docsBySession.delete(client.sessionId);
@@ -237,15 +243,16 @@ export class WorldRoom extends Room {
         }
       },
       startPvp: (plan) => room.startPvp(plan),
+      guilds: Guilds,
+      arena: Arena,
       report: (row) => room.store.logAdmin?.(row)?.catch?.(() => {}),
       chat: (msg) => {
         if (msg.ch === 'zone' || !msg.ch) return room.broadcast('chat', msg);
-        if (msg.ch === 'guild') return room.broadcastToGuild(doc.guildId, msg);
         client.send('chat', msg);
       },
       welcome: () => room.welcome(client, doc),
       speak: (d, npcId) => room.speak(client, d, npcId),
-      guildView: () => room.guildView(doc),
+      guildView: () => Guilds.view(Guilds.guildOf(doc), doc.id),
       partyView: () => Social.partyView(Social.partyOf(doc.id)),
       friendList: () => Social.friendsView(doc),
       refreshBossBoard: () => room.refreshBossBoard(),
@@ -263,7 +270,7 @@ export class WorldRoom extends Room {
       ground: this.zone.ground, accent: this.zone.accent, sky: this.zone.sky,
       size: this.zone.size, landmarks: this.zone.landmarks, levels: this.zone.levels,
     });
-    client.send('guild', this.guildView(doc));
+    client.send('guild', Guilds.view(Guilds.guildOf(doc), doc.id));
     client.send('party', Social.partyView(Social.partyOf(doc.id)));
     client.send('friends', Social.friendsView(doc));
     if (this.ctxBySession.get(client.sessionId)?.admin) client.send('gm', { kind: 'hello', limits: GM_LIMITS });
@@ -281,15 +288,6 @@ export class WorldRoom extends Room {
   speak(client, doc, npcId) {
     const ctx = this.ctxBySession.get(client.sessionId);
     if (ctx) speakTo(ctx, doc, npcId, (Date.now() % DAY_MS / DAY_MS + 1) % 1);
-  }
-
-  guildView(doc) { return { id: doc.guildId || '', members: [], buffLevel: 0, bonuses: {} }; }
-
-  broadcastToGuild(guildId, msg) {
-    if (!guildId) return;
-    for (const c of this.clients) {
-      if (this.docsBySession.get(c.sessionId)?.guildId === guildId) c.send('chat', msg);
-    }
   }
 
   spawnPoint(fromZone) {
@@ -470,12 +468,27 @@ export class WorldRoom extends Room {
     }
   }
 
+  /** A dungeon (or the tower): a room for it, the one who opened it sent in,
+   *  and the rest of their party asked along (social.js offerDungeon). */
   async startDungeon(client, doc, opts) {
     const { matchMaker } = await import('@colyseus/core');
-    const reservation = await matchMaker.createRoom('dungeon', {
-      store: this.store, def: opts.def, ownerId: doc.id,
-    });
+    const party = Social.partyOf(doc.id);
+    const asked = party ? [...party.members].filter((id) => id !== doc.id && Social.worldSink(id)).length : 0;
+    const allowed = new Set([doc.id]);
+    let reservation;
+    try {
+      reservation = await matchMaker.createRoom('dungeon', {
+        store: this.store, def: opts.def, tier: opts.tier, ownerId: doc.id, allowed, asked,
+      });
+    } catch (err) {
+      console.error('[world] dungeon room', err);
+      const ctx = this.ctxBySession?.get?.(client.sessionId);
+      if (ctx) ctx.battlePending = 0;
+      client.send('error', { code: 'server_error' });
+      return;
+    }
     client.send('goto', { roomId: reservation.roomId, kind: 'dungeon' });
+    asked && Social.offerDungeon({ roomId: reservation.roomId, doc, def: opts.def, tier: opts.tier || 'normal', allowed });
   }
 
   tick() {

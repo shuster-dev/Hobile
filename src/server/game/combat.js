@@ -2,6 +2,7 @@ import { heldProgress, questState } from '../../shared/story.js';
 import { ABILITIES, NATURES, rollAbility, rollNature } from '../../shared/traits.js';
 import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
+import { arenaView, weekly } from '../../shared/endgame.js';
 import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
 var combatantSeq = 0,
@@ -44,6 +45,8 @@ var Combatant = class {
         let o = Array.isArray(s.skills) && s.skills.length ? s.skills : SPECIES[this.species].learn.map(([, a]) => a);
         this.skills = o.filter(a => typeof a == "string" && Object.prototype.hasOwnProperty.call(MOVES, a)).slice(0, 4);
       }
+      // guild house and buffs that are not stats (server/guilds.js)
+      this.stamMul = 1 + Math.max(0, num(n.stam)), this.cdr = Math.min(0.3, Math.max(0, num(n.cdr)));
       this.ai = AI_TIERS[e.ai] || AI_TIERS.standard;
       this.stamina = PROGRESSION.staminaMax, this.cooldowns = {}, this.effects = [], this.aiDelay = this.kind === "boss" ? 900 : this.ai.first, this.aiNext = Date.now() + this.aiDelay, this.damageDealt = 0;
     }
@@ -361,7 +364,7 @@ var Combatant = class {
         reason: "stamina"
       };
       let a = Math.min(0.4, s.modifier("hasteUp"));
-      if (s.cooldowns[t] = o + r.cd * (1 - a) * (s.ability === "swift" ? ABILITIES.swift.mul : 1), s.stamina -= r.cost, r.kind === "status") return this.applySelfBuffs(s, r, o), this.emit({
+      if (s.cooldowns[t] = o + r.cd * (1 - a) * (s.ability === "swift" ? ABILITIES.swift.mul : 1) * (1 - (s.cdr || 0)), s.stamina -= r.cost, r.kind === "status") return this.applySelfBuffs(s, r, o), this.emit({
         kind: "skill",
         actor: s.id,
         skill: t,
@@ -651,7 +654,7 @@ var Combatant = class {
       if (this.finished) return;
       let t = Date.now();
       if (this.resolveCapture(t), !this.finished) {
-        for (let n of this.combatants.values()) if (n.alive && (n.tickEffects(t), !n.frozen(t) && (n.stamina = Math.min(PROGRESSION.staminaMax, n.stamina + PROGRESSION.staminaRegenPerSec * e / 1e3 * (n.ability === "focus" ? ABILITIES.focus.mul : 1) * (1 - Math.min(0.6, n.modifier("slow")))), !n.benched))) {
+        for (let n of this.combatants.values()) if (n.alive && (n.tickEffects(t), !n.frozen(t) && (n.stamina = Math.min(PROGRESSION.staminaMax, n.stamina + PROGRESSION.staminaRegenPerSec * e / 1e3 * (n.ability === "focus" ? ABILITIES.focus.mul : 1) * (n.stamMul || 1) * (1 - Math.min(0.6, n.modifier("slow")))), !n.benched))) {
           n.entered || (n.entered = !0, n.kind !== "trainer" && this.onEnter(n, t));
           if (n.ability === "regen" && n.hp < n.maxHp) {
             n.regenAcc = (n.regenAcc || 0) + n.maxHp * ABILITIES.regen.perSec * e / 1e3;
@@ -1214,7 +1217,11 @@ function publicProfile(i) {
     stats: i.stats,
     unlockedZones: i.unlockedZones,
     settings: i.settings,
-    login: loginView(i)
+    login: loginView(i),
+    // endgame (shared/endgame.js): ranked season, this week's numbers, bests
+    arena: arenaView(i),
+    weekly: { ...weekly(i) },
+    records: i.records || {}
   };
 }
 
@@ -1317,7 +1324,8 @@ function upgradeCostOf(i, e) {
         aether_core: r.cores
       } : {})
     },
-    gold: r.gold,
+    // the guild forge takes some off the gold (server/guilds.js)
+    gold: Math.round(r.gold * (1 - (i.guildPerks?.train || 0))),
     hours: Math.round(r.hours / a * 10) / 10,
     ms: Math.round(r.hours * HOUR_MS / a)
   };

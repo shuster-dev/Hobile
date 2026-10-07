@@ -467,6 +467,31 @@ body.ceremony #battle-hud{opacity:0;pointer-events:none;transition:opacity .45s}
 .gm-eco .eco-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .gm-eco h5{margin:0 0 4px;font-size:var(--t-sm)}
 .gm-eco .eco-row{display:flex;justify-content:space-between;gap:6px;font-size:var(--t-sm);padding:2px 0;border-bottom:1px solid var(--stroke)}
+.gate-head,.guild-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.gate-head .gate-ico{font-size:34px;width:52px;height:52px;display:grid;place-items:center;background:var(--raise);border:1px solid var(--stroke);border-radius:var(--r3)}
+.gate-head b,.guild-head b{font-size:var(--t-lg);display:block}.gate-head span,.guild-head span{font-size:var(--t-sm);color:var(--muted)}
+.gate-records{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 10px}
+.gate-records div{background:var(--raise);border:1px solid var(--stroke);border-radius:var(--r2);padding:8px 10px;display:flex;flex-direction:column}
+.gate-records span{font-size:var(--t-xs);color:var(--muted)}.gate-records b{font-size:var(--t-lg)}
+button.list-item.tier-row{width:100%;text-align:start;font:inherit;color:inherit;cursor:pointer}
+.list-item.tier-row.on{border-color:#ffc861;box-shadow:0 0 0 2px rgba(255,200,97,.25)}
+.gate-go,.arena-go{width:100%;margin-top:10px;padding:13px;font-size:var(--t-lg)}
+.arena-card{--tier:#ffc861;text-align:center;background:linear-gradient(160deg,color-mix(in srgb,var(--tier) 22%,transparent),var(--raise));border:1px solid color-mix(in srgb,var(--tier) 55%,transparent);border-radius:var(--r4);padding:14px 14px 12px;margin-bottom:8px}
+.arena-card .tier-ico{font-size:44px;line-height:1}.arena-card .tier-name{font-weight:800;color:var(--tier);margin-top:2px}
+.arena-card .rating{font-size:30px;font-weight:900;margin:2px 0 6px}
+.arena-card .bar{height:7px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden}.arena-card .bar i{display:block;height:100%;background:var(--tier)}
+.arena-card .sub{font-size:var(--t-xs);color:var(--muted);margin-top:4px}
+.arena-card .wl{display:flex;justify-content:space-around;margin-top:10px;font-size:var(--t-sm);color:var(--muted)}.arena-card .wl b{color:var(--text)}
+.arena-queue{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px;background:var(--raise);border:1px dashed var(--stroke-strong);border-radius:var(--r3);margin-top:10px}
+.arena-queue .spinner{width:26px;height:26px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:#ffc861;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.leaders-tabs{margin:0 0 8px!important;display:flex;gap:4px;overflow-x:auto;margin-bottom:8px;scrollbar-width:none}.leaders-tabs button{flex:0 0 auto}
+.rank-cell{width:30px;text-align:center;font-size:16px}
+.list-item.me{border-color:rgba(47,230,208,.6);background:rgba(47,230,208,.08)}
+.tag.big{font-size:var(--t-lg);font-weight:900;color:#ffc861}
+.guild-motd{background:var(--sunken);border-radius:var(--r2);padding:8px 10px;font-size:var(--t-sm);margin-bottom:6px;white-space:pre-wrap}
+.guild-log{font-size:var(--t-xs);color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.btn.danger-text{color:#ff8a7a}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">

@@ -6,6 +6,7 @@ import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, 
 import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
+import { ARENA, ARENA_TIERS, DUNGEON_TIERS, TOWER, arenaTier, canEnter, seasonEnds, weekEnds } from '../shared/endgame.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 
 /**
@@ -16,8 +17,8 @@ import { CELL, planFor } from '../shared/worldplan.js';
  * and stay hidden everywhere.
  */
 export const SOCIAL = !0;
-export const GUILDS = !1;
-const SOCIAL_PANELS = new Set(["friends", "party", "player", "guild"]);
+export const GUILDS = !0;
+const SOCIAL_PANELS = new Set(["friends", "party", "player", "guild", "arena"]);
 
 var $ = i => document.querySelector(i),
   el = (i, e, t) => {
@@ -571,7 +572,7 @@ var UI = class {
         <span>רמה ${ltr(`${a.minLevel}+`)} · ${ltr(a.floors)} קומות · עד ${ltr(a.partyMax)} שחקנים</span></div>`;
       let c = el("button", "btn small primary", "היכנס");
       c.onclick = () => {
-        this.hooks.dungeon?.(a.id), this.closePanel();
+        this.gate = a.id, this.openPanel("gate");
       }, l.appendChild(c), e.appendChild(l);
     }
   }
@@ -608,7 +609,7 @@ var UI = class {
   }
   openPanel(e) {
     if (!this.social && SOCIAL_PANELS.has(e) || e === "guild" && !GUILDS) return;
-    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), this.renderPanel(e);
+    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), e === "arena" && this.hooks.arenaView?.(), this.renderPanel(e);
   }
   closePanel() {
     this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearInterval(this._mapTimer), this._mapTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
@@ -631,6 +632,8 @@ var UI = class {
         base: "הבסיס",
         card: "כרטיס יצור",
         daily: "פרס יומי ואירועים",
+        gate: "כניסה למבוך",
+        arena: "הזירה המדורגת",
         dex: "אוסף היצורים",
         species: "יומן המינים",
         clinic: "מרפאת הגאות",
@@ -662,6 +665,8 @@ var UI = class {
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
       daily: () => this.panelDaily(o),
+      gate: () => this.panelGate(o),
+      arena: () => this.panelArena(o),
       dex: () => this.panelDex(o),
       species: () => this.panelSpecies(o),
       clinic: () => this.panelClinic(o),
@@ -981,7 +986,7 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎁 פרס יומי", "daily"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
     n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
@@ -994,6 +999,8 @@ var UI = class {
         };
       } else if (h === "__fullscreen") {
         d.onclick = () => this.hooks.fullscreen?.();
+      } else if (h === "__tower") {
+        d.onclick = () => (this.gate = TOWER.id, this.openPanel("gate"));
       } else d.onclick = () => this.openPanel(h);
       t.appendChild(d);
     }
@@ -1532,72 +1539,105 @@ var UI = class {
     }
     host.classList.remove("hidden"), host.innerHTML = others.map(m => `<div class="pm ${m.online ? "" : "off"}"><span class="nm">${m.id === p.leaderId ? "👑 " : ""}${Ze(m.name)}</span><span class="st">${m.status === "battle" ? "⚔" : m.status === "dungeon" ? "🕳" : m.zone && m.zone !== this.zone?.id ? "↗" : ""}</span><div class="bar hp"><i style="width:${Math.round((m.hp ?? 1) * 100)}%"></i></div></div>`).join("");
   }
+  /**
+   * The guild (server/guilds.js): without one, found or join one; with one,
+   * its buffs and what the next costs, the treasury, the house, the roster
+   * (officers can remove members, the master can promote), and the log.
+   */
   panelGuild(e) {
-    let t = this.guild;
+    let t = this.guild, me = this.profile?.id;
     if (!t) {
       let h = el("div", "empty");
       h.innerHTML = `<span class="ico">🛡</span>אינך חבר בגילדה
-        <span class="sub">הקמת גילדה עולה ${ltr(`${GUILD.createCost.toLocaleString("en-US")}⛁`)}</span>`, e.appendChild(h), e.appendChild(section("הקמת גילדה"));
-      let d = textInput("שם הגילדה"),
-        u = textInput("תג (עד 4 תווים)");
+        <span class="sub">גילדה נותנת באפים בקרב, בית עם שדרוגים, צ'אט משלה ותג מעל הראש</span>`, e.appendChild(h), e.appendChild(section("הצטרפות לגילדה"));
+      let x = el("div", "stack");
+      x.style.cssText = "display:flex;flex-direction:column;gap:var(--s2)", x.appendChild(emptyState("🛡", "טוען…", null, "loading")), e.appendChild(x);
+      (async () => {
+        let g = (await this.hooks.guildList?.()) || [];
+        if (this.openPanelId !== "guild" || !x.isConnected) return;
+        if (x.innerHTML = "", !g.length) return x.appendChild(emptyState("🛡", "אין גילדות עדיין", "הקם את הראשונה"));
+        for (let m of g) {
+          let v = el("div", "list-item");
+          v.innerHTML = `<div class="grow"><b><span class="tag">[${Ze(m.tag)}]</span> ${Ze(m.name)}</b>
+            <span>${ltr(`${m.members}/${m.cap}`)} חברים · ${ltr(m.online)} מחוברים · באפים רמה ${ltr(m.buffLevel)}</span></div>`;
+          let E = el("button", "btn small primary", m.open ? m.members >= m.cap ? "מלאה" : "הצטרף" : "סגורה");
+          E.disabled = !m.open || m.members >= m.cap, E.onclick = () => this.hooks.guildJoin?.(m.id), v.appendChild(E), x.appendChild(v);
+        }
+      })();
+      e.appendChild(section("הקמת גילדה", ltr(`${GUILD.createCost.toLocaleString("en-US")}⛁`)));
+      let d = textInput("שם הגילדה (3–20 תווים)"),
+        u = textInput("תג (2–4 אותיות)");
       u.maxLength = 4;
       let f = el("button", "btn primary", "הקם גילדה");
-      f.onclick = () => this.hooks.guildCreate?.(d.value.trim(), u.value.trim()), e.append(d, u, f), e.appendChild(section("הצטרפות לגילדה קיימת"));
-      let p = el("button", "btn", "הצג גילדות קיימות"),
-        x = el("div", "stack");
-      x.style.cssText = "display:flex;flex-direction:column;gap:var(--s2)", p.onclick = async () => {
-        p.disabled = !0, x.innerHTML = "", x.appendChild(emptyState("🛡", "טוען…", null, "loading"));
-        let g = (await this.hooks.guildList?.()) || [];
-        if (this.openPanelId === "guild") {
-          if (p.disabled = !1, x.innerHTML = "", !g.length) {
-            x.appendChild(emptyState("🛡", "אין גילדות עדיין", "הקם את הראשונה"));
-            return;
-          }
-          for (let m of g) {
-            let v = el("div", "list-item");
-            v.innerHTML = `<div class="grow"><b>${ltr(`[${Ze(m.tag)}]`)} ${Ze(m.name)}</b>
-            <span>${ltr(m.members)} חברים · באפים רמה ${ltr(m.buffLevel)}</span></div>`;
-            let E = el("button", "btn small primary", "הצטרף");
-            E.onclick = () => this.hooks.guildJoin?.(m.id), v.appendChild(E), x.appendChild(v);
-          }
-        }
-      }, e.append(p, x);
+      f.disabled = (this.profile?.gold || 0) < GUILD.createCost, f.onclick = () => this.hooks.guildCreate?.(d.value.trim(), u.value.trim()), e.append(d, u, f);
       return;
     }
-    let n = el("div", "list-item");
-    n.innerHTML = `<div class="grow"><b>${ltr(`[${Ze(t.tag)}]`)} ${Ze(t.name)}</b>
-      <span>${ltr(t.members.length)} חברים · תרומה ${ltr(`${t.contribution.toLocaleString("en-US")}⛁`)} · באפים רמה ${ltr(t.buffLevel)}</span></div>`, e.appendChild(n);
-    let s = GUILD.buffs.filter(h => h.level <= t.buffLevel).map(h => `${Ze(loc(h))} ${ltr(`(${Object.entries(h.bonus).map(([d, u]) => `${d} +${Math.round(u * 100)}%`).join(", ")})`)}`).join(" · "),
-      r = el("div", "list-item");
-    if (r.innerHTML = `<div class="grow"><b>באפים פעילים</b><span>${s || "—"}</span></div>`, e.appendChild(r), t.territories?.length) {
-      let h = el("div", "list-item");
-      h.innerHTML = `<div class="grow"><b>שטחים בשליטה</b>
-        <span>${t.territories.map(d => Ze(loc(ZONES[d]))).join(" · ")}</span></div>`, e.appendChild(h);
+    let rank = t.myRank, officer = rank === "officer" || rank === "master", master = rank === "master",
+      statHe = { hp: "חיים", atk: "התקפה", def: "הגנה", spa: "מיוחדת", spd: "עמידות", spe: "מהירות", gold: "זהב", xp: "ניסיון", cdr: "טעינה" },
+      bonus = b => Object.entries(b.bonus).map(([k, v]) => `${statHe[k] || k} +${Math.round(v * 100)}%`).join(" · "),
+      head = el("div", "guild-head");
+    head.innerHTML = `<div class="tag big">[${Ze(t.tag)}]</div><div class="grow"><b>${Ze(t.name)}</b><span>${ltr(`${t.members.length}/${t.cap}`)} חברים · ${ltr(t.members.filter(m => m.online).length)} מחוברים</span></div><span class="pill">${rank === "master" ? "👑 מוביל" : rank === "officer" ? "⭐ קצין" : "חבר"}</span>`, e.appendChild(head);
+    if (t.motd || officer) {
+      let m = el("div", "guild-motd");
+      m.textContent = t.motd || "אין הודעה לחברים", e.appendChild(m);
+      if (officer) {
+        let row = el("div", "row"), inp = textInput("הודעה לחברים");
+        inp.maxLength = 140, inp.value = t.motd || "";
+        let b = el("button", "btn small", "עדכן");
+        b.style.flex = "0 0 72px", b.onclick = () => this.hooks.guildSettings?.({ motd: inp.value }), row.append(inp, b), e.appendChild(row);
+      }
     }
-    e.appendChild(section("תרומה"));
+    e.appendChild(section("באפים", `רמה ${ltr(t.buffLevel)}`));
+    for (let b of GUILD.buffs) {
+      let on = b.level <= t.buffLevel, r = el("div", `list-item ${on ? "ready" : "lacking"}`);
+      r.innerHTML = `<div class="ico-lg">${on ? "✨" : "🔒"}</div><div class="grow"><b>${Ze(loc(b))}</b><span>${bonus(b)}</span></div>${on ? "" : `<span class="pill mono">${ltr(`${Math.min(t.total, b.cost).toLocaleString("en-US")}/${b.cost.toLocaleString("en-US")}`)}</span>`}`, e.appendChild(r);
+    }
+    e.appendChild(section("תרומה לקופה", ltr(`${(t.treasury || 0).toLocaleString("en-US")}⛁ בקופה`)));
     let o = el("div", "row"),
-      a = textInput("סכום לתרומה");
-    a.type = "number", a.inputMode = "numeric", a.min = "1", a.value = "1000", a.dir = "ltr";
+      a = textInput("סכום");
+    a.type = "number", a.inputMode = "numeric", a.min = "100", a.value = "1000", a.dir = "ltr";
     let l = el("button", "btn primary small", "תרום");
-    l.style.flex = "0 0 90px", l.onclick = () => this.hooks.guildContribute?.(Number(a.value) || 0), o.append(a, l), e.appendChild(o), e.appendChild(section("בית הגילדה"));
+    l.style.flex = "0 0 90px", l.onclick = () => this.hooks.guildContribute?.(Number(a.value) || 0), o.append(a, l), e.appendChild(o);
+    e.appendChild(section("בית הגילדה"));
     for (let h of GUILD.houseUpgrades) {
       let d = t.house.includes(h.id),
         u = el("div", `list-item ${d ? "ready" : ""}`);
-      if (u.innerHTML = `<div class="grow"><b>${Ze(loc(h))}</b>
-        <span>${Ze(h.effect)} · ${ltr(`${h.cost.toLocaleString("en-US")}⛁`)}</span></div>`, d) u.appendChild(el("span", "pill good", "נרכש"));else if (t.masterId === this.profile?.id) {
-        let f = el("button", "btn small primary", "שדרג");
-        f.disabled = t.contribution < h.cost, f.onclick = () => this.hooks.guildUpgrade?.(h.id), u.appendChild(f);
+      if (u.innerHTML = `<div class="ico-lg">${d ? "🏛" : "🏗"}</div><div class="grow"><b>${Ze(loc(h))}</b><span>${Ze(h.effect)} · ${ltr(`${h.cost.toLocaleString("en-US")}⛁`)}</span></div>`, d) u.appendChild(el("span", "pill good", "נבנה"));
+      else if (officer) {
+        let f = el("button", "btn small primary", "בנה");
+        f.disabled = (t.treasury || 0) < h.cost, f.onclick = () => this.hooks.guildUpgrade?.(h.id), u.appendChild(f);
       }
       e.appendChild(u);
     }
-    e.appendChild(section("חברים", `${ltr(t.members.length)}`));
+    e.appendChild(section("חברים", ltr(t.members.length)));
     for (let h of t.members) {
       let d = el("div", "list-item");
       d.innerHTML = `<div class="dot ${h.online ? "on" : ""}"></div>
         <div class="grow"><b>${Ze(h.name)} ${h.rank === "master" ? "👑" : h.rank === "officer" ? "⭐" : ""}</b>
-        <span>${lvlLabel(h.level)} · תרומה ${ltr(h.contribution.toLocaleString("en-US"))}</span></div>`, e.appendChild(d);
+        <span>${lvlLabel(h.level)} · תרם ${ltr(h.contributed.toLocaleString("en-US"))}${h.online && h.where ? ` · ${h.where === "battle" ? "בקרב" : h.where === "dungeon" ? "במבוך" : Ze(loc(ZONES[h.zone]) || "")}` : ""}</span></div>`;
+      if (h.id !== me) {
+        if (master && h.rank !== "master") {
+          let pr = el("button", "btn small ghost", h.rank === "officer" ? "הורד" : "קדם");
+          pr.onclick = () => this.hooks.guildRank?.(h.id, h.rank === "officer" ? "member" : "officer"), d.appendChild(pr);
+        }
+        if (officer && (master ? h.rank !== "master" : h.rank === "member")) {
+          let k = el("button", "btn small ghost danger-text", "הוצא");
+          k.onclick = () => this.hooks.guildKick?.(h.id), d.appendChild(k);
+        }
+      }
+      e.appendChild(d);
     }
-    let c = el("button", "btn danger", "עזוב גילדה");
+    if (officer) {
+      let tg = el("button", "btn ghost", t.open ? "🔓 פתוחה לכולם — סגור" : "🔒 סגורה — פתח");
+      tg.onclick = () => this.hooks.guildSettings?.({ open: !t.open }), e.appendChild(tg);
+    }
+    if (t.log?.length) {
+      e.appendChild(section("יומן"));
+      let lg = el("div", "guild-log");
+      for (let x of t.log.slice(0, 12)) lg.appendChild(el("div", "", `${new Date(x.t).toLocaleDateString("he-IL", { day: "numeric", month: "numeric" })} · ${x.text}`));
+      e.appendChild(lg);
+    }
+    let c = el("button", "btn danger", master && t.members.length > 1 ? "עזוב (ההובלה תעבור הלאה)" : t.members.length > 1 ? "עזוב גילדה" : "פרק את הגילדה");
     c.style.marginTop = "var(--s3)", c.onclick = () => this.hooks.guildLeave?.(), e.appendChild(c);
   }
   panelClinic(e) {
@@ -1662,29 +1702,117 @@ var UI = class {
       o.disabled = t < s.price, o.setAttribute("aria-label", `קנה ${loc(s)}`), o.onclick = () => this.hooks.buy?.(s.id, 1), r.appendChild(o), e.appendChild(r);
     }
   }
+  /** The boards: for all time (level, gold, captures), this arena season,
+   *  and this week (the tower, the world bosses). */
   async panelLeaders(e) {
-    e.appendChild(emptyState("🏆", "טוען…", null, "loading"));
-    let t = (await this.hooks.leaderboard?.()) || [];
-    if (!(this.openPanelId !== "leaders" || !e.isConnected)) {
-      if (e.innerHTML = "", !t.length) {
-        e.appendChild(emptyState("🏆", "אין נתונים עדיין"));
-        return;
-      }
-      for (let n of t) {
-        let s = el("div", "list-item");
-        s.innerHTML = `<div class="mono" style="width:26px;text-align:center;opacity:.7">${ltr(n.rank)}</div>
-        <div class="dot ${n.online ? "on" : ""}"></div>
-        <div class="grow"><b>${Ze(n.name)}</b>
-        <span>${lvlLabel(n.level)} · ${ltr(n.stats?.captures || 0)} לכידות · ${ltr(n.stats?.dungeonsCleared || 0)} מבוכים</span></div>`, e.appendChild(s);
+    let kinds = [["level", "רמה"], ["arena", "⚔ זירה"], ["tower", "🗼 מגדל"], ["boss", "🐉 בוסים"], ["captures", "לכידות"], ["gold", "זהב"]],
+      k = this.leadersKind || "level",
+      tabs = el("div", "tabs leaders-tabs");
+    for (let [id, label] of kinds) {
+      let b = el("button", id === k ? "on" : "", label);
+      b.onclick = () => (this.leadersKind = id, this.renderPanel("leaders")), tabs.appendChild(b);
+    }
+    e.appendChild(tabs);
+    let note = el("div", "hint");
+    note.innerHTML = k === "arena" ? `עונה ${ltr(this.profile?.arena?.season || "")} · נגמרת בעוד <span dir="ltr">${formatClock(seasonEnds() - Date.now())}</span>` : k === "tower" || k === "boss" ? `השבוע · מתאפס בעוד <span dir="ltr">${formatClock(weekEnds() - Date.now())}</span>` : "";
+    note.textContent && e.appendChild(note);
+    let box = el("div", "stack");
+    box.appendChild(emptyState("🏆", "טוען…", null, "loading")), e.appendChild(box);
+    let t = (await this.hooks.leaderboard?.(k)) || [];
+    if (this.openPanelId !== "leaders" || !box.isConnected) return;
+    if (box.innerHTML = "", !t.length) return box.appendChild(emptyState("🏆", k === "tower" ? "אף אחד לא טיפס השבוע — תהיה הראשון" : k === "arena" ? "אין עדיין קרבות מדורגים העונה" : "אין נתונים עדיין"));
+    for (let n of t) {
+      let s = el("div", `list-item ${n.id === this.profile?.id ? "me" : ""}`),
+        medal = n.rank === 1 ? "🥇" : n.rank === 2 ? "🥈" : n.rank === 3 ? "🥉" : ltr(n.rank),
+        val = k === "arena" ? `${arenaTier(n.rating).icon} ${ltr(n.rating)}` : k === "tower" ? `קומה ${ltr(n.tower)}` : k === "boss" ? `${ltr((n.boss || 0).toLocaleString("en-US"))} נזק` : k === "gold" ? ltr(`${(n.gold || 0).toLocaleString("en-US")}⛁`) : k === "captures" ? `${ltr(n.stats?.captures || 0)} לכידות` : lvlLabel(n.level);
+      s.innerHTML = `<div class="mono rank-cell">${medal}</div>
+        <div class="grow"><b>${Ze(n.name)}</b><span>${lvlLabel(n.level)}</span></div>
+        <div class="pill">${val}</div>`, box.appendChild(s);
+    }
+  }
+  /**
+   * A dungeon's door: its tiers, what each asks and pays, who comes along.
+   * The tower has the same door, with its records on it.
+   */
+  panelGate(e) {
+    let id = this.gate, tower = id === TOWER.id, d = tower ? TOWER : DUNGEONS[id], p = this.profile;
+    if (!d || !p) return e.appendChild(emptyState("🕳", "אין כאן מבוך"));
+    let el0 = ELEMENTS[d.element] || null,
+      head = el("div", "gate-head");
+    head.innerHTML = `<div class="gate-ico">${tower ? "🗼" : el0?.icon || "🕳"}</div><div class="grow"><b>${Ze(loc(d))}</b><span>${tower ? `רמה ${ltr(`${d.minLevel}+`)} · אין סוף · שומר כל 5 קומות` : `רמה ${ltr(`${d.minLevel}+`)} · ${ltr(d.floors)} קומות · עד ${ltr(d.partyMax || 4)} שחקנים`}</span></div>`, e.appendChild(head);
+    let party = this.party?.members?.filter(m => m.id !== p.id && m.online) || [];
+    if (tower) {
+      let rec = el("div", "gate-records");
+      rec.innerHTML = `<div><span>השיא שלך</span><b>קומה ${ltr(p.records?.towerBest || 0)}</b></div><div><span>השבוע</span><b>קומה ${ltr(p.weekly?.tower || 0)}</b></div>`, e.appendChild(rec);
+      let how = el("div", "empty plain");
+      how.textContent = "כל קומה חזקה מהקודמת ומיסוד אחר. בכל קומה חמישית שומר — ואחריו תיבה. הטיפוס נגמר כשהקבוצה נופלת או כשבורחים, ומה שנאסף נשאר שלך.", e.appendChild(how);
+    } else {
+      e.appendChild(section("דרגת קושי"));
+      let pick = this.gateTier || "normal";
+      for (let tr of DUNGEON_TIERS) {
+        let can = canEnter(p, d, tr.id),
+          r = el("button", `list-item tier-row ${pick === tr.id ? "on" : ""} ${can.ok ? "" : "lacking"}`);
+        r.type = "button", r.innerHTML = `<div class="ico-lg">${tr.icon}</div><div class="grow"><b>${Ze(tr.he)}</b><span>${tr.lvl ? `יריבים +${ltr(tr.lvl)} רמות · ` : ""}פרס ×${ltr(tr.reward)}</span></div>${can.ok ? pick === tr.id ? "<span class=\"pill good\">✓</span>" : "" : `<span class="pill">${can.code === "tier_locked" ? "🔒 נקה את הקודם" : `רמה ${ltr(can.need)}`}</span>`}`;
+        r.disabled = !can.ok, r.onclick = () => (this.gateTier = tr.id, this.renderPanel("gate")), e.appendChild(r);
       }
     }
+    let who = el("div", "hint");
+    who.textContent = party.length ? `${party.map(m => m.name).join(", ")} יקבלו הזמנה להצטרף` : this.social ? "אפשר להיכנס לבד, או להזמין קבוצה (⚔ קבוצה) ולהיכנס יחד" : "", who.textContent && e.appendChild(who);
+    let tier = tower ? "normal" : this.gateTier || "normal",
+      can = canEnter(p, d, tier),
+      go = el("button", "btn primary gate-go", can.ok ? tower ? "🗼 התחל לטפס" : party.length ? "היכנסו יחד" : "היכנס" : can.code === "level_too_low" ? `צריך רמה ${can.need}` : "נעול");
+    go.disabled = !can.ok, go.onclick = () => (this.hooks.dungeon?.(d.id, tier), this.closePanel()), e.appendChild(go);
+  }
+  /** The ranked arena: rating, tier, the season, and the queue. */
+  panelArena(e) {
+    let a = this.arena || this.profile?.arena;
+    if (!this.social) return e.appendChild(emptyState("⚔", "הזירה פתוחה רק במשחק המקוון"));
+    if (!a) return e.appendChild(emptyState("⚔", "טוען…", null, "loading"));
+    let t = ARENA_TIERS.find(x => x.id === a.tier) || arenaTier(a.rating || ARENA.start),
+      card = el("div", "arena-card");
+    card.style.setProperty("--tier", {bronze: "#c98a55", silver: "#c8d2e0", gold: "#ffc861", platinum: "#7fe0d8", diamond: "#9fc4ff", legend: "#ff9be0"}[t.id] || "#ffc861");
+    let next = a.next ? Math.max(0, Math.min(100, (a.rating - t.from) / Math.max(1, a.next.from - t.from) * 100)) : 100;
+    card.innerHTML = `<div class="tier-ico">${t.icon}</div><div class="tier-name">${Ze(t.he)}</div><div class="rating mono" dir="ltr">${a.rating}</div>
+      <div class="bar"><i style="width:${next}%"></i></div><div class="sub">${a.next ? `עוד ${ltr(a.next.from - a.rating)} לדרגה הבאה` : "הדרגה הגבוהה ביותר"}</div>
+      <div class="wl"><span>ניצחונות <b>${ltr(a.wins || 0)}</b></span><span>הפסדים <b>${ltr(a.losses || 0)}</b></span><span>שיא העונה <b>${ltr(a.best || a.rating)}</b></span></div>`, e.appendChild(card);
+    let info = el("div", "hint");
+    info.innerHTML = `עונה ${ltr(a.season || "")} · נגמרת בעוד <span dir="ltr">${formatClock((a.ends || seasonEnds()) - Date.now())}</span> · כל היצורים נלחמים ברמה ${ltr(ARENA.level)}, בלי באפים`, e.appendChild(info);
+    if (a.pending) {
+      let pt = ARENA_TIERS.find(x => x.id === a.pending.tier) || ARENA_TIERS[0],
+        r = el("div", "list-item ready");
+      r.innerHTML = `<div class="ico-lg">${pt.icon}</div><div class="grow"><b>פרס עונה ${ltr(a.pending.season)}</b><span>דרגת ${Ze(pt.he)} · ${ltr(`${pt.reward.gold.toLocaleString("en-US")}⛁`)}</span></div>`;
+      let b = el("button", "btn small primary", "קבל");
+      b.onclick = () => (b.disabled = !0, this.hooks.arenaClaim?.()), r.appendChild(b), e.appendChild(r);
+    }
+    if (a.queued) {
+      let q = el("div", "arena-queue");
+      q.innerHTML = `<div class="spinner"></div><b>מחפש יריב ברמה שלך…</b><span class="mono" dir="ltr" data-since="${a.since || Date.now()}">0:00</span>`;
+      let c = el("button", "btn ghost", "בטל חיפוש");
+      c.onclick = () => this.hooks.arenaCancel?.(), q.appendChild(c), e.appendChild(q);
+      clearInterval(this._arenaTimer), this._arenaTimer = setInterval(() => {
+        let s = document.querySelector(".arena-queue [data-since]");
+        if (!s) return clearInterval(this._arenaTimer);
+        let n = Math.max(0, Math.floor((Date.now() - Number(s.dataset.since)) / 1e3));
+        s.textContent = `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+      }, 1e3);
+    } else {
+      let b = el("button", "btn primary arena-go", "⚔ חפש יריב");
+      b.onclick = () => this.hooks.arenaQueue?.(), e.appendChild(b);
+    }
+    e.appendChild(section("פרסי סוף עונה"));
+    for (let x of ARENA_TIERS) {
+      let r = el("div", `list-item ${x.id === t.id ? "me" : ""}`);
+      r.innerHTML = `<div class="ico-lg">${x.icon}</div><div class="grow"><b>${Ze(x.he)}</b><span>מ‑${ltr(x.from)}</span></div><span class="pill">${ltr(`${x.reward.gold.toLocaleString("en-US")}⛁`)}</span>`, e.appendChild(r);
+    }
+    let lb = el("button", "btn ghost", "🏆 טבלת הזירה");
+    lb.onclick = () => (this.leadersKind = "arena", this.openPanel("leaders")), e.appendChild(lb);
   }
   panelChat(e) {
     let t = el("div", "log");
     for (let l of this.chatLog.slice(-120)) t.appendChild(el("div", `ch-${l.ch}`, this.chatLine(l)));
     e.appendChild(t);
     let n = el("div", "tabs"),
-      channels = this.social ? ["zone", "world", "party", "whisper"] : ["zone"];
+      channels = this.social ? ["zone", "world", "party", ...(this.guild ? ["guild"] : []), "whisper"] : ["zone"];
     // One channel needs no tabs; and a channel it no longer offers is not the
     // one it sends on.
     channels.includes(this.chatChannel) || (this.chatChannel = "zone"), channels.length < 2 && n.classList.add("hidden");

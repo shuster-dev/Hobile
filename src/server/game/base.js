@@ -9,6 +9,7 @@ import { populate, tickWilds } from './wilds.js';
 import { FIELD, fieldHint, keepSpot, savedSpot, tickField } from './field.js';
 import { weatherAt } from '../../shared/weather.js';
 import { earn, spend } from './economy.js';
+import { PartyDungeon } from './party-dungeon.js';
 import { eventMul } from '../../shared/events.js';
 
 var StoreBase = class {
@@ -678,198 +679,50 @@ var StoreBase = class {
       }
     }
   },
+  // The single-player dungeon: the same run the online room drives
+  // (game/party-dungeon.js), with one player in it.
   DungeonSim = class {
     constructor(e, {
       def: t,
-      allies: n
+      tier: tr = "normal"
     }) {
-      this.net = e, this.def = t, this.allies = n || [], this.roomId = "dungeon-" + uid().slice(0, 6), this.sessionId = "me", this.floor = 0, this.totalXp = 0, this.totalGold = 0, this.state = {
+      this.net = e, this.def = t, this.roomId = "dungeon-" + uid().slice(0, 6), this.sessionId = "me", this.state = {
         mode: "dungeon",
         phase: "waiting",
         finished: !1,
         outcome: "",
         dungeonId: t.id,
         floor: 0,
-        floors: t.floors,
+        floors: t.floors || 0,
         combatants: new Map()
-      }, this.sim = new Combat({
-        mode: "dungeon",
-        onEvent: r => this.onSimEvent(r)
+      };
+      this.run = new PartyDungeon({
+        def: t,
+        tier: tr,
+        broadcast: (n, s) => this.net.emit(n, s),
+        onEnd: () => this.net.save()
       });
+      this.run.onSync = () => {
+        this.state.phase = this.run.phase, this.state.floor = this.run.floor, syncBattleState(this.state, this.run.sim);
+      };
       let s = e.doc;
-      this.you = this.sim.add(new Combatant({
-        side: "a",
-        kind: "player",
-        name: s.name,
-        creature: activeCreature(s),
-        ownerId: s.id,
-        gearBonus: sumStats(s)
-      }));
-      for (let r of this.allies) {
-        let o = r.petSpecies || t.trash[0];
-        this.sim.add(new Combatant({
-          side: "a",
-          kind: "ally",
-          name: r.name,
-          creature: makeCreature(o, Math.max(1, this.you.level))
-        }));
-      }
+      this.run.addPlayer(s, (n, r) => this.net.emit(n, r)), this.sim = this.run.sim;
+    }
+    get you() {
+      let p = this.run.parts.get(this.net.doc.id);
+      return p ? this.run.you(p) : null;
     }
     start() {
-      this.sync(), setTimeout(() => {
-        this.net.emit("dungeonInit", {
-          dungeon: {
-            id: this.def.id,
-            name: this.def.name,
-            he: this.def.he,
-            floors: this.def.floors,
-            element: this.def.element
-          },
-          you: this.you.id,
-          inventory: this.net.doc.inventory,
-          profile: publicProfile(this.net.doc)
-        });
-      }, 80), this.timer = setInterval(() => {
-        this.state.phase === "active" && (this.sim.update(100), this.sync());
-      }, 100), setTimeout(() => this.nextFloor(), 1600);
+      this.run.start();
     }
     stop() {
-      clearInterval(this.timer);
+      this.run.stop();
     }
     sync() {
-      syncBattleState(this.state, this.sim);
-    }
-    partyLevel() {
-      let e = [...this.sim.combatants.values()].filter(t => t.side === "a").map(t => t.level);
-      return Math.max(1, Math.round(e.reduce((t, n) => t + n, 0) / Math.max(1, e.length)));
-    }
-    nextFloor() {
-      if (this.finished) return;
-      this.floor += 1, this.state.floor = this.floor;
-      for (let s of [...this.sim.combatants.values()]) s.side === "b" && (this.sim.combatants.delete(s.id), this.state.combatants.delete(s.id));
-      let e = this.floor >= this.def.floors,
-        t = Math.max(this.def.minLevel, this.partyLevel() + (e ? 2 : 0)),
-        n = e ? 1 : Math.min(3, 1 + Math.floor(this.floor / 2));
-      for (let s = 0; s < n; s++) {
-        let r = e ? this.def.boss : this.def.trash[Math.floor(Math.random() * this.def.trash.length)];
-        this.sim.add(new Combatant({
-          side: "b",
-          kind: e ? "boss" : "wild",
-          name: SPECIES[r].name,
-          creature: makeCreature(r, t),
-          hpScale: e ? 2.4 : 1
-        }));
-      }
-      this.state.phase = "active", this.sim.finished = !1, this.sync(), this.net.emit("floor", {
-        floor: this.floor,
-        of: this.def.floors,
-        boss: e
-      });
-    }
-    onSimEvent(e) {
-      if (this.net.emit("battleEvent", e), e.kind === "end") if (e.outcome === "a") {
-        for (let t of this.sim.combatants.values()) t.side === "b" && (this.totalXp += creaturePower(t, this.partyLevel()), this.totalGold += creatureScore(t));
-        for (let t of this.sim.combatants.values()) t.side !== "a" || !t.alive || (t.hp = Math.min(t.maxHp, t.hp + Math.floor(t.maxHp * 0.22)), t.stamina = PROGRESSION.staminaMax);
-        this.state.phase = "waiting", this.sync(), this.floor >= this.def.floors ? this.complete(!0) : (this.net.emit("floorCleared", {
-          floor: this.floor
-        }), setTimeout(() => this.nextFloor(), 2200));
-      } else this.state.phase = "over", this.complete(!1);
-    }
-    complete(e) {
-      if (this.finished) return;
-      this.finished = !0, this.state.phase = "over";
-      let t = this.net.doc,
-        n = activeCreature(t);
-      t.calmUntil = Date.now() + FIELD.battleCalmMs;
-      n && (n.hp = Math.max(1, Math.round(this.you.hp))), e || healTeam(t, 1);
-      let s = Math.floor(this.totalXp * (e ? 1 : 0.35) * eventMul("xp")),
-        r = Math.floor(this.totalGold * (e ? 1 : 0.35) * eventMul("gold"));
-      earn(t, r, "dungeon");
-      let o = [];
-      n && o.push(...grantXpTo(n, s, t)), o.push(...grantXp(t, Math.floor(s * 0.7)));
-      let a = [],
-        l = [];
-      if (e) {
-        t.stats.dungeonsCleared += 1;
-        let c = 1 + (Math.random() < 0.4 ? 1 : 0);
-        for (let h = 0; h < c; h++) {
-          let d = this.def.rewards.items[Math.floor(Math.random() * this.def.rewards.items.length)];
-          giveItem(t, d, 1), a.push(d);
-        }
-        l = syncQuests(t, {
-          kind: "dungeon",
-          target: this.def.id
-        });
-      }
-      this.net.save(), this.net.emit("dungeonEnd", {
-        success: e,
-        xp: s,
-        gold: r,
-        items: a,
-        events: o,
-        questsDone: l,
-        floors: this.floor,
-        of: this.def.floors,
-        profile: publicProfile(t)
-      });
+      this.run.sync();
     }
     handle(e, t = {}) {
-      if (e === "ready") {
-        this.net.emit("dungeonInit", {
-          dungeon: {
-            id: this.def.id,
-            name: this.def.name,
-            he: this.def.he,
-            floors: this.def.floors,
-            element: this.def.element
-          },
-          you: this.you.id,
-          inventory: this.net.doc.inventory,
-          profile: publicProfile(this.net.doc)
-        });
-        return;
-      }
-      if (this.state.phase === "active") {
-        if (e === "swap") {
-          let n = swapToUid(this.sim, this.you, t.uid);
-          n.ok || this.net.emit("actionRejected", {
-            reason: n.reason,
-            uid: t.uid
-          });
-          this.sync();
-          return;
-        }
-        if (e === "skill") {
-          let n = this.sim.useSkill(this.you.id, t.skill);
-          n.ok || this.net.emit("actionRejected", {
-            reason: n.reason,
-            skill: t.skill
-          }), this.sync();
-        } else if (e === "trainer") {
-          if (t.action === "sphere") {
-            this.net.emit("actionRejected", {
-              reason: "no_capture_in_dungeon"
-            });
-            return;
-          }
-          if (t.action === "potion") {
-            let n = ITEMS[t.item]?.kind === "heal" ? t.item : "potion_s";
-            if (!takeItem(this.net.doc, n, 1)) {
-              this.net.emit("actionRejected", {
-                reason: "no_item"
-              });
-              return;
-            }
-            this.you.hp = Math.min(this.you.maxHp, this.you.hp + ITEMS[n].amount), this.net.emit("inventory", this.net.doc.inventory);
-          } else {
-            let n = this.sim.trainerAction(this.you.id, t.action);
-            n.ok || this.net.emit("actionRejected", {
-              reason: n.reason
-            });
-          }
-          this.sync();
-        }
-      }
+      this.run.handle(this.net.doc.id, e, t);
     }
   };
 
