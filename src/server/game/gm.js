@@ -17,6 +17,8 @@ import { ITEMS, PROGRESSION, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { activeCreature, addCreature, creatureCard, dexRecord, giveItem, healTeam, isWorker, makeCreature, publicProfile, takeItem, unassignWorker } from './combat.js';
 import { hpRatio } from './player.js';
 import { earn, economyReport, spend } from './economy.js';
+import { setSaddle } from './saddles.js';
+import { mountKind } from '../../shared/riding.js';
 
 export const GM_LIMITS = {
   gold: 10_000_000,        // most gold in one gift
@@ -294,7 +296,7 @@ export function handleGm(ctx, t = {}) {
       if (!target) return fail('player_offline');
       const doc = target.doc, order = new Map((doc.team || []).map((u, i) => [u, i]));
       const list = Object.values(doc.creatures || {}).filter(Boolean)
-        .map((c) => ({ uid: c.uid, species: c.species, level: c.level, star: c.star || 1, shiny: !!c.shiny, where: whereIs(doc, c.uid) }))
+        .map((c) => ({ uid: c.uid, species: c.species, level: c.level, star: c.star || 1, shiny: !!c.shiny, where: whereIs(doc, c.uid), saddle: !!c.saddle, rides: !!mountKind(c.species, c.star || 1) }))
         .sort((a, b) => (order.get(a.uid) ?? 99) - (order.get(b.uid) ?? 99) || b.level - a.level);
       ctx.net.emit('gm', { kind: 'creatures', to: doc.id, list });
       return;
@@ -332,12 +334,14 @@ export function handleGm(ctx, t = {}) {
     case 'teleport': {
       // To a zone: arrive at its camp, like any journey. To a player: arrive
       // beside them, wherever they are standing.
-      let zone, beside = null;
+      let zone, beside = null, room = null;
       if (t.player) {
         const other = ctx.gm.reach(String(t.player));
         const p = other?.self?.();
         if (!other || !p) return fail('player_offline');
         zone = other.zoneId;
+        // the same channel as them, not just the same zone
+        room = other.roomId || null;
         beside = { x: p.x + 1.2, z: p.z + 0.6, name: other.doc.name };
       } else {
         if (!own(ZONES, t.zone)) return fail('bad_zone');
@@ -351,7 +355,70 @@ export function handleGm(ctx, t = {}) {
       done({ zone, beside: beside?.name || null });
       // Same message a portal sends. Without `fromZone` the arrival uses the
       // spot just written, which is what puts a warp next to the player.
-      ctx.net.emit('goto', beside ? { kind: 'world', zone } : { kind: 'world', zone, fromZone: ctx.zoneId });
+      ctx.net.emit('goto', beside ? { kind: 'world', zone, ...(room ? { room } : {}) } : { kind: 'world', zone, fromZone: ctx.zoneId });
+      return;
+    }
+
+    case 'bring': {
+      // The other way round: a player brought to stand beside the GM, from
+      // wherever they are in the world, into this very channel. Not someone
+      // in a fight or a dungeon (they are not in a world room to move).
+      const target = targetOf(ctx, t.to);
+      if (!target) return fail('player_offline');
+      if (target.me) return fail('not_yourself');
+      const me = ctx.self?.();
+      if (!me) return fail('player_offline');
+      const tctx = target.ctx?.();
+      const doc = target.doc, zone = ctx.zoneId;
+      doc.zone = zone;
+      doc.pos = { zone, x: me.x - 1.2, z: me.z + 0.6 };
+      // their room stops taking their steps, so nothing writes over the spot
+      tctx && (tctx.warping = true);
+      target.save?.();
+      const from = target.zoneId;
+      target.send('gmBring', { from: ctx.doc.name, zone });
+      target.send('goto', { kind: 'world', zone, ...(ctx.roomId ? { room: ctx.roomId } : {}) });
+      return done({ zone, from }, doc);
+    }
+
+    case 'saddle': {
+      // fit a saddle by hand, or take one off (game/saddles.js)
+      const target = targetOf(ctx, t.to);
+      if (!target) return fail('player_offline');
+      const r = setSaddle(target.doc, String(t.uid || ''), t.on !== false);
+      if (r.error) return fail(r.error);
+      // off its back, if it was the one being ridden
+      if (t.on === false && target.doc.riding === r.uid) {
+        target.doc.riding = null;
+        const tc = target.ctx?.(), p = target.self?.();
+        tc && (tc.ride = null);
+        p && (p.mount = '', p.mountKind = '', p.mountStar = 1);
+        target.send('ride', null);
+      }
+      refresh(target);
+      target.me || target.send(t.on === false ? 'gmTake' : 'gmGift', { from: ctx.doc.name, what: 'saddle', species: r.species });
+      return done({ what: 'saddle', on: t.on !== false, species: r.species, uid: r.uid }, target.doc);
+    }
+
+    case 'reports': {
+      // the inbox: open reports first (server/reports.js)
+      if (!ctx.gm.reports) return fail('reports_unavailable');
+      Promise.resolve(ctx.gm.reports.list(60))
+        .then((rows) => ctx.net.emit('gm', { kind: 'reports', rows, open: rows.filter((r) => r.status === 'open').length }))
+        .catch(() => fail('reports_unavailable'));
+      return;
+    }
+
+    case 'reportSet': {
+      if (!ctx.gm.reports) return fail('reports_unavailable');
+      Promise.resolve(ctx.gm.reports.set(String(t.id || ''), String(t.status || '')))
+        .then(async (r) => {
+          if (r.error) return fail(r.error);
+          ctx.gm.audit({ op: 'reportSet', to: { id: r.report.about?.id, name: r.report.about?.name }, detail: { ref: r.report.id, status: r.report.status, reason: r.report.reason } });
+          const rows = await ctx.gm.reports.list(60);
+          ctx.net.emit('gm', { kind: 'reports', rows, open: rows.filter((x) => x.status === 'open').length });
+        })
+        .catch(() => fail('reports_unavailable'));
       return;
     }
 
