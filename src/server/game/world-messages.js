@@ -28,7 +28,10 @@ import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
 import { TIER_IDS, TOWER, canEnter, weekly } from '../../shared/endgame.js';
 import { mountKind, moveMode } from '../../shared/riding.js';
+import { TRICKS, TRICK_GAP_MS } from '../../shared/tricks.js';
+import { makeSaddle } from './saddles.js';
 import * as Social from '../social.js';
+import * as Reports from '../reports.js';
 import { sceneSeen, storyFoe } from './saga.js';
 import { buyCosmetic, wearCosmetic } from './cosmetics.js';
 import { GUARD, cadence, moveAllowance, spendMove, strike } from './guard.js';
@@ -152,7 +155,7 @@ export function setRide(ctx, self, doc, ride) {
 /** Back in the world: on the one they were riding, if it can still carry them. */
 export function restoreRide(ctx, self, doc) {
   const c = doc.riding && doc.team?.includes(doc.riding) ? doc.creatures?.[doc.riding] : null;
-  const kind = c && c.hp > 0 && mountKind(c.species, c.star || 1);
+  const kind = c && c.hp > 0 && c.saddle && mountKind(c.species, c.star || 1);
   setRide(ctx, self, doc, kind ? { uid: c.uid, species: c.species, star: c.star || 1, kind } : null);
 }
 
@@ -245,8 +248,34 @@ export function handleWorldMessage(ctx, e, t = {}) {
             if (ctx.inside) return ctx.net.emit("error", { code: "not_here" });
             let c = n.team?.includes(want) ? n.creatures?.[want] : null, kind = c && mountKind(c.species, c.star || 1);
             if (!c || !kind) return ctx.net.emit("error", { code: "cannot_ride" });
+            // big enough is not enough: it needs a saddle (shared/saddles.js)
+            if (!c.saddle) return ctx.net.emit("error", { code: "need_saddle" });
             if (c.hp <= 0) return ctx.net.emit("error", { code: "fainted" });
             setRide(ctx, s, n, { uid: c.uid, species: c.species, star: c.star || 1, kind }), ctx.net.save(), ctx.net.emit("ride", ctx.ride);
+          }
+          break;
+        case "saddleMake":
+          {
+            // five pieces of its family and some gold: a saddle on it (game/saddles.js)
+            let o = makeSaddle(n, String(t?.uid || ""));
+            if (o.error) return ctx.net.emit("error", { code: o.error });
+            let q = syncQuests(n, { kind: "saddle" });
+            ctx.net.save();
+            for (let c of q) ctx.net.emit("questDone", { id: c });
+            ctx.net.emit("saddled", o), ctx.net.emit("profile", publicProfile(n));
+          }
+          break;
+        case "petTrick":
+          {
+            // a ball, a pat, a treat for the one walking beside you: checked
+            // here, played by everyone in the room (shared/tricks.js)
+            let k = typeof t.trick === "string" && Object.prototype.hasOwnProperty.call(TRICKS, t.trick) ? t.trick : null;
+            if (!k || !s) return;
+            if (ctx.ride || !s.petSpecies) return ctx.net.emit("error", { code: "no_pet_here" });
+            if (r - (ctx._trickAt || 0) < TRICK_GAP_MS) return;
+            ctx._trickAt = r;
+            let msg = { id: n.id, trick: k, seed: Math.floor(Math.random() * 1e6), species: s.petSpecies };
+            ctx.roomEmit ? ctx.roomEmit("petTrick", msg) : ctx.net.emit("petTrick", msg);
           }
           break;
         case "dailyClaim":
@@ -268,6 +297,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             if (ctx.online) {
               let err = ch === "guild" ? ctx.guilds ? ctx.guilds.chat(n, t.text) : "no_guild" : Social.chat(n, { ch, text: t.text, to: t.to, toId: t.toId }, ctx.roomChat);
               err && ctx.net.emit("error", { code: err });
+              !err && ch === "guild" && Social.noteSaid(n, "guild", t.text);
               break;
             }
             let o = {
@@ -757,11 +787,12 @@ async function socialMessage(ctx, type, t = {}) {
     case 'block':
       return say(await Social.block(doc, String(t.id || ''), t.on !== false), () => ctx.net.emit('friends', Social.friendsView(doc)));
     case 'report': {
-      // what was reported, by whom, about whom — for the GM log
-      const row = { at: Date.now(), op: 'report', by: { id: doc.id, name: doc.name }, about: String(t.id || '').slice(0, 64), reason: Social.clean(t.reason || '').slice(0, 200), zone: ctx.zoneId };
-      console.log('[report]', JSON.stringify(row));
-      ctx.report?.(row);
-      return ctx.net.emit('reported', { ok: true });
+      // to the GMs' inbox with a reason and what was said (server/reports.js)
+      const r = await Reports.fileReport(doc, { id: t.id, reason: t.reason, note: t.note }, { zone: ctx.zoneId });
+      if (r.error) return ctx.net.emit('error', { code: r.error });
+      console.log('[report]', r.report.id, r.report.reason, doc.name, '->', r.report.about.name);
+      ctx.report?.({ at: r.report.at, op: 'report', id: r.report.id, by: r.report.by, to: { id: r.report.about.id, name: r.report.about.name }, detail: { reason: r.report.reason } });
+      return ctx.net.emit('reported', { ok: true, name: r.report.about.name });
     }
     case 'partyInvite':
       return say(Social.partyInvite(doc, who), (o) => ctx.net.emit('partySent', { name: o.name }));

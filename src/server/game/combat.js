@@ -6,6 +6,7 @@ import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwor
 import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
 import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
+import { mountKind } from '../../shared/riding.js';
 import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
 var combatantSeq = 0,
@@ -1123,6 +1124,13 @@ function normalizeDoc(i) {
     c.maxHp > 0 && c.hp > c.maxHp && (c.hp = c.maxHp);
     c.hp < 0 && (c.hp = 0);
   }
+  // Riding came before saddles: whoever was up on a creature when saddles
+  // arrived keeps a saddle on that one, rather than finding it gone.
+  if (!i.saddlesSince) {
+    i.saddlesSince = Date.now();
+    const rc = i.riding && i.creatures?.[i.riding];
+    rc && mountKind(rc.species, rc.star || 1) && (rc.saddle = true);
+  }
   // Characters from before there were kinds get the one nearest their outfit.
   i.appearance = avatarLook(i.appearance || {});
   // Creatures made before that fix are still short of their own level. Give
@@ -1291,7 +1299,9 @@ function publicProfile(i) {
     // the end of the story (shared/saga.js): scenes watched, anchors broken
     story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] },
     // the season's track (shared/pass.js)
-    pass: passView(i)
+    pass: passView(i),
+    // pieces toward saddles, by family (shared/saddles.js)
+    mats: { ...(i.mats || {}) }
   };
 }
 

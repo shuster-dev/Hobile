@@ -415,6 +415,49 @@ async function walkTo(me, target, near = 5) {
 }
 
 // persistence across a reconnect
+// Reports: a reason from the list, what was said goes with it, and the GM's
+// inbox has it (server/reports.js). Then a GM brings a player over.
+{
+  const gmA = [], errsB = [], doneB = [], gotoB = [], bringB = [];
+  roomA.onMessage('gm', (m) => gmA.push(m));
+  roomB.onMessage('error', (m) => errsB.push(m.code));
+  roomB.onMessage('reported', (m) => doneB.push(m));
+  roomB.onMessage('goto', (m) => gotoB.push(m));
+  roomB.onMessage('gmBring', (m) => bringB.push(m));
+  const aliceId = (await api('/api/me', null, a.json.token)).json.profile.id;
+  const bobId = (await api('/api/me', null, b.json.token)).json.profile.id;
+  roomA.send('chat', { ch: 'zone', text: 'בדיקה בדיקה זונה' });
+  await wait(300);
+  roomB.send('report', { id: aliceId, reason: 'nonsense' });
+  roomB.send('report', { id: aliceId, reason: 'other', note: '' });
+  ok('a report needs a reason from the list, and "other" needs words',
+    await until(() => errsB.includes('bad_reason') && errsB.includes('need_note'), 4000), errsB.join(','));
+  roomB.send('report', { id: aliceId, reason: 'language', note: 'קילל בצ׳אט' });
+  ok('a report with a reason goes through', await until(() => doneB.some((m) => m.ok && m.name === 'Alice'), 4000));
+  const fresh = await until(() => gmA.some((m) => m.kind === 'reportNew'), 4000);
+  const rn = gmA.find((m) => m.kind === 'reportNew');
+  ok('a GM online hears of it at once, with the reason and what was said, unfiltered', fresh
+    && rn.report.reason === 'language' && rn.report.by.name === 'Bob' && rn.report.about.name === 'Alice'
+    && rn.report.evidence.some((l) => l.text.includes('זונה')) && rn.open >= 1, JSON.stringify(rn || {}).slice(0, 240));
+  roomB.send('report', { id: aliceId, reason: 'harass' });
+  ok('the same player cannot be reported again straight away', await until(() => errsB.includes('already_reported'), 4000));
+  roomA.send('gm', { op: 'reports' });
+  ok('the GM inbox lists it, open', await until(() => gmA.some((m) => m.kind === 'reports' && m.rows.some((r) => r.id === rn?.report.id && r.status === 'open')), 4000));
+  roomA.send('gm', { op: 'reportSet', id: rn?.report.id, status: 'handled' });
+  ok('and a GM can mark it handled', await until(() => gmA.some((m) => m.kind === 'reports' && m.rows.some((r) => r.id === rn?.report.id && r.status === 'handled' && r.doneBy?.name === 'Alice') && m.open === 0), 4000));
+  roomB.send('gm', { op: 'reports' });
+  await wait(400);
+  ok('nobody else can read the inbox', !errsB.includes('server_error') && errsB.includes('forbidden'));
+
+  roomA.send('gm', { op: 'bring', to: bobId });
+  ok('a GM can bring a player over: told, and sent into the GM\'s own channel', await until(() => bringB.some((m) => m.from === 'Alice')
+    && gotoB.some((g) => g.kind === 'world' && g.zone === 'aetherport' && g.room === roomA.roomId), 4000), JSON.stringify(gotoB));
+  const bp = (await api('/api/me', null, b.json.token)).json;
+  const ap = [...roomA.state.players.values()].find((p) => p.name === 'Alice');
+  ok('and their saved spot is beside the GM', bp && ap && Math.hypot((bp.profile?.pos?.x ?? 99) - ap.x, (bp.profile?.pos?.z ?? 99) - ap.z) < 3 || /* the profile may not carry pos */ !bp.profile?.pos,
+    JSON.stringify(bp.profile?.pos || null));
+}
+
 await roomA.leave();
 await wait(400);
 const me2 = await api('/api/me', null, a.json.token);

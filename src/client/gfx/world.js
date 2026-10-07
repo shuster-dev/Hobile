@@ -9,6 +9,8 @@ const PET_MAX_H = 2.1;
 import { Incubators } from './incubator.js';
 import { FarmWorkers } from './farmworkers.js';
 import { SagaStage } from './saga-fx.js';
+import { PetTricks } from './pettricks.js';
+import { trickStyle } from '../../shared/tricks.js';
 import { FIGURINES } from './figurine-designs-more.js';
 import { template as figurineTemplate } from './figurine.js';
 import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
@@ -3483,7 +3485,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         // Off on the low tier: an extra full-resolution target is exactly the
         // wrong thing to spend on a phone that is already struggling.
         this.grade = QUALITY.tier === "low" ? null : new Grade(this.renderer),
-        this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 600), this.camDist = CAM_DIST, this.camHeight = CAM_HEIGHT, this._camRise = 0, this.camYaw = 0, this.camPitch = 0.32, this._camPos = new Vector3(), this.actors = new Map(), this.effects = [], this.zone = null, this.props = null, this.colliders = [], this.blockers = [], this.npcs = new Map(), this.city = null, this.self = null, this.time = 0, this.night = 0, this.lights = makeLights(this.scene, {
+        this.scene = new Scene(), this.camera = new PerspectiveCamera(50, 1, 0.1, 600), this.camDist = CAM_DIST, this.camHeight = CAM_HEIGHT, this._camRise = 0, this.camYaw = 0, this.camPitch = 0.32, this._camPos = new Vector3(), this.actors = new Map(), this.tricks = null, this.effects = [], this.zone = null, this.props = null, this.colliders = [], this.blockers = [], this.npcs = new Map(), this.city = null, this.self = null, this.time = 0, this.night = 0, this.lights = makeLights(this.scene, {
         sunDir: SUN_DIR,
         sunColor: 16773853,
         skyColor: 12376319,
@@ -5191,12 +5193,23 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         pet: null
       }, this.actors.set(e, n), t.kind === "player" && t.petSpecies && this.attachPet(n, t.petSpecies, t.petStar || 1), n;
     }
+    /** A trick for this actor's pet (shared/tricks.js): a ball, a pat, a treat. */
+    petTrick(key, trick, seed = 0) {
+      let a = this.actors.get(key);
+      if (!a?.pet || a.mount) return !1;
+      this.tricks ||= new PetTricks(this.scene, (x, z) => this.heightAt(x, z), (x, z) => {
+        let p = resolveCollision(this.colliders || [], x, z, 0.45);
+        return Math.hypot(p.x - x, p.z - z) > 0.02;
+      });
+      return this.tricks.start(a, trick, seed, trickStyle(a.pet.species));
+    }
     attachPet(e, t, star = 1) {
       if (e.pet?.species === t) {
         // the same one back from the farm with another star: dress it again
         e.pet && (e.pet.star || 1) !== star && (setStarLook(e.pet.group, star), e.pet.star = star);
         return;
       }
+      e.pet?.trick && this.tricks?.stop(e);
       if (e.pet && (e.holder.remove(e.pet.holder), disposeTree(e.pet.holder)), !t || !SPECIES[t]) {
         e.pet = null;
         return;
@@ -5249,6 +5262,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     }
     removeActor(e) {
       let t = this.actors.get(e);
+      t?.pet?.trick && this.tricks?.stop(t);
       t && (this.scene.remove(t.holder), disposeTree(t.holder), this.actors.delete(e));
     }
     pruneActors(e) {
@@ -5400,13 +5414,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           animateCreature(M.group, t + 300, n.moving || M.kind === "fly", M.kind === "fly" ? 1.4 : 1);
           n.group.userData.ridingMoving = n.moving;
         }
-        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = n.mount ? n.mount.lift + n.mount.saddle - (n.group.userData.height || 1.4) * 0.36 + (n.mount.holder.position.y - n.mount.lift) : 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet && (n.pet.holder.visible = !n.mount), n.pet && !n.mount) {
+        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = n.mount ? n.mount.lift + n.mount.saddle - (n.group.userData.height || 1.4) * 0.36 + (n.mount.holder.position.y - n.mount.lift) : 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet && (n.pet.holder.visible = !n.mount), n.pet && !n.mount && !(n.pet.trick && this.tricks?.drive(n, e, t, animateCreature))) {
           let o = new Vector3(-1.35, 0, -1.45);
           n.pet._lp ||= n.pet.lag.clone();
           let pv;
           n.pet.lag.lerp(o, Math.min(1, e * 3)), pv = Math.hypot(n.pet.lag.x - n.pet._lp.x, n.pet.lag.z - n.pet._lp.z) / Math.max(e, 1e-3), n.pet._lp.copy(n.pet.lag), n.pet._gs = (n.pet._gs || 0) + (Math.min(12, pv) - (n.pet._gs || 0)) * Math.min(1, e * 8), n.pet.group.userData.groundSpeed = n.pet._gs, n.pet.holder.position.copy(n.pet.lag), n.pet.group.userData.baseY = 0, animateCreature(n.pet.group, t + 400, n.moving || n.pet._gs > 0.4), n.pet.holder.rotation.y = Math.sin(this.time * 0.9) * 0.25;
         }
       }
+      this.tricks?.tick(e);
       for (let n = this.effects.length - 1; n >= 0; n--) {
         let s = this.effects[n];
         s.t += e, s.kind === "ring" ? (s.mesh.scale.setScalar((1 + s.t * 7) * s.scale), s.mesh.material.opacity = Math.max(0, 0.95 - s.t * 1.7), s.t > 0.65 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1))) : s.t > 1.4 && this.effects.splice(n, 1);

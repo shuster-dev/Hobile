@@ -12,6 +12,7 @@ import { earn, spend } from './economy.js';
 import { PartyDungeon } from './party-dungeon.js';
 import { eventMul } from '../../shared/events.js';
 import { storyWin } from './saga.js';
+import { huntMaterial } from './saddles.js';
 import { wardrobeOf } from '../../shared/cosmetics.js';
 
 var StoreBase = class {
@@ -593,10 +594,12 @@ var StoreBase = class {
             h = SPECIES[c?.creature?.species]?.types?.[0] || "metal";
           for (let d of grantItems(t, DROPS.roll(h, t.level, "wild"))) o.items.push(d.id);
           Math.random() < 0.2 && (giveItem(t, "potion_s", 1), o.items.push("potion_s"));
+          // a piece toward a saddle for its family (game/saddles.js)
+          o.mat = huntMaterial(t, foeSp);
         }
         if (r && this.pendingCapture) {
           let c = makeCreature(this.pendingCapture.species, this.pendingCapture.level, this.pendingCapture.traits);
-          addCreature(t, c), t.stats.captures += 1, o.captured = c;
+          addCreature(t, c), t.stats.captures += 1, o.captured = c, o.mat = huntMaterial(t, c.species);
           // The first of a species opens its card; the rest refine into the
           // materials a star upgrade costs.
           let dex = dexRecord(t, c.species, c);

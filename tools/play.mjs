@@ -67,6 +67,65 @@ const state = () => page.evaluate(() => {
 const before = await state();
 ok('the world loads with a starter in the team', before.team >= 1, JSON.stringify(before));
 
+// --- two thumbs: the left on the stick, the right turning the camera --------
+// The drag that turns the camera listens to the whole window, and it used to
+// take any finger's moves as its own: the walking thumb's position read as
+// the look thumb's, and the camera leapt across the screen.
+{
+  const r = await page.evaluate(() => {
+    const g = window.__hobile, look = document.querySelector('#look-zone'), stick = document.querySelector('#stick-zone');
+    const ev = (type, el, id, x, y) => el.dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: x, clientY: y, bubbles: true, cancelable: true, pointerType: 'touch', isPrimary: id === 1 }));
+    const yaw = () => g.world.camYaw;
+    const out = {};
+    ev('pointerdown', look, 2, 300, 400);
+    ev('pointerdown', stick, 1, 70, 720);
+    let y0 = yaw();
+    ev('pointermove', stick, 1, 70, 600);
+    ev('pointermove', stick, 1, 20, 560);
+    out.stickMovedCamera = Math.abs(yaw() - y0) > 1e-6;
+    y0 = yaw();
+    ev('pointermove', look, 2, 312, 400);
+    out.lookTurned = Math.abs(yaw() - y0) > 1e-6 && Math.abs(yaw() - y0) < 0.2;
+    ev('pointerup', stick, 1, 20, 560);
+    y0 = yaw();
+    ev('pointermove', look, 2, 330, 402);
+    out.lookSurvivesStickUp = Math.abs(yaw() - y0) > 1e-6;
+    y0 = yaw();
+    ev('pointermove', look, 2, 690, 402);
+    out.jumpIgnored = Math.abs(yaw() - y0) < 1e-6;
+    ev('pointerup', look, 2, 690, 402);
+    return out;
+  });
+  ok('walking with one thumb does not turn the camera', r.stickMovedCamera === false, JSON.stringify(r));
+  ok('the other thumb turns it, a little for a little', r.lookTurned, JSON.stringify(r));
+  ok('lifting the walking thumb does not let go of the camera', r.lookSurvivesStickUp, JSON.stringify(r));
+  ok('a jump of a lost touch is not a turn', r.jumpIgnored, JSON.stringify(r));
+}
+
+// --- the small buttons: tricks with nothing to fight, and the pet plays ------
+{
+  const t = await page.evaluate(async () => {
+    const btns = [...document.querySelectorAll('#action-cluster .skill-btn')];
+    const shown = btns.filter((b) => !b.classList.contains('hidden'));
+    const rects = [...shown, ...document.querySelectorAll('#action-cluster .ride-btn:not(.hidden)'), document.querySelector('#btn-action')].map((b) => b.getBoundingClientRect());
+    const circles = rects.map((r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2, r: r.width / 2 }));
+    let overlap = false;
+    for (let i = 0; i < circles.length; i++) for (let j = i + 1; j < circles.length; j++) {
+      const a = circles[i], b = circles[j];
+      Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r - 1 && (overlap = true);
+    }
+    const tricks = shown.map((b) => b.dataset.trick).filter(Boolean);
+    shown.find((b) => b.dataset.trick === 'fetch')?.click();
+    await new Promise((r) => setTimeout(r, 700));
+    const g = window.__hobile, me = g.world.actors.get(g.net.room.sessionId);
+    return { overlap, tricks, playing: !!me?.pet?.trick };
+  });
+  ok('no small button sits on another or on the big one', t.overlap === false, JSON.stringify(t));
+  ok('with nothing to fight, the small buttons are the pet\'s tricks', t.tricks.join(',') === 'fetch,pet,treat', JSON.stringify(t));
+  ok('a tap on the ball and the pet goes after it', t.playing, JSON.stringify(t));
+  await new Promise((r) => setTimeout(r, 4500));
+}
+
 // --- walk to a wild and engage -------------------------------------------
 // Wilds wander on the server's own clock, so the one you set off toward can be
 // somewhere else by the time you arrive, or already engaged. Re-target and try

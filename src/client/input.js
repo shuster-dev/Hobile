@@ -90,13 +90,25 @@ var Keyboard = class {
       };
     }
   },
+  /**
+   * Dragging to turn the camera, with the right thumb while the left one is on
+   * the stick. Only the finger that started here turns it: before, any finger's
+   * move counted (a pointer event's id was never compared), so the walking
+   * thumb's position was read as the look thumb's and the camera jumped across
+   * the screen, and lifting the walking thumb let go of the look. A move is also
+   * capped — a stray 200px jump between two frames is a lost touch, not a turn —
+   * and a drag that starts on a button is the button's.
+   */
   Joystick = class {
     constructor(e, t) {
       if (!e) return;
       this.pointerId = null, this.last = null;
+      const MAX_STEP = 90;
       let n = o => {
           if (this.pointerId !== null) return;
+          if (o.target !== e) return;
           let a = pointerInfo(o);
+          if (!a) return;
           this.pointerId = a.id, this.last = {
             x: a.x,
             y: a.y
@@ -105,12 +117,16 @@ var Keyboard = class {
         s = o => {
           if (this.pointerId === null) return;
           let a = pointerInfo(o, this.pointerId);
-          a && (t(a.x - this.last.x, a.y - this.last.y), this.last = {
-            x: a.x,
-            y: a.y
-          }, o.preventDefault());
+          if (!a || a.id !== this.pointerId) return;
+          let dx = a.x - this.last.x, dy = a.y - this.last.y;
+          this.last = { x: a.x, y: a.y };
+          if (Math.abs(dx) > MAX_STEP || Math.abs(dy) > MAX_STEP) return;
+          t(dx, dy), o.preventDefault();
         },
-        r = () => {
+        r = o => {
+          if (this.pointerId === null) return;
+          let a = pointerInfo(o, this.pointerId, !0);
+          if (a && a.id !== this.pointerId) return;
           this.pointerId = null, this.last = null;
         };
       e.addEventListener("pointerdown", n, {
@@ -120,6 +136,23 @@ var Keyboard = class {
       }), window.addEventListener("pointerup", r), window.addEventListener("pointercancel", r);
     }
   };
+
+/** How fast a drag turns the camera: the player's choice, kept on the device. */
+var LOOK_SPEEDS = [
+  { id: "slow", he: "איטית", k: 0.6 },
+  { id: "normal", he: "רגילה", k: 1 },
+  { id: "fast", he: "מהירה", k: 1.45 }
+];
+function lookSpeed() {
+  let id = "normal";
+  try { id = globalThis.localStorage?.getItem("hobile.look") || "normal"; } catch {}
+  return LOOK_SPEEDS.find(s => s.id === id) || LOOK_SPEEDS[1];
+}
+function cycleLookSpeed() {
+  let i = LOOK_SPEEDS.indexOf(lookSpeed()), next = LOOK_SPEEDS[(i + 1) % LOOK_SPEEDS.length];
+  try { globalThis.localStorage?.setItem("hobile.look", next.id); } catch {}
+  return next;
+}
 
 var MINIMAP_SIZE = 320,
   Yd = new Map(),
@@ -192,4 +225,4 @@ function zoneMinimap(i) {
   return Yd.set(i, e), e;
 }
 
-export { Ab, CameraRig, Joystick, Keyboard, MINIMAP_SIZE, Yd, pointerInfo, zc, zoneMinimap };
+export { Ab, CameraRig, Joystick, Keyboard, LOOK_SPEEDS, MINIMAP_SIZE, Yd, cycleLookSpeed, lookSpeed, pointerInfo, zc, zoneMinimap };

@@ -32,6 +32,7 @@ class MemoryStore {
     this.config = {};           // server settings kept across restarts (the push keys)
     this.pushSubs = new Map();  // endpoint -> { userId, sub, prefs, at } (server/push.js)
     this.pushQ = [];            // notifications waiting for their time
+    this.reports = [];          // player reports, newest last (server/reports.js)
     if (this.file && fs.existsSync(this.file)) this._load();
   }
   _load() {
@@ -44,6 +45,7 @@ class MemoryStore {
       this.config = raw.config || {};
       for (const r of raw.pushSubs || []) this.pushSubs.set(r.sub.endpoint, r);
       this.pushQ = Array.isArray(raw.pushQ) ? raw.pushQ : [];
+      this.reports = Array.isArray(raw.reports) ? raw.reports : [];
     } catch (e) { console.warn('[store] could not read', this.file, e.message); }
   }
   _flush() {
@@ -58,6 +60,7 @@ class MemoryStore {
         config: this.config,
         pushSubs: [...this.pushSubs.values()],
         pushQ: this.pushQ,
+        reports: this.reports,
       }));
     } catch (e) { console.warn('[store] could not write', this.file, e.message); }
   }
@@ -105,6 +108,26 @@ class MemoryStore {
     return row;
   }
   async adminLog(limit = 40) { return this.gmLog.slice(-limit).reverse(); }
+  // --- player reports (server/reports.js) ------------------------------------
+  async saveReport(r) {
+    this.reports.push(r);
+    if (this.reports.length > REPORTS_KEEP) this.reports.splice(0, this.reports.length - REPORTS_KEEP);
+    this._flush();
+    return r;
+  }
+  async listReports(limit = 60) {
+    // the open ones first, newest first; then the rest, newest first
+    const all = this.reports.slice().reverse();
+    return [...all.filter((r) => r.status === 'open'), ...all.filter((r) => r.status !== 'open')].slice(0, limit);
+  }
+  async updateReport(id, patch) {
+    const r = this.reports.find((x) => x.id === id);
+    if (!r) return null;
+    Object.assign(r, patch);
+    this._flush();
+    return r;
+  }
+  async reportsSince(by, about, since) { return this.reports.filter((r) => r.by?.id === by && (!about || r.about?.id === about) && r.at >= since).length; }
   // --- settings and phone notifications (server/push.js) ---------------------
   async getConfig(key) { return this.config[key] ?? null; }
   async setConfig(key, value) { this.config[key] = value; this._flush(); return value; }
@@ -123,6 +146,7 @@ class MemoryStore {
 
 // The memory store keeps the newest GM actions; Mongo keeps them all.
 const GM_LOG_KEEP = 1000;
+const REPORTS_KEEP = 2000;
 
 // Player documents are held as one live object per player, exactly as the
 // memory store holds them, and written through to Mongo.
@@ -163,6 +187,7 @@ class MongoStore {
     this.configC = db.collection('config');
     this.pushSubsC = db.collection('pushsubs');
     this.pushQC = db.collection('pushq');
+    this.reportsC = db.collection('reports');
     await this.usersC.createIndex({ username: 1 }, { unique: true });
     await this.usersC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ id: 1 }, { unique: true });
@@ -178,6 +203,9 @@ class MongoStore {
     await this.pushSubsC.createIndex({ userId: 1 });
     await this.pushQC.createIndex({ at: 1 });
     await this.pushQC.createIndex({ userId: 1, tag: 1 });
+    await this.reportsC.createIndex({ id: 1 }, { unique: true });
+    await this.reportsC.createIndex({ status: 1, at: -1 });
+    await this.reportsC.createIndex({ 'by.id': 1, at: -1 });
     return this;
   }
   async close() {
@@ -249,6 +277,21 @@ class MongoStore {
   async adminLog(limit = 40) {
     return this.gmLogC.find({}, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit).toArray();
   }
+  // --- player reports (server/reports.js) ------------------------------------
+  async saveReport(r) { await this.reportsC.insertOne({ ...r }); return r; }
+  async listReports(limit = 60) {
+    const open = await this.reportsC.find({ status: 'open' }, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit).toArray();
+    const rest = open.length >= limit ? [] : await this.reportsC.find({ status: { $ne: 'open' } }, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit - open.length).toArray();
+    return [...open, ...rest];
+  }
+  async updateReport(id, patch) {
+    // an update and a read, not findOneAndUpdate: plainer, and what every
+    // Mongo-speaking server (Atlas, FerretDB in the tests) does the same way
+    const u = await this.reportsC.updateOne({ id }, { $set: patch });
+    if (!u.matchedCount) return null;
+    return this.reportsC.findOne({ id }, { projection: { _id: 0 } });
+  }
+  async reportsSince(by, about, since) { return this.reportsC.countDocuments({ 'by.id': by, ...(about ? { 'about.id': about } : {}), at: { $gte: since } }); }
   // --- settings and phone notifications (server/push.js) ---------------------
   async getConfig(key) { return (await this.configC.findOne({ key }, { projection: { _id: 0 } }))?.value ?? null; }
   async setConfig(key, value) { await this.configC.replaceOne({ key }, { key, value }, { upsert: true }); return value; }
