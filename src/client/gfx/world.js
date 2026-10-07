@@ -1,11 +1,16 @@
 import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
-import { QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
+import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
+import { setStarLook } from './starlook.js';
+import { Incubators } from './incubator.js';
 import { FIGURINES } from './figurine-designs.js';
 import { template as figurineTemplate } from './figurine.js';
 import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { NPCS, npcList } from '../../shared/npcs.js';
+import { planFor } from '../../shared/worldplan.js';
+import { buildPlanArt } from './zoneart.js';
+import { buildWater, splitByChunks } from './zonekit.js';
 import { BLOCK, CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, PLAZA, SIDEWALK, STREET_Y, TAU_G, blockGrid, curbHeight, fbm, gridOffset, hash, heightAt, mixHex, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand } from '../../shared/props.js';
 
 var PartBuilder = class {
@@ -1171,14 +1176,14 @@ function buildFountainWater(f, y, pal) {
           gl_Position = projectionMatrix * mv;
           vA = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.85, 1.0, t));
         }`,
-      fragmentShader: `
+      fragmentShader: displayFrag(`
         varying float vA;
         void main() {
           vec2 d = gl_PointCoord - 0.5;
           float r = dot(d, d);
           if (r > 0.25) discard;
           gl_FragColor = vec4(mix(vec3(0.62, 0.86, 1.0), vec3(1.0), smoothstep(0.25, 0.0, r)) * vA * 0.9, 1.0);
-        }`,
+        }`),
       transparent: !0,
       blending: AdditiveBlending,
       depthWrite: !1
@@ -1216,7 +1221,7 @@ function buildWaterPlane(i, e) {
     },
     s = new ShaderMaterial({
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-      fragmentShader: A_,
+      fragmentShader: displayFrag(A_),
       uniforms: n,
       transparent: !0,
       blending: AdditiveBlending,
@@ -1274,7 +1279,7 @@ function buildAmbientMotes(i, e) {
     },
     l = new ShaderMaterial({
       vertexShader: R_,
-      fragmentShader: C_,
+      fragmentShader: displayFrag(C_),
       uniforms: a,
       transparent: !0,
       blending: AdditiveBlending,
@@ -1290,7 +1295,7 @@ function buildAmbientMotes(i, e) {
 function buildFogWall(i, e, t) {
   let n = new ShaderMaterial({
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-      fragmentShader: `
+      fragmentShader: displayFrag(`
       varying vec2 vUv;
       uniform float uTime; uniform float uNight; uniform vec3 uColor;
       void main() {
@@ -1302,7 +1307,7 @@ function buildFogWall(i, e, t) {
         // still bright where it stops draws a straight line across the harbour
         float edge = (1.0 - smoothstep(0.55, 1.0, abs(p.x))) * (1.0 - smoothstep(0.55, 1.0, abs(p.y)));
         gl_FragColor = vec4(uColor * (ring * 0.5 + lane * 0.45 * shim) * edge * (0.35 + uNight * 0.8), 1.0);
-      }`,
+      }`),
       uniforms: {
         uTime: {
           value: 0
@@ -1460,12 +1465,13 @@ function buildCityGround(i, e, t, n) {
       cast: !1,
       receive: !0
     });
-  p && s.add(p);
+  // In 48m squares, so a town twice the size draws the part the camera faces
+  p && chunkInto(s, p);
   let x = a.mesh(f, {
     cast: !0,
     receive: !0
   });
-  x && s.add(x);
+  x && chunkInto(s, x);
   let g = vertexColorMat({
       roughness: 0.14,
       metalness: 0.55,
@@ -1475,7 +1481,7 @@ function buildCityGround(i, e, t, n) {
       cast: !1,
       receive: !1
     });
-  m && s.add(m);
+  m && chunkInto(s, m);
   let v = [];
   c.forEach((A, k) => {
     let L = vertexColorMat({
@@ -1493,7 +1499,7 @@ function buildCityGround(i, e, t, n) {
       cast: !1,
       receive: !1
     });
-    O && s.add(O);
+    O && chunkInto(s, O);
   });
   let E = vertexColorMat({
     roughness: 0.4,
@@ -1509,14 +1515,14 @@ function buildCityGround(i, e, t, n) {
     cast: !1,
     receive: !1
   });
-  _ && s.add(_);
+  _ && chunkInto(s, _);
   let S = null;
   if (d.length) {
     S = new ShaderMaterial({
       vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-      fragmentShader: `varying vec2 vUv; uniform float uAmt; uniform vec3 uColor;
+      fragmentShader: displayFrag(`varying vec2 vUv; uniform float uAmt; uniform vec3 uColor;
         void main(){ vec2 p = vUv * 2.0 - 1.0; float f = exp(-dot(p,p) * 3.4);
-        gl_FragColor = vec4(uColor * f * uAmt, 1.0); }`,
+        gl_FragColor = vec4(uColor * f * uAmt, 1.0); }`),
       uniforms: {
         uAmt: {
           value: 0
@@ -1981,7 +1987,7 @@ function buildDust(i, e) {
     },
     l = new Points(o, new ShaderMaterial({
       vertexShader: O_,
-      fragmentShader: B_,
+      fragmentShader: displayFrag(B_),
       uniforms: a,
       transparent: !0,
       blending: AdditiveBlending,
@@ -2123,7 +2129,7 @@ function buildPrecip(spec) {
     },
     points = new Points(geo, new ShaderMaterial({
       vertexShader: PRECIP_VERT,
-      fragmentShader: PRECIP_FRAG,
+      fragmentShader: displayFrag(PRECIP_FRAG),
       uniforms,
       transparent: !0,
       depthWrite: !1
@@ -3495,6 +3501,21 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     heightAt(e, t) {
       if (this._inside) return this._inside.floorY;
       if (!this.zone) return 0;
+      // A planned zone: the terrain from the grid its mesh was built from
+      // (so feet land on the triangles drawn), then a bridge, a boardwalk or
+      // the ice if one is under you.
+      if (this.plan) {
+        let H = this._hgrid, h;
+        if (H) {
+          let fx = (e + H.half) / H.step, fz = (t + H.half) / H.step, i = Math.max(0, Math.min(H.n - 1, Math.floor(fx))), j = Math.max(0, Math.min(H.n - 1, Math.floor(fz))), u = Math.min(1, Math.max(0, fx - i)), v = Math.min(1, Math.max(0, fz - j)), N = H.n + 1, D = H.data;
+          h = u + v <= 1 ? D[j * N + i] + (D[j * N + i + 1] - D[j * N + i]) * u + (D[(j + 1) * N + i] - D[j * N + i]) * v
+            : D[(j + 1) * N + i + 1] + (D[(j + 1) * N + i] - D[(j + 1) * N + i + 1]) * (1 - u) + (D[j * N + i + 1] - D[(j + 1) * N + i + 1]) * (1 - v);
+        } else h = this.plan.height(e, t);
+        let d = this.plan.deckAt(e, t);
+        if (d) return Math.max(h, d.yAt(e, t));
+        if (this.plan.water?.kind === "ice" && h < this.plan.level) return this.plan.level;
+        return h;
+      }
       let n = heightAt(this.zone.id, e, t);
       if (!this.urban) return n;
       let s = plazaHeight(e, t, this.pier),
@@ -3516,7 +3537,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3527,7 +3548,37 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           pal: n,
           plaza: e.landmarks.find(s => s.kind === "plaza")
         }
-      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs()) : (this.buildBuildings(n), this.buildLandmarks(n));
+      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs(), this.buildTownStructures(n), this.buildIncubators()) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n));
+    }
+    /** The town's farm and garden, built like the field zones' (zoneart.js). */
+    /** Your farm's training pods (incubator.js): drawn from your own base,
+     *  which `setBase` hands over whenever the server sends it. */
+    buildIncubators() {
+      this.incubators = null;
+      if (!this.zone?.landmarks?.some((l) => l.kind === "base")) return;
+      this.incubators = new Incubators(this);
+      this.zoneGroup.add(this.incubators.group);
+      this._base && this.incubators.sync(this._base);
+    }
+    setBase(base, starUp) {
+      this._base = base;
+      if (!this.incubators) return !1;
+      // only if you are there to see it come out
+      let me = this.selfPosition?.(), out = !!starUp && !!me && !this._inside && this.incubators.near(me.x, me.z, 22) !== null && this.incubators.emerge(starUp);
+      return this.incubators.sync(base), out;
+    }
+    buildTownStructures(e) {
+      let list = this.props.structures;
+      if (!list?.length) return;
+      let z = this.zone,
+        P = { structures: list, zone: z, level: z.water?.level ?? -1.35, water: null, half: z.size / 2, height: (x, y) => this.heightAt(x, y) };
+      this.planArt = buildPlanArt(P, e), this.zoneGroup.add(this.planArt.group);
+    }
+    /** A planned zone's water and everything built in it (zoneart.js). */
+    buildPlan(e) {
+      let w = buildWater(this.plan, e);
+      w && (this.zoneGroup.add(w), this.groundU.push(w.userData.uniforms));
+      this.planArt = buildPlanArt(this.plan, e), this.zoneGroup.add(this.planArt.group);
     }
     buildTerrain(e) {
       if (this.urban) {
@@ -3535,8 +3586,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         return;
       }
       let t = this.zone.size,
-        n = QUALITY.tier === "high" ? 1.4 : 2.2,
-        s = Math.max(48, Math.min(200, Math.round(t / n))),
+        n = this.plan ? QUALITY.tier === "high" ? 1.25 : QUALITY.tier === "medium" ? 1.6 : 2 : QUALITY.tier === "high" ? 1.4 : 2.2,
+        s = Math.max(48, Math.min(this.plan ? 200 : 200, Math.round(t / n))),
         r = new PlaneGeometry(t, t, s, s);
       r.rotateX(-Math.PI / 2);
       let o = r.attributes.position,
@@ -3550,11 +3601,28 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         },
         p = t / s,
         tone = this._tone = groundTone(this.zone, e, p);
+      let P = this.plan,
+        hg = P ? (this._hgrid = { n: s, step: t / s, half: t / 2, data: new Float32Array((s + 1) * (s + 1)) }) : null,
+        T = P && planTones(e),
+        tw = null;
       for (let m = 0; m < o.count; m++) {
         let v = o.getX(m),
           E = o.getZ(m),
           _ = heightAt(this.zone.id, v, E);
         o.setY(m, _), tone(v, E, d, _);
+        if (P) {
+          // the plan's ground: sand by the water, rock on the faces and the
+          // mesa tops, the roads, moss under the trees, ash, snow
+          hg.data[Math.round((E + t / 2) / hg.step) * (s + 1) + Math.round((v + t / 2) / hg.step)] = _;
+          tw = P.tone(v, E, _);
+          tw.sand && d.lerp(T.sand, tw.sand * 0.85);
+          tw.rock && d.lerp(T.rock(_, v, E), tw.rock * 0.9);
+          tw.moss && d.lerp(T.moss, tw.moss * 0.5);
+          tw.ash && d.lerp(T.ash, tw.ash * 0.8);
+          tw.snow && d.lerp(T.snow, tw.snow * 0.85);
+          tw.road && d.lerp(T.road, tw.road * 0.55);
+          P.grassAt(v, E) > 0.2 && d.lerp(T.lush, P.grassAt(v, E) * 0.25);
+        }
         for (let k of this.zone.landmarks) {
           if (!k.r) continue;
           let L = Math.hypot(k.x - v, k.z - E),
@@ -3574,13 +3642,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       x.receiveShadow = !0, this.zoneGroup.add(x), this.groundU.push(groundDetail(x.material, this.zone.element, {
         trail: this.trails,
         path: e.path,
-        water: e.water ? -1.15 : null
+        water: P ? P.water && (P.water.kind === "water" || P.water.kind === "swamp") ? P.level : null : e.water ? -1.15 : null
       }));
       let g = new Mesh(new TorusGeometry(t / 2 + 5, 7, 6, 72), mat(e.groundHigh, {
         roughness: 1,
         env: 0.4
       }));
-      if (g.rotation.x = Math.PI / 2, g.position.y = -4.4, g.receiveShadow = !0, this.zoneGroup.add(g), e.water) {
+      if (g.rotation.x = Math.PI / 2, g.position.y = -4.4, g.receiveShadow = !0, this.zoneGroup.add(g), e.water && !P) {
         let m = new Mesh(new PlaneGeometry(t * 1.6, t * 1.6, 1, 1), new MeshStandardMaterial({
           color: e.water,
           transparent: !0,
@@ -3810,8 +3878,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let S = s ? t + 150 : n === "cloud" ? t + 140 : t + 62,
         b = new Mesh(new CylinderGeometry(S, S, 120, 56, 1, !0), new ShaderMaterial({
           vertexShader: "varying float vY; void main(){ vY = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
-          fragmentShader: `varying float vY; uniform vec3 uColor; uniform float uLo, uHi;
-          void main(){ gl_FragColor = vec4(uColor, 0.97 * (1.0 - smoothstep(uLo, uHi, vY))); }`,
+          fragmentShader: displayFrag(`varying float vY; uniform vec3 uColor; uniform float uLo, uHi;
+          void main(){ gl_FragColor = vec4(uColor, 0.97 * (1.0 - smoothstep(uLo, uHi, vY))); }`),
           uniforms: {
             uColor: {
               value: new Color(e.fog)
@@ -3904,6 +3972,18 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
      * leaves a collider would push the camera halfway across a park every time
      * you stood near a tree, so the leaves get taken out of the way instead.
      */
+    /** Grass and flowers past the fog are not drawn: in a 240m zone there is
+     *  four times the meadow there was, and the camera can see a sixth of it. */
+    cullGrass() {
+      if (!this.grassCells?.length || this.urban) return;
+      let p = this.selfPosition?.();
+      if (!p) return;
+      let R = { low: 64, medium: 72, high: 90 }[QUALITY.tier] ?? 72;
+      for (let m of this.grassCells) {
+        let c = m.boundingSphere?.center;
+        c && (m.visible = Math.hypot(c.x - p.x, c.z - p.z) < R + (m.boundingSphere.radius || 0));
+      }
+    }
     watchCanopy(e, t, n, s) {
       if (!e || !t?.length) return;
       this.canopies.push({
@@ -4129,7 +4209,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           let k = MathUtils.clamp((x - a) / (b - a), 0, 1);
           return k * k * (3 - 2 * k);
         },
-        lushAt = (x, y) => ss(-0.14, 0.16, fbm(x * 0.05, y * 0.05, seed + 5, 2)),
+        PL = this.plan,
+        lushAt = PL ? (x, y) => Math.max(ss(-0.14, 0.16, fbm(x * 0.05, y * 0.05, seed + 5, 2)) * 0.85, PL.grassAt(x, y)) : (x, y) => ss(-0.14, 0.16, fbm(x * 0.05, y * 0.05, seed + 5, 2)),
         // How much of a camp's sand, or a portal's stone, the ground here is
         // painted with: the terrain's own falloff, so grass stops where it does.
         sandy = (x, y) => {
@@ -4175,7 +4256,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           return !1;
         },
         open = (x, y, pad, sand) => x * x + y * y < lim * lim && (city ? yard(x, y, pad) : sandy(x, y) <= sand && !(this.trails?.at(x, y) > 0.3)) && !blocked(x, y, pad),
-        wet = y => !city && !!e.water && y < -0.85,
+        wet = PL ? y => !!PL.water && PL.water.kind !== "ice" && y < PL.level + (PL.water.kind === "lava" ? 1.6 : 0.16) : y => !city && !!e.water && y < -0.85,
         o = new Object3D();
 
       // Grass: one tuft per cell of a jittered grid, kept or not by how lush
@@ -4191,7 +4272,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             lush = lushAt(x, y);
           if (R() > (city ? 0.55 : 0.14) + 0.86 * lush || !open(x, y, 0.25, 0.22)) continue;
           let h = H(x, y);
-          wet(h) || tufts.push({ x, z: y, y: h, lush, rot: R() * Math.PI * 2, s: 0.6 + lush * 0.35 + R() * 0.25, tall: 0.8 + R() * 0.3, k: 0.93 + R() * 0.12 });
+          if (PL && (PL.deckAt(x, y) || PL.onCliff(x, y))) continue;
+          // the tall grass the wild ones live in stands taller (worldplan.js)
+          let tallGrass = PL ? PL.grassAt(x, y) : 0;
+          wet(h) || tufts.push({ x, z: y, y: h, lush, rot: R() * Math.PI * 2, s: 0.6 + lush * 0.35 + R() * 0.25 + tallGrass * 0.25, tall: 0.8 + R() * 0.3 + tallGrass * 0.7, k: 0.93 + R() * 0.12 - tallGrass * 0.08 });
         }
       if (tufts.length) {
         let m = this.windMaterial(new MeshStandardMaterial({
@@ -4201,10 +4285,18 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             side: DoubleSide,
             envMapIntensity: 0.28
           }), 0.14, !0),
-          g = new InstancedMesh(meadowTuft(), m, tufts.length);
-        tufts.forEach((t, i) => {
-          o.position.set(t.x, t.y, t.z), o.rotation.set(0, t.rot, 0), o.scale.set(t.s, t.s * t.tall, t.s), o.updateMatrix(), g.setMatrixAt(i, o.matrix), g.setColorAt(i, tone(t.x, t.z, col, t.y).multiplyScalar(t.k));
-        }), g.receiveShadow = !0, g.userData.noOutline = !0, this.zoneGroup.add(g),
+          tuft = meadowTuft(),
+          g = new Group();
+        // In squares, each its own instanced mesh, so a planned zone's grass
+        // past the fog is not drawn at all (see cullGrass).
+        for (let cellItems of gridCells(tufts, city ? 1e9 : 30)) {
+          let gm = new InstancedMesh(tuft, m, cellItems.length);
+          cellItems.forEach((t, i) => {
+            o.position.set(t.x, t.y, t.z), o.rotation.set(0, t.rot, 0), o.scale.set(t.s, t.s * t.tall, t.s), o.updateMatrix(), gm.setMatrixAt(i, o.matrix), gm.setColorAt(i, tone(t.x, t.z, col, t.y).multiplyScalar(t.k));
+          });
+          gm.receiveShadow = !0, gm.userData.noOutline = !0, gm.computeBoundingSphere(), g.add(gm), this.grassCells.push(gm);
+        }
+        this.zoneGroup.add(g),
         // White, so the season's tint is all the material adds on top of the
         // ground colour each tuft already carries.
         this.seasonTint.push({ mat: m, base: 16777215, kind: "grass" }), this.meadowGrass = g;
@@ -4259,25 +4351,32 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.flowerBeds = null;
       if (flowers.length) {
         let wind = m => this.windMaterial(m, 0.3, !0),
-          heads = new InstancedMesh(flowerHead(), wind(new MeshStandardMaterial({
+          headMat = wind(new MeshStandardMaterial({
             vertexColors: !0,
             roughness: 0.7,
             metalness: 0,
             side: DoubleSide,
             envMapIntensity: 0.35
-          })), flowers.length),
-          bases = new InstancedMesh(flowerBase(M.heart, mixHex(e.leaf, 4165434, 0.55)), wind(new MeshStandardMaterial({
+          })),
+          baseMat = wind(new MeshStandardMaterial({
             vertexColors: !0,
             roughness: 0.8,
             metalness: 0,
             side: DoubleSide,
             envMapIntensity: 0.3
-          })), flowers.length);
-        flowers.forEach((f, i) => {
-          o.position.set(f.x, f.y, f.z), o.rotation.set(f.tx, f.rot, f.tz), o.scale.setScalar(f.s), o.updateMatrix(), heads.setMatrixAt(i, o.matrix), bases.setMatrixAt(i, o.matrix), heads.setColorAt(i, col.set(f.c));
-        });
-        for (let m of [heads, bases]) m.receiveShadow = !0, m.userData.noOutline = !0;
-        this.flowerBeds = new Group(), this.flowerBeds.add(heads, bases), this.zoneGroup.add(this.flowerBeds);
+          })),
+          headGeo = flowerHead(),
+          baseGeo = flowerBase(M.heart, mixHex(e.leaf, 4165434, 0.55));
+        this.flowerBeds = new Group();
+        for (let cellItems of gridCells(flowers, city ? 1e9 : 30)) {
+          let heads = new InstancedMesh(headGeo, headMat, cellItems.length),
+            bases = new InstancedMesh(baseGeo, baseMat, cellItems.length);
+          cellItems.forEach((f, i) => {
+            o.position.set(f.x, f.y, f.z), o.rotation.set(f.tx, f.rot, f.tz), o.scale.setScalar(f.s), o.updateMatrix(), heads.setMatrixAt(i, o.matrix), bases.setMatrixAt(i, o.matrix), heads.setColorAt(i, col.set(f.c));
+          });
+          for (let m of [heads, bases]) m.receiveShadow = !0, m.userData.noOutline = !0, m.computeBoundingSphere(), this.flowerBeds.add(m), this.grassCells.push(m);
+        }
+        this.zoneGroup.add(this.flowerBeds);
       }
     }
     buildDecals(e) {
@@ -4645,10 +4744,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           }));
           if (o.position.set(n.x, s + 2.2, n.z), o.castShadow = !0, t.add(r, o), n.kind === "npc") {
             let a = buildAvatar({
-              body: "stocky",
+              kind: "mage",
+              look: "a",
               skin: "#e0ac7e",
-              hair: "#e8e8e8",
-              outfit: "scholar"
+              hairC: "#e8e8e8"
             });
             a.position.set(n.x + 0.9, s, n.z), a.rotation.y = Math.PI, a.userData.baseY = s, t.add(a), this.npcAvatar = a;
           }
@@ -4743,18 +4842,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     buildNpcs() {
       let e = new Group();
       for (let t of Object.values(NPCS)) {
+        // Dressed as the kind of adventurer each of them is, in their own hair.
         let n = buildAvatar({
-            body: t.body,
-            skin: t.skin,
-            hair: t.hair,
-            outfit: t.outfit
-          }),
-          s = AVATAR.outfits.find(l => l.id === t.outfit) || AVATAR.outfits[0],
-          r = buildNpcBody(t.outfit, {
-            coat: new Color(s.a).getHex(),
-            trouser: new Color(s.b).getHex()
-          });
-        r && n.add(r);
+          kind: t.kind,
+          look: t.look,
+          skin: t.skin,
+          hairC: t.hair,
+          scale: t.scale
+        });
         let o = new Group();
         o.add(n, softShadowTexture(0.6, 0.3));
         let a = new Mesh(new OctahedronGeometry(0.3, 0), glowMat(3139280, 0.55));
@@ -4806,7 +4901,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let r = s.rotTarget - s.holder.rotation.y;
         for (; r > Math.PI;) r -= Math.PI * 2;
         for (; r < -Math.PI;) r += Math.PI * 2;
-        s.holder.rotation.y += r * Math.min(1, e * 6), s.group.userData.baseY = 0, setCreatureLod(s.group, s.holder.position.distanceTo(this.camera.position)), animateCreature(s.group, t, s.moving);
+        let dc = s.holder.position.distanceTo(this.camera.position);
+        // past where a figure is more than a few pixels, it is not drawn at all
+        if (s.group.visible = dc < figureFar(), !s.group.visible) continue;
+        s.holder.rotation.y += r * Math.min(1, e * 6), s.group.userData.baseY = 0, setCreatureLod(s.group, dc), animateCreature(s.group, t, s.moving);
         let o = t * 0.001 + s.phase,
           a = s.group.userData.rig;
         if (!s.moving && a?.arms?.length) {
@@ -4974,13 +5072,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         };
       });
       let f = npcNear(e, n),
-        p = buildAvatar(f),
-        x = AVATAR.outfits.find(T => T.id === f.outfit) || AVATAR.outfits[0],
-        g = buildNpcBody(f.outfit, {
-          coat: new Color(x.a).getHex(),
-          trouser: new Color(x.b).getHex()
-        });
-      g && p.add(g);
+        p = buildAvatar({ ...f, hairC: f.hair });
       let m = new Group();
       m.add(p, softShadowTexture(0.6, 0.26)), m.position.set(h.npc.x, 0, h.npc.z), m.rotation.y = h.npc.ry, h.group.add(m), u.keeper = {
         holder: m,
@@ -5083,10 +5175,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         rotTarget: 0,
         moving: !1,
         pet: null
-      }, this.actors.set(e, n), t.kind === "player" && t.petSpecies && this.attachPet(n, t.petSpecies), n;
+      }, this.actors.set(e, n), t.kind === "player" && t.petSpecies && this.attachPet(n, t.petSpecies, t.petStar || 1), n;
     }
-    attachPet(e, t) {
-      if (e.pet?.species === t) return;
+    attachPet(e, t, star = 1) {
+      if (e.pet?.species === t) {
+        // the same one back from the farm with another star: dress it again
+        e.pet && (e.pet.star || 1) !== star && (setStarLook(e.pet.group, star), e.pet.star = star);
+        return;
+      }
       if (e.pet && (e.holder.remove(e.pet.holder), disposeTree(e.pet.holder)), !t || !SPECIES[t]) {
         e.pet = null;
         return;
@@ -5095,8 +5191,9 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         s = buildCreature(t, {
           outline: !1
         });
-      s.scale.multiplyScalar(0.6), n.add(s, softShadowTexture(0.38, 0.24)), n.position.set(-1.35, 0, -1.45), e.holder.add(n), e.pet = {
+      s.scale.multiplyScalar(0.6), setStarLook(s, star), n.add(s, softShadowTexture(0.38, 0.24)), n.position.set(-1.35, 0, -1.45), e.holder.add(n), e.pet = {
         species: t,
+        star,
         holder: n,
         group: s,
         lag: new Vector3()
@@ -5121,7 +5218,9 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       if (!on) return this.titleCam = null;
       let z = this.zone || {},
         l = (z.landmarks || []).find(n => n.kind === "plaza" || n.kind === "fountain") || (z.landmarks || [])[0] || { x: 0, z: 0 };
-      this.titleCam = { x: l.x || 0, z: l.z || 0, r: 24, h: 11, a: 0.6 };
+      // over the roofs: the town is twice the size it was, and a camera that
+      // circled at roof height went through a wall on every lap
+      this.titleCam = { x: l.x || 0, z: l.z || 0, r: 44, h: 34, a: 0.6 };
     }
     /** Open a zone looking at open ground. Arriving with your back to a wall
      *  used to start the zone on a close-up of the back of your own head: no
@@ -5208,6 +5307,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       for (let n of this.windMaterials) n.userData.shader && (n.userData.shader.uniforms.uTime.value = this.time);
       for (let n of this.groundU) n.uGTime.value = this.time, n.uNight.value = this.night || 0;
       this.fountain?.tick(this.time);
+      this.planArt?.update(this.time, this.night || 0), this.cullGrass();
       if (this.water && (this.water.position.y = -1.15 + Math.sin(this.time * 0.7) * 0.05), this._inside) {
         let n = this._inside;
         n.room.tick(this.time);
@@ -5221,7 +5321,12 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         n && (n.group.rotation.y = Math.atan2(this.camera.position.x - n.group.position.x, this.camera.position.z - n.group.position.z));
       }
       for (let n of this.portalRings || []) n.arch.rotation.z += e * 0.5, n.veil && (n.veil.material.opacity = 0.22 + Math.sin(this.time * 2) * 0.08);
-      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1);
+      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1), this.incubators && !this._inside && this.incubators.update(e, t, this.camera);
+      {
+        // the one coming out of its pod is not at your heel yet
+        let em = this.incubators?.emerging(), me = this.selfActor();
+        me?.pet && (me.pet.holder.visible = !em || me.pet.species !== em);
+      }
       for (let n of this.actors.values()) {
         n.key !== this.self && n.holder.position.lerp(n.target, Math.min(1, e * 10));
         let s = n.holder.rotation.y,
@@ -5234,7 +5339,10 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let gp = n.holder.position,
           gv = n._lp ? Math.hypot(gp.x - n._lp.x, gp.z - n._lp.z) / Math.max(e, 1e-3) : 0;
         n._gs = (n._gs || 0) + (Math.min(12, gv) - (n._gs || 0)) * Math.min(1, e * 8), (n._lp ||= gp.clone()).copy(gp), n.group.userData.groundSpeed = n._gs;
-        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = 0, setCreatureLod(n.group, n.holder.position.distanceTo(this.camera.position)), animateCreature(n.group, t, n.moving), n.pet) {
+        let dc = n.holder.position.distanceTo(this.camera.position), seen = n.key === this.self || dc < figureFar();
+        n.group.visible = seen, n.pet && (n.pet.group.visible = seen);
+        if (!seen) continue;
+        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet) {
           let o = new Vector3(-1.35, 0, -1.45);
           n.pet._lp ||= n.pet.lag.clone();
           let pv;
@@ -5757,6 +5865,13 @@ function interiorOf(i, e, t, n) {
   };
 }
 
+/** How far off a trainer, a keeper or a wild one is still drawn. Each is a
+ *  skinned model of several thousand triangles; a crowded town square at the
+ *  far end of the street was most of a small phone's frame. */
+function figureFar() {
+  return QUALITY.tier === "low" ? 58 : QUALITY.tier === "medium" ? 80 : 120;
+}
+
 function npcNear(i, e) {
   let t = i.npc && NPCS[i.npc];
   if (t) return {
@@ -5767,7 +5882,10 @@ function npcNear(i, e) {
     body: t.body,
     skin: t.skin,
     hair: t.hair,
-    outfit: t.outfit
+    outfit: t.outfit,
+    kind: t.kind,
+    look: t.look,
+    scale: t.scale
   };
   let n = {
     clinic: {
@@ -5778,7 +5896,9 @@ function npcNear(i, e) {
       body: "slim",
       skin: "#d8a97f",
       hair: "#3a2f2a",
-      outfit: "tide"
+      outfit: "tide",
+      kind: "mage",
+      look: "b"
     },
     shop: {
       id: "trader",
@@ -5788,7 +5908,9 @@ function npcNear(i, e) {
       body: "stocky",
       skin: "#8a5a3c",
       hair: "#2b1b16",
-      outfit: "wanderer"
+      outfit: "wanderer",
+      kind: "pirate",
+      look: "a"
     },
     archive: {
       id: "clerk",
@@ -5798,7 +5920,9 @@ function npcNear(i, e) {
       body: "tall",
       skin: "#c98f63",
       hair: "#d8d4cc",
-      outfit: "scholar"
+      outfit: "scholar",
+      kind: "explorer",
+      look: "a"
     },
     workshop: {
       id: "smith",
@@ -5808,7 +5932,9 @@ function npcNear(i, e) {
       body: "stocky",
       skin: "#6f452c",
       hair: "#151515",
-      outfit: "ranger"
+      outfit: "ranger",
+      kind: "fire",
+      look: "a"
     }
   };
   return n[e] || n.shop;
@@ -6265,6 +6391,8 @@ var GROUND_CITY = `
  *  fewest trees and rocks, and wanders a little on the way. Seeded by the
  *  zone, so everyone walks the same paths. */
 function buildTrails(zone, colliders) {
+  let plan = !zone.urban && planFor(zone);
+  if (plan) return planTrails(zone, plan);
   let camp = zone.landmarks.find(l => l.kind === "camp");
   if (!camp) return null;
   let size = zone.size,
@@ -6346,6 +6474,69 @@ function buildTrails(zone, colliders) {
         j = Math.floor(z / px + N / 2);
       return i < 0 || j < 0 || i >= N || j >= N ? 0 : data[j * N + i] / 255;
     }
+  };
+}
+
+/** A merged mesh cut into 48m squares (zonekit.js), each added to `group`
+ *  with the same material and shadows. */
+function chunkInto(group, mesh, cell = 48) {
+  let parts = mesh.geometry.index ? null : splitByChunks(mesh.geometry, cell);
+  if (!parts || parts.length < 2) return group.add(mesh), mesh;
+  for (let g of parts) {
+    let m = new Mesh(g, mesh.material);
+    m.castShadow = mesh.castShadow, m.receiveShadow = mesh.receiveShadow, m.renderOrder = mesh.renderOrder, m.userData = { ...mesh.userData }, group.add(m);
+  }
+  return mesh.geometry.dispose(), mesh;
+}
+
+/** Items with x and z, sorted into square cells of `size` metres. */
+function gridCells(items, size) {
+  let m = new Map();
+  for (let it of items) {
+    let k = Math.floor(it.x / size) * 4096 + Math.floor(it.z / size);
+    (m.get(k) || m.set(k, []).get(k)).push(it);
+  }
+  return [...m.values()];
+}
+
+/** A planned zone's roads as the trail mask the ground shader paints. */
+function planTrails(zone, P) {
+  let size = zone.size,
+    N = 256,
+    px = size / N,
+    data = new Uint8Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    let x = (i + 0.5 - N / 2) * px, z = (j + 0.5 - N / 2) * px;
+    data[j * N + i] = Math.round(P.roadAt(x, z) * 255);
+  }
+  let texture = new DataTexture(data, N, N, RedFormat, UnsignedByteType);
+  return texture.magFilter = texture.minFilter = LinearFilter, texture.needsUpdate = !0, {
+    size,
+    texture,
+    at(x, z) {
+      let i = Math.floor(x / px + N / 2),
+        j = Math.floor(z / px + N / 2);
+      return i < 0 || j < 0 || i >= N || j >= N ? 0 : data[j * N + i] / 255;
+    }
+  };
+}
+
+/** The colours a plan's ground tones mix toward, from the zone's palette. */
+function planTones(pal) {
+  let c = (h) => new Color(h),
+    rockLo = c(mixHex(pal.rock ?? 0x8A8276, 0x5A4A44, 0.25)),
+    rockHi = c(mixHex(pal.rock ?? 0x8A8276, 0xE8D8C0, 0.25)),
+    band = c(mixHex(pal.rock ?? 0x8A8276, 0xC2603A, 0.45)),
+    tmp = new Color();
+  return {
+    sand: c(mixHex(pal.path ?? 0xE6CE96, 0xF2E2B8, 0.35)),
+    // a rock face carries the strata of the land it was cut from
+    rock: (y, x, z) => tmp.copy(rockLo).lerp(rockHi, Math.min(1, Math.max(0, 0.5 + Math.sin(y * 1.7 + fbm(x * 0.1, z * 0.1, 3, 2) * 2) * 0.5))).lerp(band, pal.rim === "cliff" || pal.rockStyle === "mesa" ? 0.25 * (Math.sin(y * 0.9) > 0.3 ? 1 : 0) : 0),
+    moss: c(mixHex(pal.groundLow ?? 0x5E9A47, 0x2E5A30, 0.4)),
+    ash: c(0x3E3634),
+    snow: c(0xF2F6FA),
+    road: c(mixHex(pal.path ?? 0xE6CE96, 0x8A6A4A, 0.3)),
+    lush: c(mixHex(pal.groundLow ?? 0x5E9A47, 0x3E8A2E, 0.5))
   };
 }
 

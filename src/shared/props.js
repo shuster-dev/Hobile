@@ -1,3 +1,4 @@
+import { footprintOf, planFor } from './worldplan.js';
 // `three` was imported here for one line of arithmetic, and it cost the server
 // 26MB: `shared/` is loaded by WorldRoom, so every deploy shipped the whole
 // renderer to a process that never draws a frame. The blend is reproduced
@@ -62,6 +63,9 @@ function fbm(i, e, t = 0, n = 3) {
 }
 
 function heightAt(i, e, t) {
+  // a planned field zone (worldplan.js) knows its own ground
+  let plan = !URBAN_ZONES.has(i) && planFor(i);
+  if (plan) return plan.height(e, t);
   if (URBAN_ZONES.has(i)) {
     let a = hash(i);
     if (t < EDGE_Y) return -1.35;
@@ -82,7 +86,7 @@ function heightAt(i, e, t) {
 var TAU_W = Math.PI * 2,
   BLOCK = 24,
   ROAD_HALF = 4.5,
-  EDGE_Y = -38,
+  EDGE_Y = -62,
   URBAN_ZONES = new Set(["aetherport"]);
 
 function blockGrid(i) {
@@ -127,10 +131,29 @@ var BUILDING_STYLES = [{
     roof: 3814186,
     floors: [2, 3]
   }],
-  POST = 3.2;
+  POST = 3.2,
+  // the edge-of-town houses (zonebuild.js dwelling)
+  HOUSE_WALLS = [0xF2E6D0, 0xEED8C0, 0xF4EEE2, 0xE8D4B8, 0xF0E0D4],
+  HOUSE_ROOFS = [0xC0563A, 0xB84A3A, 0xA8624A, 0x7A6A8A, 0xD9B464];
+
+/** Where your farm's training pods stand, in a curve facing the middle of the
+ *  yard as you come in by its gate — one for each a pod building can have. */
+const INCUBATOR_R = 1.15;
+function incubatorSpots(zone) {
+  const f = zone?.landmarks?.find((l) => l.kind === "base");
+  if (!f) return [];
+  const out = [];
+  for (let k = 0; k < 5; k++) {
+    const a = (186 + k * 16) * Math.PI / 180, x = f.x + Math.cos(a) * 9.5, z = f.z + Math.sin(a) * 9.5;
+    // faces the middle of the yard
+    out.push({ x, z, y: heightAt(zone.id, x, z), rot: Math.atan2(f.x - x, f.z - z), k });
+  }
+  return out;
+}
 
 function generateUrbanProps(i) {
-  let e = rng(hash(i.id)),
+  let structures = [],
+    e = rng(hash(i.id)),
     t = i.size / 2,
     n = [],
     s = [],
@@ -154,6 +177,22 @@ function generateUrbanProps(i) {
     let m = l(x, g, 2);
     if (m && m.kind !== "portal") continue;
     let v = BLOCK / 2 - ROAD_HALF - 1.2;
+    // Out past the middle of town the blocks are houses with pitched roofs
+    // and gardens, not shops four storeys high: the town thins out toward its
+    // edge, and a town twice the size costs the phone less than twice as much.
+    if (Math.hypot(x, g) > 50) {
+      let n2 = e() < 0.5 ? 2 : 3;
+      for (let y = 0; y < n2; y++) {
+        let side = Math.floor(e() * 4), a2 = side * Math.PI / 2,
+          along = (y - (n2 - 1) / 2) * (v * 2 / n2) + (e() - 0.5),
+          hx = x + Math.sin(a2) * (v - 3) + Math.cos(a2) * along,
+          hz = g + Math.cos(a2) * (v - 3) - Math.sin(a2) * along;
+        if (onRoad(hx, hz, -1) || l(hx, hz, 2) || hz < EDGE_Y + 8) continue;
+        let st = { kind: "dwelling", x: hx, z: hz, rot: a2, w: 5 + e() * 1.4, d: 5 + e() * 1.2, h: 3.4 + e() * 0.8, wall: HOUSE_WALLS[Math.floor(e() * HOUSE_WALLS.length)], roof: HOUSE_ROOFS[Math.floor(e() * HOUSE_ROOFS.length)] };
+        st.y = heightAt(i.id, hx, hz), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      }
+      continue;
+    }
     for (let E = 0; E < 4; E++) {
       if (e() < 0.06) continue;
       let _ = E % 2 === 0 ? "x" : "z",
@@ -289,9 +328,22 @@ function generateUrbanProps(i) {
       }
     }
     if (f.kind === "base") {
-      for (let x = 0; x < 22; x++) {
-        let g = x / 22 * TAU_W;
-        g > Math.PI * 0.85 && g < Math.PI * 1.15 || r.push({
+      // Your farm: a barn, a pen, troughs, hay, a patch of cabbages, inside its
+      // fence — built like the field zones' farms (zonebuild.js)
+      let y = (x, z) => heightAt(i.id, x, z);
+      for (let st of [
+        { kind: "barn", x: f.x - 5, z: f.z + 4.5, rot: Math.PI, w: 7, d: 8, h: 4.2 },
+        { kind: "fence", x: f.x + 6, z: f.z + 7, rot: 0, len: 7 }, { kind: "fence", x: f.x + 9.5, z: f.z + 3.5, rot: Math.PI / 2, len: 7 },
+        { kind: "trough", x: f.x + 6, z: f.z + 3, rot: 0.2 },
+        { kind: "haystack", x: f.x - 10.5, z: f.z + 4 }, { kind: "haystack", x: f.x + 2, z: f.z + 9 },
+        { kind: "field", x: f.x + 4, z: f.z - 6, rot: 0, w: 8, d: 5, crop: "cabbage" }
+      ]) st.y = y(st.x, st.z), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      // the training pods (client/gfx/incubator.js draws them, with whoever is
+      // in them): solid whether built yet or not, so nobody walks through one
+      for (let q of incubatorSpots(i)) s.push({ x: q.x, z: q.z, r: INCUBATOR_R, kind: "pod", top: q.y + 2.6 });
+      for (let x = 0; x < 34; x++) {
+        let g = x / 34 * TAU_W;
+        g > Math.PI * 1.38 && g < Math.PI * 1.62 || r.push({
           kind: "fence",
           x: f.x + Math.cos(g) * p,
           z: f.z + Math.sin(g) * p,
@@ -309,6 +361,18 @@ function generateUrbanProps(i) {
         z: f.z,
         rot: 0
       });
+    }
+    if (f.kind === "garden") {
+      // The lantern garden: a pond with lilies, benches round it, lamps
+      let y = (x, z) => heightAt(i.id, x, z),
+        st = { kind: "pond", x: f.x, z: f.z, r: 4.2, rot: 0 };
+      st.y = y(st.x, st.z), st.i = structures.length, structures.push(st), s.push(...footprintOf(st));
+      for (let x = 0; x < 4; x++) {
+        let g = x / 4 * TAU_W + Math.PI / 4;
+        r.push({ kind: "bench", x: f.x + Math.cos(g) * 6.6, z: f.z + Math.sin(g) * 6.6, rot: g + Math.PI / 2 });
+        r.push({ kind: "lamp", x: f.x + Math.cos(g + Math.PI / 4) * 8.4, z: f.z + Math.sin(g + Math.PI / 4) * 8.4, rot: 0, s: 1 }), s.push({ x: f.x + Math.cos(g + Math.PI / 4) * 8.4, z: f.z + Math.sin(g + Math.PI / 4) * 8.4, r: 0.55, kind: "prop" });
+        o.push({ x: f.x + Math.cos(g + 0.5) * 9.4, z: f.z + Math.sin(g + 0.5) * 9.4, s: 0.9, rot: e() * TAU_W, tilt: 0, kind: "street" });
+      }
     }
     if (f.kind === "gate" && (r.push({
       kind: "gatehouse",
@@ -414,7 +478,8 @@ function generateUrbanProps(i) {
     buildings: n,
     colliders: s,
     props: r,
-    urban: !0
+    urban: !0,
+    structures
   };
 }
 
@@ -491,6 +556,8 @@ function propColliders(i, e) {
 
 function generateProps(i) {
   if (i.urban) return generateUrbanProps(i);
+  let plan = planFor(i);
+  if (plan) return generatePlannedProps(i, plan);
   let e = rng(hash(i.id)),
     t = i.size / 2 - 6,
     n = [],
@@ -678,6 +745,88 @@ function generateProps(i) {
   };
 }
 
+/**
+ * The scenery of a planned zone (worldplan.js): trees where its woods are and
+ * a few out in the open, rocks gathered under its cliffs, bushes and grass
+ * where things grow — none of it in the water, on a road, against a building
+ * or in a camp. What is built comes from the plan, with its colliders.
+ */
+function generatePlannedProps(i, P) {
+  let e = rng(hash(i.id)),
+    half = i.size / 2 - 5,
+    trees = [],
+    rocks = [],
+    bushes = [],
+    grass = [],
+    buildings = [],
+    cols = [],
+    nearLandmark = (x, z, pad) => i.landmarks.some(l => Math.hypot(l.x - x, l.z - z) < (l.r || 0) + pad),
+    built = P.colliders,
+    nearBuilt = (x, z, pad) => built.some(c => Math.hypot(c.x - x, c.z - z) < (c.r ?? Math.max(c.hw, c.hd)) + pad) || P.structures.some(s => (s.kind === "field" || s.kind === "orchard") && Math.abs(s.x - x) < s.w / 2 + pad && Math.abs(s.z - z) < s.d / 2 + pad),
+    open = (x, z, pad = 1.5) => Math.hypot(x, z) < half - 2 && P.walkable(x, z) && !P.deckAt(x, z) && P.roadAt(x, z) < 0.15 && !nearBuilt(x, z, pad);
+  // the camp's cottages, as in every zone
+  for (let m of i.landmarks) {
+    if (m.kind !== "camp") continue;
+    for (let E = 0; E < 4; E++) {
+      // the same draws, in the same order, as every camp has always had: the
+      // cottages stand where they always stood (tools/camera-test.mjs knows them)
+      let a = E / 4 * TAU_W + e() * 0.25,
+        S = (m.r || 10) * 0.66,
+        x = m.x + Math.cos(a) * S,
+        z = m.z + Math.sin(a) * S,
+        w = 3.1 + e() * 1.1,
+        d = 2.9 + e() * 1,
+        h = 2.5 + e() * 0.9;
+      if (!P.walkable(x, z) || nearBuilt(x, z, 2)) continue;
+      buildings.push({ x, z, w, d, h, rot: a + Math.PI / 2, kind: "house", seed: e() }), cols.push({ x, z, r: Math.max(w, d) * 0.62, kind: "building" });
+    }
+  }
+  const look = P.spec.props || {};
+  // woods: a jittered grid, kept where the forest is thick enough
+  const step = look.treeStep ?? 5.2;
+  for (let x = -half; x < half; x += step) for (let z = -half; z < half; z += step) {
+    let tx = x + (e() - 0.5) * step * 0.9, tz = z + (e() - 0.5) * step * 0.9;
+    let f = P.forestAt(tx, tz), lone = (look.lone ?? 0.035);
+    if (e() > f * 0.9 + lone) continue;
+    if (!open(tx, tz, 2.2) || nearLandmark(tx, tz, 7)) continue;
+    let s = (0.75 + e() * 0.95) * (f > 0.5 ? 1.12 : 1);
+    trees.push({ x: tx, z: tz, s, rot: e() * TAU_W, tilt: (e() - 0.5) * 0.09, kind: e() < (look.slim ?? 0.24) ? "slim" : "broad" }), cols.push({ x: tx, z: tz, r: 0.52 * s + 0.42, kind: "tree" });
+  }
+  // rocks: some anywhere, more at the foot of the cliffs and the chasm's lip
+  let nRocks = Math.round(i.size * 0.5 * (look.rocks ?? 1));
+  for (let k = 0, tries = 0; k < nRocks && tries < nRocks * 8; tries++) {
+    let x = (e() * 2 - 1) * half, z = (e() * 2 - 1) * half;
+    let nearRock = P.cliffDist(x, z) < 9 || P.tone(x, z).rock > 0.2;
+    if (!nearRock && e() > 0.45) continue;
+    if (!open(x, z, 1.5) || nearLandmark(x, z, 3)) continue;
+    let s = (nearRock ? 0.7 : 0.5) + e() * (nearRock ? 1.6 : 1.1);
+    rocks.push({ x, z, s, rot: e() * TAU_W, tiltX: (e() - 0.5) * 0.5, tiltZ: (e() - 0.5) * 0.5 }), cols.push({ x, z, r: s, kind: "rock" });
+    k++;
+  }
+  // bushes: at the edges of woods, by water, in the grass
+  let nBush = Math.round(i.size * 0.9 * (look.bushes ?? 1));
+  for (let k = 0, tries = 0; k < nBush && tries < nBush * 6; tries++) {
+    let x = (e() * 2 - 1) * half, z = (e() * 2 - 1) * half;
+    let likes = P.forestAt(x, z) * 0.8 + (P.waterDist(x, z) < 8 ? 0.5 : 0) + P.grassAt(x, z) * 0.4 + 0.12;
+    if (e() > likes || !open(x, z, 0.8) || nearLandmark(x, z, 2)) continue;
+    bushes.push({ x, z, s: 0.5 + e() * 0.7, rot: e() * TAU_W });
+    k++;
+  }
+  let nGrass = Math.round(i.size * 9 * (look.grass ?? 1));
+  for (let k = 0; k < nGrass; k++) {
+    let x = (e() * 2 - 1) * half, z = (e() * 2 - 1) * half;
+    if (!P.walkable(x, z) || P.deckAt(x, z)) continue;
+    grass.push({ x, z, s: 0.65 + e() * 0.8, rot: e() * TAU_W, phase: e() * TAU_W });
+  }
+  for (let m of i.landmarks) m.kind === "dungeon" && cols.push({ x: m.x, z: m.z - 0.6, r: 2, kind: "gate" });
+  for (let m of i.landmarks) m.kind === "camp" && cols.push({ x: m.x, z: m.z, r: 1.2, kind: "spring", top: 0.45 });
+  cols.push(...built);
+  return cols.push(...boundaryRing(i)), {
+    trees, rocks, bushes, grass, buildings, colliders: cols, props: [], urban: !1,
+    structures: P.structures, plan: P
+  };
+}
+
 function boundaryRing(i) {
   let t = i.size / 2 - 3,
     n = 3.2,
@@ -747,7 +896,7 @@ var CURB_IN = ROAD_HALF - 1.2,
   CURB_OUT = CURB_IN + 0.34,
   LAMP_SPACING = 5.72,
   CURB_RISE = 0.16,
-  SIDEWALK = 54,
+  SIDEWALK = 88,
   TAU_G = Math.PI * 2;
 
 function gridOffset(i) {
@@ -792,4 +941,4 @@ function plazaHeight(i, e, t) {
 
 var STREET_Y = -0.62;
 
-export { BLOCK, BUILDING_STYLES, CURB_IN, CURB_OUT, CURB_RISE, EDGE_Y, LAMP_SPACING, PLAZA, POST, PROP_CACHE, ROAD_HALF, SIDEWALK, STREET_Y, TAU_G, TAU_W, URBAN_ZONES, blockGrid, boundaryRing, curbHeight, distToGridLine, fbm, generateProps, generateUrbanProps, gridOffset, hash, heightAt, mixHex, onRoad, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand, valueNoise };
+export { generatePlannedProps, incubatorSpots, INCUBATOR_R, BLOCK, BUILDING_STYLES, CURB_IN, CURB_OUT, CURB_RISE, EDGE_Y, LAMP_SPACING, PLAZA, POST, PROP_CACHE, ROAD_HALF, SIDEWALK, STREET_Y, TAU_G, TAU_W, URBAN_ZONES, blockGrid, boundaryRing, curbHeight, distToGridLine, fbm, generateProps, generateUrbanProps, gridOffset, hash, heightAt, mixHex, onRoad, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand, valueNoise };

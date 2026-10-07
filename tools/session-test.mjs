@@ -80,10 +80,11 @@ const inWorld = (page) => page.waitForFunction(
 const PHONE = { viewport: { width: 430, height: 880 }, deviceScaleFactor: 2 };
 const first = await browser.newContext(PHONE);
 const page = await openPage(first);
-await page.waitForSelector('#pick-starter .starter, #screen-login:not(.hidden)', { timeout: 30000 });
+await page.waitForSelector('#btn-next, #screen-login:not(.hidden)', { timeout: 30000 });
 ok('the first click goes straight to the character, not a login form',
-  await page.isVisible('#pick-starter .starter'));
+  await page.isVisible('#btn-next'));
 
+await page.click('#btn-next');
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'רמי');
 await page.click('#btn-create');
@@ -145,7 +146,7 @@ ok('the chip goes away once there is nothing to claim', !(await page.isVisible('
 // --- a browser that has never seen this one ------------------------------
 const stranger = await browser.newContext(PHONE);
 const page2 = await openPage(stranger);
-await page2.waitForSelector('#pick-starter .starter, #screen-login:not(.hidden)', { timeout: 30000 });
+await page2.waitForSelector('#btn-next, #screen-login:not(.hidden)', { timeout: 30000 });
 const loggedIn = await page2.evaluate(async ([u, p]) => {
   const g = window.__hobile;
   g.net.logout();

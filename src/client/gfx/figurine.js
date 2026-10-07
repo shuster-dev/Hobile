@@ -168,7 +168,7 @@ function fieldDist(B, L, n, x, y, z) {
  */
 function fieldFull(B, L, n, P, np, x, y, z, nb, reach, out) {
   let d = 1e9, r = 0, g = 0, b = 0, glow = 0, flame = 0, dw = 1e9;
-  const w = out.w;
+  const w = out.w, ink = out.ink ?? 1;
   w.fill(0);
   for (let i = 0; i < n; i++) {
     const o = L[i];
@@ -179,7 +179,8 @@ function fieldFull(B, L, n, P, np, x, y, z, nb, reach, out) {
       h = h < 0 ? 0 : h > 1 ? 1 : h;
       d = d * (1 - h) - di * h + k * h * (1 - h);
       // the inside of a carve takes the carving part's colour: a mouth, a socket
-      let hc = 0.5 - 0.5 * di / (k > 0.01 ? k : 0.01);
+      const kc = k * ink;
+      let hc = 0.5 - 0.5 * di / (kc > 0.004 ? kc : 0.004);
       hc = hc < 0 ? 0 : hc > 1 ? 1 : hc;
       r += (B[o + 34] - r) * hc; g += (B[o + 35] - g) * hc; b += (B[o + 36] - b) * hc;
       continue;
@@ -189,8 +190,16 @@ function fieldFull(B, L, n, P, np, x, y, z, nb, reach, out) {
     h = h < 0 ? 0 : h > 1 ? 1 : h;
     if (d >= 1e8) { r = B[o + 34]; g = B[o + 35]; b = B[o + 36]; glow = B[o + 31]; flame = B[o + 32]; }
     else {
-      r = B[o + 34] * (1 - h) + r * h; g = B[o + 35] * (1 - h) + g * h; b = B[o + 36] * (1 - h) + b * h;
-      glow = B[o + 31] * (1 - h) + glow * h; flame = B[o + 32] * (1 - h) + flame * h;
+      // The colour changes over a narrower band than the shape blends, when
+      // the design asks (`ink` < 1): a sleeve ends at the wrist, not over it.
+      let hc = h;
+      if (ink < 1) {
+        const kc = k * ink;
+        hc = 0.5 + 0.5 * (di - d) / (kc > 1e-6 ? kc : 1e-6);
+        hc = hc < 0 ? 0 : hc > 1 ? 1 : hc;
+      }
+      r = B[o + 34] * (1 - hc) + r * hc; g = B[o + 35] * (1 - hc) + g * hc; b = B[o + 36] * (1 - hc) + b * hc;
+      glow = B[o + 31] * (1 - hc) + glow * hc; flame = B[o + 32] * (1 - hc) + flame * hc;
     }
     d = di * (1 - h) + d * h - k * h * (1 - h);
     const kw = B[o + 37] > 0 ? 1e-6 : (k > reach ? k : reach);
@@ -363,7 +372,7 @@ function* bakeBodyGen(design, F0, nb, cells) {
   const nor = new Float32Array(n * 3), col = new Float32Array(n * 3), fx = new Float32Array(n * 4);
   const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
   // Scratch of its own: a bake can be paused half way while another runs.
-  const _o = { d: 0, r: 0, g: 0, b: 0, glow: 0, flame: 0, w: new Float32Array(nb) };
+  const _o = { d: 0, r: 0, g: 0, b: 0, glow: 0, flame: 0, w: new Float32Array(nb), ink: design.ink ?? 1 };
   const g = new Vector3();
   const reach = design.reach ?? span * 0.07;
   const aoStep = span * 0.022, aoK = design.ao ?? 1;
@@ -785,7 +794,7 @@ function* assembleGen(design, cells) {
       switch (d.kind) {
         case 'horn': return sweep(d.a, d.b, d.bend, (t) => d.r * (1 - Math.pow(t, 1.15) * 0.93), { col0: d.c, col1: d.c1, sides: d.sides || 10, rings: d.rings || 10 });
         case 'tube': return sweep(d.a, d.b, d.bend, (t) => d.r * (1 - t * (1 - (d.taper ?? 1))), { col0: d.c, col1: d.c1, sides: d.sides || 8, rings: d.rings || 8 });
-        case 'plate': return plate(d.shape, d.depth, d.place, { col: d.c, col1: d.c1, curl: d.curl, bevel: d.bevel });
+        case 'plate': return plate(d.shape, d.depth, d.place, { col: d.c, col1: d.c1, curl: d.curl, bevel: d.bevel, holes: d.holes });
         case 'crystal': return crystal(d.a, d.dir, d.len, d.r, d.c, d.c1);
         case 'flame': return flame(d.a, d.dir, d.len, d.r, d.c, d.c1, d.lean, d.side);
         case 'ball': return ball(d.p, d.r, d.c, d.sy);
@@ -887,16 +896,17 @@ function vinyl(spec, u) {
     Object.assign(s.uniforms, u);
     s.vertexShader = s.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec4 aFx; varying vec4 vFx; uniform float uTime, uFlame;`)
+        attribute vec4 aFx; varying vec4 vFx; varying vec3 vObj; uniform float uTime, uFlame;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vFx = aFx;
+        vFx = aFx; vObj = position;
         if (aFx.y > 0.0) {
           float fl = sin(uTime * 9.0 + position.y * 23.0 + position.x * 11.0) * 0.6 + sin(uTime * 14.0 - position.z * 17.0) * 0.4;
           transformed += objectNormal * fl * uFlame * aFx.y;
         }`);
     s.fragmentShader = s.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying vec4 vFx; uniform float uBlink, uGlow, uRim, uSpec, uEyeStyle, uEyeGlow; uniform vec3 uLid;`)
+        varying vec4 vFx; varying vec3 vObj; uniform float uBlink, uGlow, uRim, uSpec, uEyeStyle, uEyeGlow, uStar, uFigH, uTime;
+        uniform vec3 uLid, uStarCol, uTipCol, uGlowCol;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float eyeLit = 0.0;
         if (vFx.z < 4.0) {
@@ -925,6 +935,21 @@ function vinyl(spec, u) {
           c = mix(c, uLid, lid);
           eyeLit *= 1.0 - lid;
           diffuseColor.rgb = c;
+        }
+        // Trained stars, painted on (in the bind pose, so they move with it):
+        // from two, the tips — ears, horns, crest — dipped in its element's
+        // colour; from three, stripes down the flanks; from four they glow;
+        // at five the tips are gold.
+        float starTip = 0.0, starStripe = 0.0;
+        if (uStar > 0.5 && vFx.z >= 4.0 && vFx.y <= 0.0) {
+          float hN = vObj.y / uFigH;
+          starTip = smoothstep(0.84, 0.89, hN);
+          float side = smoothstep(0.07, 0.17, abs(vObj.x) / uFigH);
+          float wave = hN * 8.5 + sin(vObj.z / uFigH * 6.0) * 0.55;
+          starStripe = smoothstep(0.24, 0.14, abs(fract(wave) - 0.5)) * side * smoothstep(0.16, 0.28, hN)
+            * step(1.5, uStar) * (1.0 - starTip);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uTipCol, starTip * 0.8);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uStarCol, starStripe * 0.55);
         }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         if (vFx.z < 4.0) totalEmissiveRadiance += diffuseColor.rgb * (0.16 + eyeLit * 0.75 + uEyeGlow);
@@ -938,6 +963,9 @@ function vinyl(spec, u) {
           vec3 Vv = normalize(vViewPosition);
           float ndv = max(dot(normal, Vv), 0.0);
           totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + vec3(0.45)) * pow(1.0 - ndv, 3.0) * uRim;
+          // a trained one carries its element at the edges, more with each star
+          totalEmissiveRadiance += uGlowCol * pow(1.0 - ndv, 2.4) * 0.16 * uStar;
+          if (uStar > 2.5) totalEmissiveRadiance += mix(uGlowCol, uTipCol, starTip) * (starStripe * 0.8 + starTip * 0.45) * (0.3 + 0.22 * sin(uTime * 3.2 + vObj.y / uFigH * 9.0));
           vec3 Hk = normalize(normalize(vec3(-0.45, 0.75, 0.55)) + Vv);
           totalEmissiveRadiance += vec3(pow(max(dot(normal, Hk), 0.0), 64.0) * uSpec);
         }`);
@@ -989,7 +1017,9 @@ function template(id, design, needHi = false) {
       for (let i = 0; i < a.length; i += 3) grow(a[i], a[i + 1], a[i + 2]);
     }
     const dims = [box.hi[0] - box.lo[0], box.hi[1] - box.lo[1], box.hi[2] - box.lo[2]];
-    const scale = (design.size || 1) / Math.max(...dims);
+    // `fitH`: the height, in design units, that `size` is measured against —
+    // for a figure whose hat or staff should not shrink the body under it.
+    const scale = (design.size || 1) / (design.fitH ?? Math.max(...dims));
     const offset = [-(box.lo[0] + box.hi[0]) / 2, -box.lo[1], -(box.lo[2] + box.hi[2]) / 2 + (design.shiftZ || 0)];
     const joints = lo.names.map((n) => {
       const [x, y, z] = lo.bones[n];
@@ -1046,6 +1076,42 @@ function later(T) {
   setTimeout(tick, 100);
 }
 
+/**
+ * A finer mesh still, for a figure seen up close (the creator's stage): the
+ * colour of a vertex-coloured figure is only as sharp as its mesh is fine.
+ * Baked a slice at a time; the figure keeps its fine mesh until it is ready.
+ */
+function closeUp(m, cells = m.def.cellsClose ?? 120, done) {
+  const T = m.T;
+  const use = () => {
+    if (m.mesh.geometry !== T.geoClose) {
+      m.mesh.geometry = T.geoClose;
+      if (m.shell) m.shell.geometry = T.geoClose;
+    }
+    m.close = true;
+    done?.();
+  };
+  if (T.geoClose) { use(); return; }
+  (T.closeWait ||= []).push(use);
+  if (T.closeGen) return;
+  T.closeGen = assembleGen(T.design, cells);
+  const tick = () => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 8) {
+      const r = T.closeGen.next();
+      if (r.done) {
+        T.geoClose = merge(r.value.body, r.value.extra, T.scale, T.offset);
+        for (const { g } of r.value.extra) g.dispose();
+        T.closeGen = null;
+        for (const f of T.closeWait.splice(0)) f();
+        return;
+      }
+    }
+    setTimeout(tick, 0);
+  };
+  setTimeout(tick, 0);
+}
+
 /** Bake a species now, both meshes, so nothing waits later (a battle's two). */
 function warmFigurine(id, design) {
   template(id, design, true);
@@ -1084,6 +1150,12 @@ function instance(id, design, { outline = true, hi = false } = {}) {
     uSpec: { value: design.spec ?? 0.2 },
     uEyeStyle: { value: design.eyeStyle ?? 0 },
     uEyeGlow: { value: design.eyeGlow ?? 0 },
+    // stars earned in training (client/gfx/starlook.js): 0 for none
+    uStar: { value: 0 },
+    uStarCol: { value: new Color(0xffffff) },
+    uTipCol: { value: new Color(0xffffff) },
+    uGlowCol: { value: new Color(0xffffff) },
+    uFigH: { value: Math.max(0.05, T.height) },
   };
   const mat = vinyl(design, u);
   const geo = T.geoHi || T.geoLo;
@@ -1150,6 +1222,8 @@ function rot(b, x, y, z) {
  * wings, fins, antennae, a spine chain — and this drives whatever is there.
  */
 function animateFigurine(group, m, timeMs, moving, speed = 1) {
+  // A design that walks its own way (the people) brings its own animator.
+  if (m.def.animate) return m.def.animate(group, m, timeMs, moving, speed);
   const dt = m.last == null ? 0.016 : Math.min(0.1, Math.max(0, (timeMs - m.last) * 0.001));
   m.last = timeMs;
   const t = timeMs * 0.001 + m.phase;
@@ -1269,5 +1343,5 @@ function animateFigurine(group, m, timeMs, moving, speed = 1) {
 
 export {
   SPHERE, ELLIPSOID, CONE, BOX, TORUS, UNION, CARVE, PAINT, compile, fieldDist, bakeBody, gradient,
-  assemble, merge, surfaceAlong, template, instance, setFigurineLod, animateFigurine, warmFigurine, TEMPLATES,
+  assemble, merge, surfaceAlong, template, instance, setFigurineLod, closeUp, animateFigurine, warmFigurine, TEMPLATES,
 };

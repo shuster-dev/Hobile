@@ -330,6 +330,35 @@ if (gotBattle) {
     Array.isArray(board) && board.some((r) => r.name === 'Bob') && !board.some((r) => r.name === 'Alice'));
 }
 
+// the farm: a creature sent to train leaves the team, and everyone in the
+// room sees the next one walking beside her
+{
+  const bases = [];
+  roomA.onMessage('base', (m) => bases.push(m));
+  roomA.send('gm', { op: 'fill' });
+  roomA.send('gm', { op: 'give', to: 'me', what: 'creature', species: 'sparkit', level: 6 });
+  await wait(600);
+  const me0 = (await api('/api/me', null, a.json.token)).json.profile;
+  const lead = me0.team[0];
+  roomA.send('baseLook');
+  ok('the farm can ask what is in its pods', await until(() => bases.length > 0, 4000));
+  roomA.send('baseTrain', { uid: lead.uid });
+  ok('she sends her lead to train: it is in a pod at the farm',
+    await until(() => bases.some((m) => m.started && m.training?.some((t) => t.uid === lead.uid && t.species === lead.species && t.fromStar === (lead.star || 1))), 4000),
+    JSON.stringify(bases.at(-1)?.training));
+  const aliceIn = (room) => [...room.state.players.values()].find((p) => p.name === 'Alice');
+  ok('and Bob sees the next one walking beside her', await until(() => aliceIn(roomB)?.petSpecies === 'sparkit' && aliceIn(roomB)?.petStar === 1, 4000),
+    `${aliceIn(roomB)?.petSpecies} ${aliceIn(roomB)?.petStar}`);
+  const me1 = (await api('/api/me', null, a.json.token)).json.profile;
+  ok('it is out of her team, and in the profile as away', !me1.team.some((c) => c.uid === lead.uid) && me1.away?.some((c) => c.uid === lead.uid));
+  const slot = bases.find((m) => m.started)?.started;
+  roomA.send('baseCancel', { slotId: slot?.id });
+  ok('called back, it is in the team again and leads', await until(async () => {
+    const me2 = (await api('/api/me', null, a.json.token)).json.profile;
+    return me2.team[0]?.uid === lead.uid && !me2.away?.length && aliceIn(roomB)?.petSpecies === lead.species;
+  }, 4000));
+}
+
 // persistence across a reconnect
 await roomA.leave();
 await wait(400);

@@ -34,6 +34,19 @@ body.hud-lean #minimap{width:100px;height:100px}
 .dex-tile .n{color:var(--muted);font-size:10px}
 .dex-tile.locked{opacity:.38;border-inline-start-color:var(--stroke);cursor:default}
 .dex-tile.locked b{color:var(--faint)}
+.dex-tile.locked{cursor:pointer}
+.species-page{border:1px solid var(--stroke-strong);border-radius:var(--r3);overflow:hidden;box-shadow:var(--e3);margin-block:var(--s2) var(--s3)}
+.species-page .art{height:168px;display:grid;place-items:center;position:relative}
+.species-page .art img{height:160px;width:auto;filter:drop-shadow(0 8px 16px rgba(0,0,0,.35))}
+.species-page.locked .art{background:linear-gradient(150deg,#c9d2dc,#e8edf2)!important}
+.species-page.locked .art img{filter:brightness(0) opacity(.5)}
+.species-page .name{padding:var(--s3) var(--s4) var(--s1);font-size:var(--t-xl);font-weight:900}
+.species-page .chips{padding:0 var(--s4)}
+.species-page .caught{padding:var(--s2) var(--s4) var(--s3);font-size:var(--t-sm);color:var(--muted)}
+.evo-line{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s2);font-size:var(--t-sm)}
+.evo-line .evo{padding:4px var(--s3);border-radius:var(--pill);border:1px solid var(--stroke);font-weight:700}
+.evo-line .evo.here{border-color:var(--elem,var(--aether));background:color-mix(in srgb,var(--elem,var(--aether)) 16%,transparent)}
+.evo-line .arrow{color:var(--muted);font-size:var(--t-xs)}
 
 /* --- running as an app --------------------------------------------------- */
 /* iOS changes the visual viewport when the address bar collapses without
@@ -123,11 +136,100 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
 .combat-row.self.shielded .bar{height:4px}
 .combat-row.self.shielded .fx{display:none}
 
-/* --- the creator's stage -------------------------------------------------- */
-#creator-stage{display:block;width:100%;height:240px;margin:0 0 var(--s3);border-radius:var(--r3);
-  background:radial-gradient(120% 90% at 50% 18%,#fdfbf2 0%,#cdeeff 46%,#8fd0f0 100%);
-  box-shadow:inset 0 0 0 1px #ffffff40,var(--e1);touch-action:pan-y;cursor:grab}
+/* --- the character creator ------------------------------------------------ */
+/* A select screen, not a form: the adventurer on a lit pedestal fills the
+   screen, the kind's name over them, and one sheet of choices under them.
+   --acc is the kind's colour; the backdrop, the pedestal and the chosen
+   card all take it. */
+@property --acc{syntax:'<color>';inherits:true;initial-value:#b07cff}
+#screen-create{--acc:#b07cff;padding:0;gap:0;justify-content:flex-start;align-items:stretch;overflow:hidden;color:#eef1fa;
+  background:radial-gradient(64% 40% at 50% 42%,color-mix(in srgb,var(--acc) 34%,transparent) 0%,transparent 74%),
+    radial-gradient(130% 55% at 50% 104%,#252c58 0%,transparent 70%),
+    linear-gradient(180deg,#080a17 0%,#0f1430 46%,#0b0e22 100%);
+  transition:--acc .6s var(--ease)}
+#screen-create::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background:radial-gradient(1.2px 1.2px at 12% 18%,#fff9,transparent),radial-gradient(1px 1px at 78% 12%,#fff8,transparent),
+    radial-gradient(1.4px 1.4px at 64% 28%,#fff7,transparent),radial-gradient(1px 1px at 30% 34%,#fff6,transparent),
+    radial-gradient(1.2px 1.2px at 88% 40%,#fff6,transparent),radial-gradient(1px 1px at 8% 46%,#fff5,transparent)}
+.cc-top{position:absolute;top:0;left:0;right:0;z-index:4;display:flex;align-items:center;justify-content:space-between;
+  padding:calc(var(--safe-t) + 14px) 18px 0;pointer-events:none}
+.cc-title{font-size:12.5px;font-weight:800;letter-spacing:.08em;color:#dfe4f7cc}
+.cc-steps{display:flex;gap:6px}
+.cc-steps i{display:block;width:16px;height:4px;border-radius:4px;background:#ffffff2b;transition:width .3s var(--ease),background .3s}
+.cc-steps i.on{width:28px;background:var(--acc)}
+.cc-stage{position:relative;flex:1 1 auto;min-height:0}
+#creator-stage{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:pan-y;cursor:grab}
 #creator-stage:active{cursor:grabbing}
+.cc-hero{position:absolute;top:calc(var(--safe-t) + 40px);left:0;right:0;z-index:2;padding:0 64px;text-align:center;pointer-events:none}
+.cc-over{direction:ltr;font-size:10.5px;font-weight:800;letter-spacing:.42em;text-transform:uppercase;color:var(--acc);
+  text-shadow:0 0 16px color-mix(in srgb,var(--acc) 70%,transparent)}
+.cc-hero h2{margin:3px 0 5px;font-size:34px;line-height:1.08;font-weight:900;letter-spacing:.01em;color:#fff;text-shadow:0 2px 16px #000a}
+.cc-hero p{margin:0 auto;max-width:290px;font-size:13.5px;line-height:1.5;color:#cdd3ea;text-shadow:0 1px 10px #000c}
+.cc-hero.swap{animation:ccSwap .42s var(--ease)}
+@keyframes ccSwap{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.cc-arrow{position:absolute;top:56%;z-index:2;width:42px;height:42px;margin-top:-21px;padding:0;border-radius:50%;display:grid;place-items:center;
+  color:#fff;background:#ffffff10;border:1px solid #ffffff26;box-shadow:0 6px 16px #0006;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:transform .1s var(--ease),background .2s}
+.cc-arrow svg{width:18px;height:18px}
+.cc-arrow.prev{right:12px}.cc-arrow.next{left:12px}
+.cc-arrow:active{transform:scale(.92);background:#ffffff22}
+.cc-sheet{position:relative;z-index:3;flex:0 0 auto;padding:14px 16px calc(16px + var(--safe-b));border-radius:26px 26px 0 0;
+  background:linear-gradient(180deg,#1b2143e6,#0c1027f7);border-top:1px solid #ffffff1c;box-shadow:0 -16px 44px #0007,inset 0 1px 0 #ffffff0d;
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.cc-step.hidden{display:none}
+.cc-step.in{animation:ccIn .34s var(--ease)}
+@keyframes ccIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.cc-label{font-size:11px;font-weight:700;letter-spacing:.06em;color:#8f98bf;margin:0 2px 7px}
+.cc-kinds{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;margin:0 -16px;padding:4px 16px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.cc-kinds::-webkit-scrollbar{display:none}
+.cc-kind{--k:#888;flex:0 0 70px;height:90px;position:relative;padding:0;border-radius:16px;overflow:hidden;scroll-snap-align:center;cursor:pointer;
+  background:radial-gradient(95% 72% at 50% 34%,color-mix(in srgb,var(--k) 46%,#1d2346) 0%,#131832 100%);
+  border:1px solid #ffffff14;box-shadow:0 4px 10px #0005;transition:transform .16s var(--ease),box-shadow .2s,border-color .2s}
+.cc-kind img{position:absolute;left:0;top:0;width:100%;height:76px;object-fit:cover;object-position:50% 0;pointer-events:none;
+  animation:ccFade .35s var(--ease)}
+@keyframes ccFade{from{opacity:0}to{opacity:1}}
+.cc-kind span{position:absolute;left:0;right:0;bottom:0;padding:16px 2px 6px;font-size:11.5px;font-weight:800;color:#fff;white-space:nowrap;
+  background:linear-gradient(180deg,transparent,#0a0d1fee 58%)}
+.cc-kind.on{border-color:var(--k);box-shadow:0 0 0 1.5px var(--k),0 8px 22px color-mix(in srgb,var(--k) 50%,transparent);transform:translateY(-3px)}
+.cc-row{display:flex;gap:22px;align-items:flex-start;margin-top:10px}
+.cc-looks,.cc-skins{display:flex;gap:8px;align-items:center;min-height:46px}
+.cc-look{width:46px;height:46px;padding:0;border-radius:50%;overflow:hidden;cursor:pointer;
+  background:radial-gradient(90% 90% at 50% 30%,color-mix(in srgb,var(--acc) 40%,#1d2346),#131832);border:2px solid #ffffff1f;transition:border-color .2s,transform .12s}
+.cc-look img{width:100%;height:100%;object-fit:cover;object-position:50% 8%}
+.cc-look.on{border-color:var(--acc);box-shadow:0 0 12px color-mix(in srgb,var(--acc) 55%,transparent)}
+.cc-skin{width:28px;height:28px;padding:0;border-radius:50%;border:0;cursor:pointer;box-shadow:inset 0 -3px 0 #0003,0 1px 3px #0007;transition:transform .12s,box-shadow .2s}
+.cc-skin.on{box-shadow:0 0 0 2px #10142c,0 0 0 4px var(--acc)}
+.cc-look:active,.cc-skin:active,.cc-kind:active{transform:scale(.94)}
+.cc-cta{width:100%;margin-top:14px;min-height:54px;border-radius:999px;font-size:17px;font-weight:900;letter-spacing:.02em;color:#2a0d04;
+  background:linear-gradient(180deg,#ffd27a 0%,#ff9a5a 55%,#ff7a59 100%);border:2px solid #fff6;box-shadow:0 8px 22px #ff7a594d,inset 0 2px 0 #fff8,inset 0 -3px 0 #0002}
+.cc-cta:active{transform:translateY(2px) scale(.985)}
+.cc-cta:disabled{opacity:.7;filter:saturate(.6)}
+.cc-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.cc-head b{font-size:15.5px;font-weight:800}
+.cc-back{height:34px;padding:0 12px 0 10px;border-radius:999px;display:inline-flex;align-items:center;gap:3px;font-size:12.5px;font-weight:700;
+  color:#dfe4f7;background:#ffffff10;border:1px solid #ffffff22}
+.cc-back svg{width:15px;height:15px}
+#screen-create .starter-grid{gap:8px}
+#screen-create .starter{position:relative;padding:8px 4px 9px;border-radius:16px;cursor:pointer;color:#eef1fa;
+  background:radial-gradient(95% 70% at 50% 30%,color-mix(in srgb,var(--el,#6ea8ff) 34%,#1d2346) 0%,#131832 100%);
+  border:1px solid #ffffff14;box-shadow:0 4px 10px #0005;transition:transform .16s var(--ease),box-shadow .2s,border-color .2s}
+#screen-create .starter .portrait{width:70px;height:70px;margin:0 auto 2px}
+#screen-create .starter b{font-size:13px}
+#screen-create .starter span{font-size:11px;color:#aab3d6}
+#screen-create .starter.on{border-color:var(--el,var(--acc));background:radial-gradient(95% 70% at 50% 30%,color-mix(in srgb,var(--el,#6ea8ff) 50%,#1d2346) 0%,#151a38 100%);
+  box-shadow:0 0 0 1.5px var(--el,var(--acc)),0 8px 22px color-mix(in srgb,var(--el,var(--acc)) 45%,transparent);transform:translateY(-3px)}
+.cc-namefield{margin-top:12px}
+.cc-namefield label{font-size:11px;font-weight:700;letter-spacing:.06em;color:#8f98bf}
+#screen-create .error-text{min-height:0;margin-top:6px}
+#screen-create .error-text:empty{display:none}
+@media (orientation:landscape) and (min-width:700px){
+  #screen-create{flex-direction:row}
+  .cc-sheet{flex:0 0 min(400px,46vw);align-self:stretch;overflow-y:auto;border-radius:0;border-top:0;border-inline-start:1px solid #ffffff1c;
+    display:flex;flex-direction:column;justify-content:center;padding:calc(var(--safe-t) + 50px) 20px calc(18px + var(--safe-b))}
+  .cc-kinds{flex-wrap:wrap;overflow:visible;margin:0;padding:4px 0 8px}
+  .cc-hero{padding:0 70px}
+}
+@media (prefers-reduced-motion:reduce){.cc-hero.swap,.cc-step.in,.cc-kind img{animation:none}}
 .starter .portrait{width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 4px;
   filter:drop-shadow(0 3px 5px #0006)}
 .starter .portrait+.dot{display:none}
@@ -436,17 +538,36 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
   </div>
 
   <div id="screen-create" class="screen hidden">
-    <div class="brand"><h1>יצירת דמות</h1><p>בחר מראה ויצור פתיחה</p></div>
-    <div class="card">
-      <canvas id="creator-stage" aria-label="תצוגה מקדימה של הדמות והיצור"></canvas>
-      <div class="field"><label for="in-charname">שם הדמות</label><input id="in-charname" maxlength="16" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" /></div>
-      <div class="field"><label>מבנה גוף</label><div class="picker" id="pick-body"></div></div>
-      <div class="field"><label>גוון עור</label><div class="picker" id="pick-skin"></div></div>
-      <div class="field"><label>צבע שיער</label><div class="picker" id="pick-hair"></div></div>
-      <div class="field"><label>תלבושת</label><div class="picker" id="pick-outfit"></div></div>
-      <div class="field"><label>יצור פתיחה</label><div class="starter-grid" id="pick-starter"></div></div>
-      <div class="error-text" id="create-error" role="alert"></div>
-      <button class="btn primary" id="btn-create">התחל את המסע</button>
+    <div class="cc-top">
+      <div class="cc-title" id="cc-title">בחירת דמות</div>
+      <div class="cc-steps" aria-hidden="true"><i class="on"></i><i></i></div>
+    </div>
+    <div class="cc-stage">
+      <canvas id="creator-stage" aria-label="תצוגה מקדימה של הדמות"></canvas>
+      <div class="cc-hero" id="cc-hero" aria-live="polite">
+        <div class="cc-over" id="cc-en"></div>
+        <h2 id="cc-name"></h2>
+        <p id="cc-line"></p>
+      </div>
+      <button class="cc-arrow prev" id="cc-prev" type="button" aria-label="הדמות הקודמת"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button class="cc-arrow next" id="cc-next" type="button" aria-label="הדמות הבאה"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    </div>
+    <div class="cc-sheet">
+      <section class="cc-step" id="cc-step1">
+        <div class="cc-kinds" id="pick-kind" role="radiogroup" aria-label="סוג הדמות"></div>
+        <div class="cc-row">
+          <div class="cc-group"><div class="cc-label">מראה</div><div class="cc-looks" id="pick-look" role="radiogroup" aria-label="מראה"></div></div>
+          <div class="cc-group"><div class="cc-label">גוון עור</div><div class="cc-skins" id="pick-skin" role="radiogroup" aria-label="גוון עור"></div></div>
+        </div>
+        <button class="btn cc-cta" id="btn-next" type="button">המשך</button>
+      </section>
+      <section class="cc-step hidden" id="cc-step2">
+        <div class="cc-head"><button class="cc-back" id="btn-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>חזרה</button><b>בחר שותף ראשון</b></div>
+        <div class="starter-grid" id="pick-starter" role="radiogroup" aria-label="יצור פתיחה"></div>
+        <div class="field cc-namefield"><label for="in-charname">שם הדמות</label><input id="in-charname" maxlength="16" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="איך יקראו לך?" /></div>
+        <div class="error-text" id="create-error" role="alert"></div>
+        <button class="btn cc-cta" id="btn-create" type="button">התחל את המסע</button>
+      </section>
     </div>
   </div>
 

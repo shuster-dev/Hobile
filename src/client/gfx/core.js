@@ -1,6 +1,12 @@
 import { ACESFilmicToneMapping, AdditiveBlending, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, Color, CylinderGeometry, DataTexture, DirectionalLight, DoubleSide, Euler, Float32BufferAttribute, FrontSide, Group, HemisphereLight, LinearToneMapping, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, MeshToonMaterial, NearestFilter, PCFShadowMap, PCFSoftShadowMap, PMREMGenerator, PlaneGeometry, Quaternion, RedFormat, SRGBColorSpace, Scene, ShaderMaterial, SphereGeometry, UnsignedByteType, Vector3, WebGLRenderer } from 'three';
 
 function Jv(i) {
+  // ?tier=low|medium|high: see the game the way another phone draws it (the
+  // test browser is software GL and would always say low)
+  try {
+    let q = new URLSearchParams(location.search).get("tier");
+    if (q === "low" || q === "medium" || q === "high") return q;
+  } catch {}
   let e = "";
   try {
     let r = i.getContext(),
@@ -147,6 +153,25 @@ var jv = `
   }
 `;
 
+/**
+ * Hand-written shaders give their colour as it should look on screen. Drawn
+ * straight to the screen that is what lands; drawn into the grade's target
+ * (any tier above low) the target holds light, not screen colour, and the
+ * grade turns light back into screen colour at the end — so a shader that
+ * wrote screen colour into it came out brighter and greyer than on low. Wrap
+ * a fragment shader in this and it says the same thing both ways: three gives
+ * every ShaderMaterial a `linearToOutputTexel` for wherever it is drawing.
+ */
+const DISPLAY_OUT = `
+vec4 displayOut(vec4 c) {
+  return linearToOutputTexel(vec4(sRGBTransferEOTF(vec4(max(c.rgb, vec3(0.0)), 1.0)).rgb, c.a));
+}
+`;
+function displayFrag(src) {
+  return DISPLAY_OUT + src.replace(/void\s+main\s*\(\s*\)/, 'void displayMain()') +
+    '\nvoid main() { displayMain(); gl_FragColor = displayOut(gl_FragColor); }\n';
+}
+
 function makeSky({
   top: i,
   horizon: e,
@@ -157,7 +182,7 @@ function makeSky({
   let r = new SphereGeometry(1, 32, 20),
     o = new ShaderMaterial({
       vertexShader: jv,
-      fragmentShader: Qv,
+      fragmentShader: displayFrag(Qv),
       side: BackSide,
       depthWrite: !1,
       uniforms: {
@@ -728,4 +753,4 @@ var HALF_PI = Math.PI / 2,
     }
   };
 
-export { STYLE, styleColor, toonGradient, HALF_PI, Jv, MAT_CACHE, MOODS, QUALITY, Qv, TAU, TIER, aimSun, bez2, bez4, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, jv, lathe, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, outlineMat, profile, sampleCurve, sizeRenderer, softShadowTexture, taperGeo, toNonIndexed, v0, weldGeometry, x0, xf2, y0 };
+export { STYLE, displayFrag, styleColor, toonGradient, HALF_PI, Jv, MAT_CACHE, MOODS, QUALITY, Qv, TAU, TIER, aimSun, bez2, bez4, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, jv, lathe, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, outlineMat, profile, sampleCurve, sizeRenderer, softShadowTexture, taperGeo, toNonIndexed, v0, weldGeometry, x0, xf2, y0 };

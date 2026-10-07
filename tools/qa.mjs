@@ -25,9 +25,11 @@ for (const m of modules) {
 }
 
 const G = await import('../src/shared/gamedata.js');
+const WP = await import('../src/shared/worldplan.js');
 const P = await import('../src/shared/props.js');
 const C = await import('../src/server/game/combat.js');
 const B = await import('../src/server/game/base.js');
+const WM = await import('../src/server/game/world-messages.js');
 const { SPECIES, ZONES, MOVES, ITEMS, QUESTS, DUNGEONS, ELEMENTS, PROGRESSION, captureChance, statsFor } = G;
 
 // ---------------------------------------------------------------- wiring
@@ -173,6 +175,19 @@ for (const z of Object.values(ZONES)) {
   for (const r of rocks || []) if (reachOf(colliders, r) < r.s * 1.16) thinRocks.push(`${z.id}:${r.s.toFixed(2)}`);
 }
 ok('the player cannot walk into a rock', thinRocks.length === 0, thinRocks.slice(0, 4).join(' '));
+
+// One haystack laid without a rotation put a NaN in the town's colliders, and
+// every step anyone took through `resolveCollision` came out NaN with it.
+const badSolids = [];
+for (const z of Object.values(ZONES)) {
+  const { colliders, structures } = P.propsFor(z);
+  for (const c of [...colliders, ...(structures || [])]) {
+    if (Object.values(c).some((v) => typeof v === 'number' && !Number.isFinite(v))) badSolids.push(`${z.id}:${c.kind}`);
+  }
+  const at = P.resolveCollision(colliders, 0.3, 4.1, PLAYER_R);
+  if (!Number.isFinite(at.x) || !Number.isFinite(at.z)) badSolids.push(`${z.id}:step`);
+}
+ok('every solid thing in every zone is somewhere (no NaN)', badSolids.length === 0, badSolids.slice(0, 4).join(' '));
 
 const SOLID = ['bench', 'bin', 'hydrant', 'bollard', 'fence', 'workbench', 'lamp', 'planter', 'stall', 'fountain'];
 const openProps = [];
@@ -641,6 +656,26 @@ ok('a zone lays the same paths every time', wildZones.every((z) => {
 const trailMiss = [];
 for (const z of wildZones) {
   const tr = Wv.buildTrails(z, P.propsFor(z).colliders), camp = z.landmarks.find((l) => l.kind === 'camp');
+  if (WP.planFor(z)) {
+    // A planned zone's roads bend round what is in the way, so "the path
+    // leaves the camp toward it" is not the question: can you walk from the
+    // camp to each portal and gate on road, and does the road reach it?
+    const N = 120, px = z.size / N, on = new Uint8Array(N * N), seen = new Uint8Array(N * N);
+    const idx = (x, zz) => { const i = Math.floor(x / px + N / 2), j = Math.floor(zz / px + N / 2); return i < 0 || j < 0 || i >= N || j >= N ? -1 : j * N + i; };
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const x = (i + 0.5 - N / 2) * px, zz = (j + 0.5 - N / 2) * px;
+      on[j * N + i] = tr.at(x, zz) > 0.35 || Math.hypot(x - camp.x, zz - camp.z) < camp.r + 2 ? 1 : 0;
+    }
+    const q = [idx(camp.x, camp.z)]; seen[q[0]] = 1;
+    while (q.length) { const k = q.pop(), i = k % N, j = (k / N) | 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) { const ni = i + di, nj = j + dj; if (ni < 0 || nj < 0 || ni >= N || nj >= N) continue; const n = nj * N + ni; if (on[n] && !seen[n]) { seen[n] = 1; q.push(n); } } }
+    for (const t of z.landmarks) {
+      if (t.kind !== 'portal' && t.kind !== 'dungeon') continue;
+      let reach = false;
+      for (let a = 0; a < 16 && !reach; a++) for (const r of [0, 2, 4, 6]) { const k = idx(t.x + Math.cos(a / 16 * 6.283) * r, t.z + Math.sin(a / 16 * 6.283) * r); if (k >= 0 && seen[k]) { reach = true; break; } }
+      reach || trailMiss.push(`${z.id}:${t.kind}@${t.x},${t.z} no road`);
+    }
+    continue;
+  }
   for (const t of z.landmarks) {
     if (t.kind !== 'portal' && t.kind !== 'dungeon') continue;
     if (Math.hypot(t.x - camp.x, t.z - camp.z) < (camp.r || 8) + 6) continue;
@@ -777,7 +812,7 @@ const F = await import('../src/server/game/field.js');
 section('the field');
 {
   for (const [id, t] of Object.entries(G.TEMPER)) {
-    ok(`temper ${id} names a species and a real temper`, !!SPECIES[id] && (t === 'fierce' || t === 'nocturnal'), t);
+    ok(`temper ${id} names a species and a real temper`, !!SPECIES[id] && (t === 'fierce' || t === 'nocturnal' || t === 'shy'), t);
   }
   for (const z of Object.values(ZONES)) {
     if (z.urban) continue;
@@ -950,6 +985,28 @@ section('the field');
     Object.assign(self(), { x: camp.x + 1, z: camp.z + 1 });
     for (const [, w] of fw.state.wilds) Object.assign(w, { x: camp.x + 3.5, z: camp.z + 1 });
   });
+  // shy: the rare ones bolt from a trainer who comes running, and let one
+  // who creeps up stand beside them
+  reset();
+  id = put('lumoth', 6, 5);
+  fw.pace = 7.4;
+  const s0 = dist(id);
+  ok('a shy wild bolts from a trainer coming at a run', run(1500, () => fw.state.wilds.get(id).alert === '~') && fw.state.wilds.get(id).target === fdoc.id);
+  run(1500);
+  ok('and gets away from them, faster than a creep', dist(id) > s0 + 3, `${s0.toFixed(1)} → ${dist(id).toFixed(1)}`);
+  ok('but never starts a fight', !fev.some(([k]) => k === 'goto'));
+  ok('then stops to catch its breath', run(F.FIELD.shyMs + 500, () => !fw.state.wilds.get(id).alert) && fw.wildDocs.get(id).restUntil > T);
+  reset();
+  id = put('lumoth', 6, 4);
+  fw.pace = 3.2;
+  ok('one who creeps up (a half tilt of the stick) is let near', !run(4000, () => fw.state.wilds.get(id).alert));
+  reset();
+  fdoc.level = 1;
+  id = put('stormstag', 3, 4);
+  fw.pace = 7.4;
+  ok('a shy one bolts from a new trainer too — it is shy, not fierce', run(1500, () => fw.state.wilds.get(id).alert === '~'));
+  fdoc.level = 6; fw.pace = 0;
+
   ok('the town never has it at all', (() => {
     const tw = new B.WorldSim(fnet, 'aetherport');
     tw.start(); tw.stop();
@@ -962,6 +1019,101 @@ section('the field');
     }
     return !seen;
   })());
+}
+
+// ---------------------------------------------------------------- the wilds
+// Where and when each wild is found (shared/habitats.js): every field zone has
+// a line of its own, the rare ones keep their hours, and the log can say where
+// to look for anything that lives wild.
+section('the wilds');
+{
+  const H = await import('../src/shared/habitats.js');
+  const W = await import('../src/shared/weather.js');
+  const fieldZones = Object.values(ZONES).filter((z) => z.capturable !== false);
+  const bad = [];
+  for (const z of Object.values(ZONES)) for (const row of z.spawns || []) {
+    const how = H.howOf(row);
+    if (how.at && !H.HABITATS[how.at]) bad.push(`${z.id}/${row[0]} at ${how.at}`);
+    if (how.when && !H.HOURS[how.when]) bad.push(`${z.id}/${row[0]} when ${how.when}`);
+    if (how.herd && !(how.herd[0] >= 1 && how.herd[1] >= how.herd[0] && how.herd[1] <= 5)) bad.push(`${z.id}/${row[0]} herd`);
+    if (!(row[1] > 0)) bad.push(`${z.id}/${row[0]} weight`);
+  }
+  ok('every spawn row says a real ground, a real hour and a sane herd', !bad.length, bad.join(', '));
+  const own = fieldZones.map((z) => [z.id, z.spawns.filter(([sp]) => fieldZones.filter((o) => H.rowFor(o, sp)).length === 1 && SPECIES[sp].evolve)]);
+  ok('every field zone has a line found nowhere else', own.every(([, l]) => l.length >= 1), own.filter(([, l]) => !l.length).map(([z]) => z).join(','));
+  ok('and its own line is what it has most of', fieldZones.every((z) => {
+    const top = [...z.spawns].sort((a, b) => b[1] - a[1])[0][0];
+    return own.find(([id]) => id === z.id)[1].some(([sp]) => sp === top);
+  }));
+  ok('every zone prize is its own line, grown', fieldZones.every((z) => {
+    const q = G.zoneQuestChain(z)[`q_${z.id}_prize`];
+    return q && q.goal.species === z.prize && SPECIES[z.prize] && Object.values(SPECIES).some((s) => s.evolve?.into === z.prize);
+  }));
+  const wild = new Set(fieldZones.flatMap((z) => z.spawns.map(([sp]) => sp)));
+  const missing = Object.values(SPECIES).filter((s) => s.rarity !== 'boss' && !wild.has(s.id)
+    && !Object.values(SPECIES).some((p) => p.evolve?.into === s.id) && s.rarity !== 'starter');
+  ok('anything that does not evolve from something lives wild somewhere', !missing.length, missing.map((s) => s.id).join(','));
+  ok('the log can say where every wild one is', [...wild].every((sp) => H.foundWhere(sp).length && H.foundWhere(sp).every((f) => H.whereLine(f).length > 2)));
+
+  // a day and a year of the clock, sampled
+  const T0 = 1_790_000_000_000, day = W.DAY_MS, year = W.YEAR_MS;
+  const sample = (zone, row, span, n) => { let on = 0; for (let i = 0; i < n; i++) on += H.inHour(row, zone, T0 + span * i / n) ? 1 : 0; return on / n; };
+  const hours = fieldZones.flatMap((z) => z.spawns.filter((r) => H.howOf(r).when).map((r) => [z, r]));
+  ok('the rare ones keep hours', hours.length >= 5);
+  for (const [z, r] of hours) {
+    const share = sample(z, r, year * 2, 4000);
+    ok(`${r[0]} in ${z.id} (${H.howOf(r).when}) is out some of the time, not all of it`, share > 0.08 && share < 0.6, `${(share * 100).toFixed(0)}%`);
+  }
+  ok('at night the moth is out, by day it is not',
+    H.inHour(H.rowFor(ZONES.verdant_meadow, 'lumoth'), ZONES.verdant_meadow, T0 - (T0 % day) + day * 0.05)
+    && !H.inHour(H.rowFor(ZONES.verdant_meadow, 'lumoth'), ZONES.verdant_meadow, T0 - (T0 % day) + day * 0.45));
+  ok('the rain lamb comes with the rain the sky shows', (() => {
+    const z = ZONES.tidal_hollow, r = H.rowFor(z, 'drizzlamb');
+    for (let i = 0; i < 3000; i++) { const t = T0 + i * 60_000; const sky = W.weatherAt(z, t).id; if (H.inHour(r, z, t) !== (sky === 'rain' || sky === 'storm')) return false; }
+    return true;
+  })());
+  ok('no zone ever runs out of things to meet', fieldZones.every((z) => { for (let i = 0; i < 500; i++) if (!H.spawnPool(z, T0 + i * 97_000).length) return false; return true; }));
+  ok('one out of its hour is told to leave; one in it, or a regular, is not', (() => {
+    const z = ZONES.verdant_meadow, dayT = T0 - (T0 % day) + day * 0.45;
+    return H.outOfHour(z, 'lumoth', dayT) && !H.outOfHour(z, 'burrowbun', dayT) && !H.outOfHour(z, 'lumoth', dayT + day * 0.5);
+  })());
+  ok('a herd is a herd', (() => { const r = H.rowFor(ZONES.stonewake_mesa, 'cragkid'); const n = [0, 0.5, 0.999].map((u) => H.herdSize(r, () => u)); return n[0] === 2 && n[2] === 4 && H.herdSize(['pebblin', 1]) === 1; })());
+
+  // the server side (game/wilds.js), on a zone of its own
+  const Wl = await import('../src/server/game/wilds.js');
+  const mkWorld = (zid) => {
+    const zone = ZONES[zid], state = { wilds: new Map() }, docs = new Map();
+    let n = 0;
+    return { zone, colliders: P.propsFor(zone).colliders, state, wildDocs: docs, target: WP.wildTarget(zone),
+      spawn: (sp, lv, at) => { const id = 'q' + (n++); state.wilds.set(id, { id, species: sp, level: lv, x: at.x, z: at.z, engagedBy: '' }); docs.set(id, { species: sp, level: lv, target: { ...at }, next: 0, mode: '' }); return id; } };
+  };
+  const dayT = T0 - (T0 % day) + day * 0.45, nightT = dayT + day * 0.5;
+  const wm = mkWorld('stonewake_mesa');
+  Wl.populate(wm, dayT, WP.PLANS && ((s) => () => (s = (s * 16807) % 2147483647) / 2147483647)(7));
+  const PM = WP.planFor('stonewake_mesa');
+  ok('a planned zone is stocked to its size', wm.state.wilds.size === WP.wildTarget(ZONES.stonewake_mesa) && WP.wildTarget(ZONES.stonewake_mesa) > 14);
+  ok('every wild comes out on ground a body can stand on', [...wm.state.wilds.values()].every((w) => PM.walkable(w.x, w.z)));
+  ok('the ones with ground of their own come out on it', [...wm.state.wilds.values()].filter((w) => H.howOf(H.rowFor(ZONES.stonewake_mesa, w.species)).at === 'cliff')
+    .every((w) => PM.cliffDist(w.x, w.z) <= 12));
+  {
+    let t = dayT;
+    for (let k = 0; k < 400; k++) { t += 50; Wl.tickWilds(wm, t, 50); }
+    ok('and wander without walking off it, or into the oasis', [...wm.state.wilds.values()].every((w) => PM.walkable(w.x, w.z)));
+  }
+  const wn = mkWorld('verdant_meadow');
+  const herdOf = (sp) => { for (let i = 0; i < 40; i++) { const before = wn.state.wilds.size; Wl.spawnGroup(wn, dayT, Math.random, 9); const ids = [...wn.state.wilds.values()].slice(before); if (ids[0]?.species === sp) return ids.length; } return 0; };
+  ok('the rabbits come out two or three together', [2, 3].includes(herdOf('burrowbun')));
+  const night = mkWorld('verdant_meadow');
+  night.spawn('lumoth', 5, WP.fieldPoint(night.zone, night.colliders));
+  [...night.wildDocs.values()][0].hour = 'night';
+  ok('the moth stays while it is night', Wl.departures(night, nightT) === 0 && night.state.wilds.size === 1);
+  night._hourCheckAt = 0;
+  ok('and is gone when the day comes', Wl.departures(night, dayT) === 1 && night.state.wilds.size === 0);
+  const fought = mkWorld('verdant_meadow');
+  fought.spawn('lumoth', 5, WP.fieldPoint(fought.zone, fought.colliders));
+  [...fought.wildDocs.values()][0].hour = 'night';
+  [...fought.state.wilds.values()][0].engagedBy = 'someone';
+  ok('unless someone is fighting it', Wl.departures(fought, dayT) === 0);
 }
 
 // ---------------------------------------------------------------- GM tools
@@ -1214,6 +1366,168 @@ section('the first fight');
     U.SOCIAL === false && ['friends', 'party', 'guild'].every((id) => opened(id) === null) && opened('bag') === 'bag');
   const gameSrc = fs.readFileSync('src/client/game.js', 'utf8');
   ok('and standing next to a player offers no duel', /a = SOCIAL \? this\.nearestPlayer\(n\) : null/.test(gameSrc));
+}
+
+// ---------------------------------------------------------------- people
+// The adventurers: seven kinds, two looks each, sculpted like the creatures,
+// and what a character is saved as.
+section('people');
+{
+  const Pe = await import('../src/client/gfx/people.js');
+  ok('the kinds the server knows are the kinds the client can draw',
+    JSON.stringify(G.AVATAR.kinds) === JSON.stringify(Pe.KIND_IDS), `${G.AVATAR.kinds} vs ${Pe.KIND_IDS}`);
+  const badMeta = Pe.KIND_IDS.filter((id) => {
+    const k = Pe.KINDS[id];
+    return !(k.he && k.en && k.line && /^#[0-9a-f]{6}$/i.test(k.accent) && k.hair?.length === 2);
+  });
+  ok('every kind has a name, a line, a colour and hair for both looks', badMeta.length === 0, badMeta.join(','));
+  const bad = [];
+  for (const kind of Pe.KIND_IDS) for (const look of G.AVATAR.looks) {
+    try {
+      const g = Pe.buildPerson({ kind, look, skin: G.AVATAR.skins[2] }, { hi: true });
+      const m = g.userData.model, geo = m.T.geoHi;
+      const tris = geo.index.count / 3, nb = m.T.names.length;
+      const col = geo.attributes.color?.array || [], si = geo.attributes.skinIndex.array, sw = geo.attributes.skinWeight.array;
+      let nan = 0, badBone = 0, badW = 0;
+      for (let i = 0; i < col.length; i++) if (!Number.isFinite(col[i])) nan++;
+      for (let i = 0; i < si.length; i++) if (si[i] >= nb) badBone++;
+      for (let i = 0; i < sw.length; i += 4) if (Math.abs(sw[i] + sw[i + 1] + sw[i + 2] + sw[i + 3] - 1) > 1e-3) badW++;
+      const why = [];
+      if (tris < 3000 || tris > 26000) why.push(`hi ${tris}`);
+      if (nan) why.push(`${nan} bad colours`);
+      if (badBone) why.push(`${badBone} bad bones`);
+      if (badW) why.push(`${badW} bad weights`);
+      if (!(g.userData.height > 1.25 && g.userData.height < 2.3)) why.push(`height ${g.userData.height}`);
+      if (geo.boundingBox.min.y < -0.03) why.push('below the ground');
+      if (g.userData.kind !== kind || !g.userData.rig?.person) why.push('rig');
+      if (why.length) bad.push(`${kind}/${look}: ${why.join(', ')}`);
+    } catch (e) { bad.push(`${kind}/${look}: ${e.message}`); }
+  }
+  ok('every kind and look bakes: in budget, sound colours, bones and weights, standing on the ground', bad.length === 0, bad.join(' | '));
+  // the creator's close-up: a finer mesh, swapped in once it is baked
+  const g = Pe.buildPerson({ kind: 'mage', look: 'a', skin: G.AVATAR.skins[1] }, { hi: true });
+  const m = g.userData.model, before = m.mesh.geometry.index.count;
+  await new Promise((r) => Fig.closeUp(m, 96, r));
+  ok('a figure seen up close gets a finer mesh', m.mesh.geometry === m.T.geoClose && m.mesh.geometry.index.count > before * 1.5,
+    `${before} -> ${m.mesh.geometry.index.count}`);
+  // one-off moves: every kind's own, and the fight's
+  const moveBad = [];
+  for (const id of Pe.KIND_IDS) {
+    const p = Pe.buildPerson({ kind: id, look: 'a' });
+    const C = await import('../src/client/gfx/creatures.js');
+    for (const mv of [Pe.KINDS[id].pose, 'throw', 'hit', 'cheer']) {
+      if (!Pe.personAct(p, mv, 0.5)) { moveBad.push(`${id}:${mv}`); continue; }
+      for (let t = 0; t < 40; t++) C.animateCreature(p, 1000 + t * 16, false);
+      const q = p.userData.model.bones.armR.quaternion;
+      if (![q.x, q.y, q.z, q.w].every(Number.isFinite)) moveBad.push(`${id}:${mv} NaN`);
+    }
+  }
+  ok('every kind can play its own move, a throw, a flinch and a cheer', moveBad.length === 0, moveBad.join(','));
+
+  // what a character is saved as
+  const L = G.avatarLook;
+  ok('a kind and a look are kept as chosen', L({ kind: 'pirate', look: 'b' }).kind === 'pirate' && L({ kind: 'pirate', look: 'b' }).look === 'b');
+  ok('a character from before kinds is dressed as the kind nearest its outfit',
+    L({ outfit: 'scholar', body: 'slim' }).kind === 'mage' && L({ outfit: 'scholar', body: 'slim' }).look === 'b');
+  ok('an unknown kind or a bad skin falls back', L({ kind: 'dragon', skin: 'red' }).kind === 'explorer' && /^#[0-9a-f]{6}$/i.test(L({ skin: 'red' }).skin));
+  const doc = C.createPlayerDoc('qa-p', 'QA', { kind: 'ranger', look: 'b', skin: G.AVATAR.skins[3] }, G.STARTERS[0]);
+  C.normalizeDoc(doc);
+  ok('a new character keeps its kind, look and skin', doc.appearance.kind === 'ranger' && doc.appearance.look === 'b' && doc.appearance.skin === G.AVATAR.skins[3]);
+  const old = C.createPlayerDoc('qa-o', 'QA', {}, G.STARTERS[0]);
+  old.appearance = { body: 'stocky', skin: '#e0ac7e', hair: '#2a1c14', outfit: 'tide' };
+  C.normalizeDoc(old);
+  ok('an old save loads as a kind', old.appearance.kind === 'pirate' && old.appearance.look === 'a');
+  const html = fs.readFileSync('src/client/index.html', 'utf8');
+  ok('the creator has its two steps and every control',
+    ['cc-step1', 'cc-step2', 'pick-kind', 'pick-look', 'pick-skin', 'pick-starter', 'in-charname', 'btn-next', 'btn-back', 'btn-create', 'creator-stage']
+      .every((id) => html.includes(`id="${id}"`)));
+}
+
+// ---------------------------------------------------------------- the farm
+section('the farm');
+{
+  // a trainer with a lead, one more in the team and one in the box, and
+  // enough of everything for a star
+  const rich = (d) => {
+    d.gold = 1e6;
+    for (const e of Object.keys(G.ELEMENTS)) d.inventory[`crystal_${e}`] = 99;
+    d.inventory.aether_core = 20;
+    C.baseOf(d).buildings.pod = 3;
+  };
+  const fd = C.createPlayerDoc('qa-farm', 'QA', {}, 'cindcub');
+  rich(fd);
+  const lead = fd.team[0];
+  const second = C.addCreature(fd, C.makeCreature('sproutle', 8)).uid;
+  const boxed = C.makeCreature('shellop', 6); fd.creatures[boxed.uid] = boxed; fd.box.push(boxed.uid);
+  const r1 = C.startTraining(fd, lead, 1000);
+  ok('a creature sent to train goes to the farm: out of the team', r1.ok && !fd.team.includes(lead) && !fd.box.includes(lead) && C.atFarm(fd, lead));
+  ok('and the next one walks beside you', C.activeCreature(fd)?.uid === second);
+  const pp = C.publicProfile(fd);
+  ok('the profile still shows it, at the farm, with its countdown', pp.away.length === 1 && pp.away[0].uid === lead && pp.away[0].training.readyAt === r1.slot.readyAt);
+  ok('the farm view says what to draw in the pod', (() => { const t = C.baseView(fd).training[0]; return t.species === 'cindcub' && t.fromStar === 1 && t.star === 2; })());
+  ok('it cannot be put back in the team while it is training', (() => {
+    const before = [...fd.team];
+    const ctx = { doc: fd, self: () => ({}), net: { save() {}, emit() {} } };
+    WM.handleWorldMessage(ctx, 'setTeam', { team: [lead, second] });
+    return !fd.team.includes(lead) && fd.team.includes(second) && before.length === fd.team.length;
+  })());
+  ok('not ready, not collected', C.collectTraining(fd, r1.slot.id, 1001).reason === 'not_ready');
+  const got = C.collectTraining(fd, r1.slot.id, r1.slot.readyAt + 1);
+  ok('done: it comes back stronger, to the head of the team where it was', got.ok && got.star === 2 && got.was === 1 && fd.team[0] === lead && fd.creatures[lead].star === 2);
+  ok('and stronger in fact', C.statsOf(fd.creatures[lead]).atk > G.statsFor('cindcub', fd.creatures[lead].level, fd.creatures[lead].iv, 1).atk);
+
+  const r2 = C.startTraining(fd, boxed.uid, 2000);
+  ok('one from the box trains too, and goes back to the box', r2.ok && !fd.box.includes(boxed.uid) && C.cancelTraining(fd, r2.slot.id).ok && fd.box.includes(boxed.uid));
+
+  const solo = C.createPlayerDoc('qa-farm2', 'QA', {}, 'cindcub');
+  rich(solo);
+  ok('the only one you have cannot be sent away', C.startTraining(solo, solo.team[0]).reason === 'last_fighter' && solo.team.length === 1);
+  const one = C.makeCreature('shellop', 6); solo.creatures[one.uid] = one; solo.box.push(one.uid);
+  const r3 = C.startTraining(solo, solo.team[0]);
+  ok('with one in the box, that one steps up to walk with you', r3.ok && solo.team.length === 1 && solo.team[0] === one.uid && !solo.box.length);
+
+  // a save from before: the one in training is still in the team
+  const legacyF = C.createPlayerDoc('qa-farm3', 'QA', {}, 'cindcub');
+  const l2 = C.addCreature(legacyF, C.makeCreature('sproutle', 8)).uid;
+  C.baseOf(legacyF).training.push({ id: 'old1', uid: legacyF.team[0], star: 2, startedAt: 0, readyAt: 1 });
+  const wasLead = legacyF.team[0];
+  C.normalizeDoc(legacyF);
+  ok('an old save: the one in a pod is moved to the farm, the other leads', !legacyF.team.includes(wasLead) && legacyF.team[0] === l2 && C.atFarm(legacyF, wasLead));
+  C.collectTraining(legacyF, 'old1', 2);
+  ok('and comes back when it is collected', legacyF.team.includes(wasLead) && legacyF.creatures[wasLead].star === 2);
+  const lost = C.createPlayerDoc('qa-farm4', 'QA', {}, 'cindcub');
+  const stray = C.makeCreature('shellop', 6); lost.creatures[stray.uid] = stray;
+  C.normalizeDoc(lost);
+  ok('a creature that belongs nowhere is put back in the box', lost.box.includes(stray.uid));
+
+  const cb = new C.Combatant({ id: 'c1', side: 'a', kind: 'creature', creature: fd.creatures[lead] });
+  ok('a fighter tells the battle its stars, so it is drawn with them', cb.toJSON().star === 2);
+
+  // and it looks it: bigger, marked, ringed, crowned (client/gfx/starlook.js)
+  const SL = await import('../src/client/gfx/starlook.js');
+  const CR = await import('../src/client/gfx/creatures.js');
+  const look = CR.buildCreature('cindcub', { outline: false });
+  const s0 = look.scale.x;
+  SL.setStarLook(look, 3);
+  ok('three stars: bigger, marked, a ring at its feet', near(look.scale.x, s0 * SL.STAR_SCALE[3], 1e-6) && look.userData.model.u.uStar.value === 2 && !!look.userData.starFx);
+  SL.setStarLook(look, 5);
+  ok('five: gold tips and a crown', look.userData.model.u.uTipCol.value.getHex() === SL.GOLD && look.userData.starFx.children.length > 4);
+  SL.setStarLook(look, 1);
+  ok('and dressed again for one star, it is as it was', near(look.scale.x, s0, 1e-6) && !look.userData.starFx && look.userData.model.u.uStar.value === 0);
+  ok('every element has marks that are not its body colour', Object.keys(G.ELEMENTS).every((e) => {
+    const sp = Object.keys(G.SPECIES).find((k) => G.SPECIES[k].types[0] === e);
+    return !sp || SL.starMarks(sp).tip !== G.ELEMENTS[e].color;
+  }));
+
+  // the pods have a place, and nobody walks through them
+  const town = P.propsFor(G.ZONES.aetherport);
+  const spots = P.incubatorSpots(G.ZONES.aetherport);
+  ok('the farm has a spot for every pod there can be', spots.length === G.BUILDINGS.pod.maxLevel);
+  ok('each pod is solid', spots.every((q) => town.colliders.some((c) => c.kind === 'pod' && Math.hypot(c.x - q.x, c.z - q.z) < 0.05)));
+  ok('and stands clear of the barn, the field and the fence', spots.every((q) => {
+    const at = P.resolveCollision(town.colliders.filter((c) => c.kind !== 'pod'), q.x, q.z, 1.15);
+    return Math.hypot(at.x - q.x, at.z - q.z) < 0.01;
+  }));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

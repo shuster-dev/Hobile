@@ -3,6 +3,8 @@ import { zoneMinimap } from './input.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
 import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf, typeMultiplier } from '../shared/gamedata.js';
+import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
+import { CELL, planFor } from '../shared/worldplan.js';
 
 /**
  * Friends, parties, guilds, duels and the chat channels beyond this zone's.
@@ -70,6 +72,7 @@ var STRINGS = {
     cannot_afford: "חסרים חומרים או זהב",
     no_creature: "היצור לא נמצא",
     already_training: "היצור כבר נמצא באימון",
+    last_fighter: "זה היצור היחיד שלך שיכול להילחם — תפוס עוד אחד לפני שאתה שולח אותו לאימון בחווה",
     no_free_pod: "אין תא אימון פנוי — שדרג את תא האימון",
     max_star: "היצור כבר בדרגת הכוכבים הגבוהה ביותר",
     no_slot: "התא הזה כבר ריק",
@@ -349,6 +352,11 @@ var UI = class {
     wash.addColorStop(0, pastel(this.zone?.ground ?? 6531422, 0.62)), wash.addColorStop(1, pastel(this.zone?.ground ?? 6531422, 0.38)), s.fillStyle = wash, s.fillRect(0, 0, r, r);
     let a = e.selfPosition(),
       l = (h, d) => [c + (h - a.x) / o * c, c + (d - a.z) / o * c];
+    let art = zoneArt(this.zone);
+    if (art) {
+      let sc = art.scale;
+      s.globalAlpha = 0.85, s.drawImage(art.canvas, (a.x - o + art.size / 2) * sc, (a.z - o + art.size / 2) * sc, o * 2 * sc, o * 2 * sc, 0, 0, r, r), s.globalAlpha = 1;
+    }
     // The edge of the world, when it is close enough to matter. Without it the
     // radar has no frame and every zone reads the same.
     if (this.zone?.size) {
@@ -413,6 +421,9 @@ var UI = class {
     // panel it sits in is warm white now — so two zones do not look alike.
     o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.fillStyle = pastel(t.ground ?? 6531422, 0.5), o.fill(), o.strokeStyle = "rgba(42,47,77,.28)", o.lineWidth = 1.5, o.stroke();
     o.save(), o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.clip();
+    // a planned zone draws its own ground: rivers, woods, roads, what is built
+    let art = zoneArt(t);
+    art && o.drawImage(art.canvas, l - a * c, l - a * c, a * 2 * c, a * 2 * c);
     // Pins first, then labels, so a label can never be painted under a disc
     // drawn after it.
     let pins = [];
@@ -558,6 +569,7 @@ var UI = class {
         base: "הבסיס",
         card: "כרטיס יצור",
         dex: "אוסף היצורים",
+        species: "יומן המינים",
         clinic: "מרפאת הגאות",
         account: "החשבון שלי",
         map: "מפת האזור",
@@ -586,6 +598,7 @@ var UI = class {
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
       dex: () => this.panelDex(o),
+      species: () => this.panelSpecies(o),
       clinic: () => this.panelClinic(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
@@ -611,15 +624,97 @@ var UI = class {
         let tile = el("button", `dex-tile ${row.caught ? "" : "locked"}`);
         let el0 = ELEMENTS[row.types[0]];
         tile.style.setProperty("--elem", el0?.ui || "#7d87ab");
+        // one that only comes out in its hour says so, caught or not: it is
+        // the clue for where to look
+        let hour = foundWhere(row.id).find((f) => f.when)?.when;
         tile.innerHTML = row.caught
           ? `<span class="ico">${el0?.icon || "•"}</span><b>${row.he}</b>` +
             `<span class="n">${row.caught > 1 ? `×${row.caught}` : "חדש"}</span>`
-          : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}</span>`;
-        if (row.caught) tile.onclick = () => this.hooks.openSpecies?.(row.id);
+          : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}${hour ? ` ${HOURS[hour].icon}` : ""}</span>`;
+        tile.setAttribute("aria-label", row.caught ? row.he : "יצור שעוד לא נתפס");
+        tile.onclick = () => { this.speciesId = row.id; this.openPanel("species"); };
         grid.appendChild(tile);
       }
       host.appendChild(grid);
     }
+  }
+
+  /**
+   * One species in the log: its picture (a shadow until you catch one), its
+   * line, and where and when it is found — which is the part a player hunting
+   * for it needs, so it is there before it is caught.
+   */
+  panelSpecies(host) {
+    let id = this.speciesId, sp = SPECIES[id];
+    if (!sp) { host.appendChild(emptyState("📕", "לא נמצא")); return; }
+    let row = this.dex?.rows.find((r) => r.id === id), caught = row?.caught || 0;
+    let name = (s) => (this.dex?.rows.find((r) => r.id === s.id)?.caught ? Ze(loc(s)) : "???");
+    let back = el("button", "btn small ghost", "→ לאוסף");
+    back.onclick = () => this.openPanel("dex");
+    host.appendChild(back);
+    let page = el("div", `species-page ${caught ? "" : "locked"}`), el0 = ELEMENTS[sp.types[0]];
+    page.style.setProperty("--elem", el0?.ui || "#7d87ab");
+    let img = zoneMinimap(id),
+      rarity = { starter: "פותח", common: "נפוץ", evolved: "מתפתח", final: "סופי", rare: "נדיר", legendary: "אגדי" }[sp.rarity] || sp.rarity;
+    page.innerHTML = `
+      <div class="art" style="background:linear-gradient(150deg, ${oo(sp.model.a)}, ${oo(sp.model.b)})">${img ? `<img src="${img}" alt="" />` : ""}</div>
+      <div class="name">${caught ? Ze(loc(sp)) : "???"}</div>
+      <div class="chips">${sp.types.map((t) => `<span class="chip">${ELEMENTS[t].icon} ${Ze(loc(ELEMENTS[t]))}</span>`).join("")}<span class="chip">${rarity}</span></div>
+      <div class="caught">${caught ? `נתפסו ${caught}` : "עוד לא נתפס"}</div>`;
+    host.appendChild(page);
+
+    // the line it belongs to, from the first form to the last
+    let root = sp;
+    for (let guard = 0; guard < 4; guard++) {
+      let prev = Object.values(SPECIES).find((s) => s.evolve?.into === root.id);
+      if (!prev) break;
+      root = prev;
+    }
+    if (root.evolve) {
+      let chain = [], at = root;
+      while (at) { chain.push(at); at = at.evolve ? SPECIES[at.evolve.into] : null; }
+      host.appendChild(section("קו ההתפתחות"));
+      let line = el("div", "evo-line");
+      line.innerHTML = chain.map((s, i) => (i ? `<span class="arrow">← רמה ${ltr(chain[i - 1].evolve.level)}</span>` : "") +
+        `<span class="evo ${s.id === id ? "here" : ""}">${ELEMENTS[s.types[0]]?.icon || ""} ${name(s)}</span>`).join("");
+      host.appendChild(line);
+    }
+
+    host.appendChild(section("איפה למצוא"));
+    let where = foundWhere(id);
+    let often = { common: "נפוץ", uncommon: "לא נפוץ", rare: "נדיר" };
+    for (let f of where) {
+      let it = el("div", "list-item");
+      it.innerHTML = `<div class="ico-lg">${f.when ? HOURS[f.when].icon : f.at ? HABITATS[f.at].icon : "📍"}</div>
+        <div class="grow"><b>${Ze(whereLine(f))}</b><span>רמות ${ltr(`${f.levels[0]}–${f.levels[1]}`)} · ${often[f.often]}</span></div>`;
+      host.appendChild(it);
+    }
+    if (!where.length) {
+      let prev = Object.values(SPECIES).find((s) => s.evolve?.into === id);
+      let it = el("div", "empty plain");
+      it.textContent = prev ? `לא חי בטבע — מתפתח מ${prev.evolve && this.dex?.rows.find((r) => r.id === prev.id)?.caught ? loc(prev) : "יצור אחר"} ברמה ${prev.evolve.level}.`
+        : sp.rarity === "starter" ? "אחד משלושת יצורי הפתיחה."
+        : sp.rarity === "legendary" ? "מגיע למי שמשלים את יומן המינים של מארו."
+        : "לא נראה בטבע.";
+      host.appendChild(it);
+    }
+    if (!caught) return;
+
+    host.appendChild(section("נתוני בסיס"));
+    let grid = el("div", "statgrid"), lbl = { hp: "חיים", atk: "התקפה", def: "הגנה", spa: "מיוחדת", spd: "עמידות", spe: "מהירות" };
+    for (let [k, v] of Object.entries(sp.base)) {
+      let m = el("div", "stat");
+      m.innerHTML = `<span>${lbl[k] || k}</span><i style="width:${Math.min(100, v / 130 * 100)}%"></i><b class="mono">${ltr(v)}</b>`;
+      grid.appendChild(m);
+    }
+    host.appendChild(grid);
+    host.appendChild(section("מהלכים"));
+    let moves = el("div", "chips");
+    for (let [lv, m] of sp.learn || []) {
+      let mv = MOVES[m];
+      mv && moves.appendChild(el("span", "chip", `${ltr(lv)} · ${ELEMENTS[mv.type]?.icon || "◆"} ${Ze(loc(mv))}`));
+    }
+    host.appendChild(moves);
   }
 
   /**
@@ -919,7 +1014,7 @@ var UI = class {
     let t = this.profile;
     if (!t) return;
     let n = [...(t.team || []), ...(t.box || [])];
-    if (!n.length) {
+    if (!n.length && !t.away?.length) {
       e.appendChild(emptyState("🐾", "אין לך עדיין יצורים", "לכידה בקרב מוסיפה יצור לצוות"));
       return;
     }
@@ -948,6 +1043,29 @@ var UI = class {
         f.stopPropagation(), this.hooks.setLead?.(s.uid);
       }, l.appendChild(u), e.appendChild(l);
     });
+    // the ones at the farm, in a pod until their training is done
+    let away = t.away || [];
+    if (away.length) {
+      e.appendChild(section("בחווה — באימון", `${away.length}`));
+      for (let s of away) {
+        let o = SPECIES[s.species];
+        if (!o) continue;
+        let left = (s.training?.readyAt || 0) - Date.now(),
+          l = el("div", `list-item tappable ${left <= 0 ? "ready" : ""}`);
+        l.setAttribute("role", "button"), l.tabIndex = 0;
+        l.innerHTML = `
+          <div class="thumb" style="background:${oo(o.model.a)}"></div>
+          <div class="grow">
+            <b>${Ze(loc(o))} <span class="pill">${lvlLabel(s.level)}</span> <span class="stars">${starLabel(s.star || 1)}</span> → <span class="stars">${starLabel(s.training?.star || 2)}</span></b>
+            <span>${left <= 0 ? "מוכן! לך לחווה להוציא אותו" : "בתא אימון בחווה — "}${left > 0 ? `<span class="mono" dir="ltr" data-countdown="${s.training.readyAt}">${formatClock(left)}</span>` : ""}</span>
+          </div>
+          <span class="pill">🧪 בחווה</span>`;
+        let h = zoneMinimap(s.species);
+        h && (l.querySelector(".thumb").innerHTML = `<img src="${h}" alt="" />`);
+        l.onclick = () => this.hooks.openCard?.(s.uid), e.appendChild(l);
+      }
+      this.startCountdowns();
+    }
   }
   panelBase(e) {
     let t = this.base;
@@ -1074,7 +1192,7 @@ var UI = class {
     }
     if (r.appendChild(h), e.appendChild(r), t.training) {
       let x = el("div", "list-item");
-      x.innerHTML = `<div class="grow"><b>באימון → <span class="stars">${starLabel(t.training.star)}</span></b>
+      x.innerHTML = `<div class="grow"><b>🧪 בתא אימון בחווה → <span class="stars">${starLabel(t.training.star)}</span></b>
         <span class="mono" dir="ltr" data-countdown="${t.training.readyAt}">${formatClock(t.training.readyAt - Date.now())}</span></div>`, e.appendChild(x), this.startCountdowns();
       return;
     }
@@ -1097,7 +1215,7 @@ var UI = class {
       <span class="mono">${ltr(`${(this.profile?.gold || 0).toLocaleString("en-US")} / ${t.next.gold.toLocaleString("en-US")}`)}</span></div>
       ${d ? "<span class=\"pill good\">✓</span>" : ""}`, e.appendChild(u);
     let f = el("div", "empty plain");
-    f.innerHTML = `האימון לוקח ${ltr(`${t.next.hours} שעות`)} בתא אימון — וממשיך גם כשהמשחק סגור`, e.appendChild(f);
+    f.innerHTML = `היצור יעבור לתא אימון בחווה שלך לעוד ${ltr(`${t.next.hours} שעות`)} (ממשיך גם כשהמשחק סגור), ויחזור חזק יותר ועם מראה חדש`, e.appendChild(f);
     let p = el("button", "btn primary", t.next.ready ? "התחל אימון" : "חסרים חומרים");
     p.disabled = !t.next.ready, p.onclick = () => this.hooks.baseTrain?.(t.uid), e.appendChild(p);
   }
@@ -1710,6 +1828,55 @@ var MAP_PIN = {
 
 /** Accepts a palette number (0x3a5f58) or a css hex, and gives back rgba. */
 /** A zone colour washed toward white, as a CSS colour: `k` of the way there. */
+/**
+ * A planned zone drawn from above for the map and the radar: its ground in the
+ * zone's colour washed light, then the water, the rock, the woods and the tall
+ * grass, the roads, what is built and the bridges — once per zone, from the
+ * plan's own grid, so it costs nothing per frame. (worldplan.js)
+ */
+var ZONE_ART = new Map();
+function zoneArt(zone) {
+  if (!zone || zone.urban) return null;
+  if (ZONE_ART.has(zone.id)) return ZONE_ART.get(zone.id);
+  let P = planFor(zone);
+  if (!P) return ZONE_ART.set(zone.id, null), null;
+  let n = P.grid.n, half = P.half, k = 2,
+    cv = document.createElement("canvas");
+  cv.width = cv.height = n * k;
+  let c = cv.getContext("2d"),
+    img = c.createImageData(n, n),
+    hex = (v) => [v >> 16 & 255, v >> 8 & 255, v & 255],
+    mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t),
+    base = hex(zone.ground ?? 6531422).map(v => v + (255 - v) * 0.5),
+    W = { water: [126, 186, 226], lava: [255, 140, 70], ice: [218, 240, 252], swamp: [120, 146, 112] }[P.water?.kind] || [126, 186, 226];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    let x = -half + (i + 0.5) * CELL, z = -half + (j + 0.5) * CELL, q = j * n + i, col = base;
+    if (P.grassAt(x, z) > 0.3) col = mix(col, [120, 190, 96], 0.3);
+    if (P.forestAt(x, z) > 0.35) col = mix(col, [70, 128, 76], 0.55);
+    if (P.grid.cliffD[q] < 0.5) col = mix(col, [150, 132, 120], 0.8);
+    if (P.roadAt(x, z) > 0.4) col = mix(col, [214, 188, 140], 0.85);
+    if (P.grid.waterD[q] < 0.5) col = W;
+    if (!P.grid.walk[q] && P.grid.waterD[q] >= 0.5 && P.grid.cliffD[q] >= 0.5) col = mix(col, [60, 60, 80], 0.7);
+    img.data.set([col[0] | 0, col[1] | 0, col[2] | 0, 255], q * 4);
+  }
+  let tmp = document.createElement("canvas");
+  tmp.width = tmp.height = n, tmp.getContext("2d").putImageData(img, 0, 0);
+  c.imageSmoothingEnabled = !0, c.drawImage(tmp, 0, 0, n * k, n * k);
+  let toPx = (x, z) => [(x + half) / CELL * k, (z + half) / CELL * k];
+  for (let st of P.structures) {
+    if (st.deck) {
+      let [ax, az] = toPx(st.a[0], st.a[1]), [bx, bz] = toPx(st.b[0], st.b[1]);
+      c.strokeStyle = "#8a6440", c.lineWidth = Math.max(2, st.w / CELL * k), c.beginPath(), c.moveTo(ax, az), c.lineTo(bx, bz), c.stroke();
+      continue;
+    }
+    if (st.kind === "volcano" || st.kind === "rails" || st.kind === "lanterns" || st.kind === "airship") continue;
+    let [px, pz] = toPx(st.x, st.z), w = Math.max(3, (st.w ?? (st.r ? st.r * 2 : 4)) / CELL * k), d = Math.max(3, (st.d ?? (st.r ? st.r * 2 : 4)) / CELL * k);
+    c.save(), c.translate(px, pz), c.rotate(-(st.rot || 0)), c.fillStyle = st.kind === "field" ? "#d8b860" : st.kind === "orchard" ? "#5e9a4e" : "#7a5a4a", c.fillRect(-w / 2, -d / 2, w, d), c.restore();
+  }
+  let art = { canvas: cv, size: P.size, scale: n * k / P.size };
+  return ZONE_ART.set(zone.id, art), art;
+}
+
 function pastel(i, k) {
   let t = i >> 16 & 255,
     n = i >> 8 & 255,

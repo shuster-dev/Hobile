@@ -12,7 +12,7 @@ import { WorldRoom } from './rooms/WorldRoom.js';
 import { BattleRoom } from './rooms/BattleRoom.js';
 import { DungeonRoom } from './rooms/DungeonRoom.js';
 import { createPlayerDoc, normalizeDoc, publicProfile, uid } from './game/combat.js';
-import { HOME_ZONE, ZONES, STARTERS, AVATAR } from '../shared/gamedata.js';
+import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
 // A log pipe that closes (a supervisor restarting, a test harness that died)
 // must not take the server with it. Without a listener, a failed write to
@@ -118,12 +118,12 @@ app.post('/api/character', requireAuth, async (req, res) => {
   if (name.length < 2) return res.status(400).json({ error: 'invalid_name' });
   const starter = STARTERS.includes(req.body?.starter) ? req.body.starter : STARTERS[0];
   const a = req.body?.appearance || {};
-  const appearance = {
-    body: AVATAR.bodies.includes(a.body) ? a.body : AVATAR.bodies[0],
-    skin: AVATAR.skins.includes(a.skin) ? a.skin : AVATAR.skins[0],
-    hair: AVATAR.hair.includes(a.hair) ? a.hair : AVATAR.hair[0],
-    outfit: AVATAR.outfits.some((o) => o.id === a.outfit) ? a.outfit : AVATAR.outfits[0].id,
-  };
+  // A kind, a look and a skin from the palette; anything else falls back.
+  // (A client from before kinds sends an outfit, which picks the kind.)
+  const appearance = avatarLook({
+    kind: a.kind, look: a.look, body: a.body, outfit: a.outfit,
+    skin: AVATAR.skins.includes(a.skin) ? a.skin : AVATAR.skins[1],
+  });
   const doc = createPlayerDoc(req.userId, name, appearance, starter);
   normalizeDoc(doc);
   await store.saveDoc(doc);

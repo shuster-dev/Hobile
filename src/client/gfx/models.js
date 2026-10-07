@@ -20,7 +20,7 @@
  * the shipped game, not just in the repo.
  */
 import {
-  AnimationMixer, BackSide, Box3, Color, Group, LoopOnce, LoopRepeat,
+  BackSide, Box3, Color, Group, LoopOnce, LoopRepeat,
   MeshBasicMaterial, MeshToonMaterial, Quaternion, SkinnedMesh, Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -45,57 +45,19 @@ export function setModelBase(base, inline) {
 /**
  * species id -> model.
  *
- * Empty now: every species is a figurine sculpted in code (figurine.js and
- * figurine-designs.js), which loads with the page and needs no files. The
- * machinery below — loading, the rig reader, the bone-driven animator — stays
- * for the people, and for any creature that is ever given a model again: an
+ * Empty now: every species, and every person, is a figurine sculpted in code
+ * (figurine.js, figurine-designs.js, people.js), which loads with the page and
+ * needs no files. The machinery below — loading, the rig reader, the
+ * bone-driven animator — stays for any creature that is ever given a model
+ * again: an
  * entry here of `{ file, size }` is all it takes, with the `.glb` in
  * `assets/models/`.
  */
 export const MODELS = {};
 
-/**
- * The people.
- *
- * These come the other way round from the creatures: fully animated, with clips
- * the artist authored — Idle, Walking, Running, Attack, a death — so the mixer
- * plays them and the bone-driven animator below stays out of the way.
- *
- * `tint` maps a material in the file to a colour the player chose in the
- * character creator, which is the whole reason these two were worth having:
- * a model usually means giving up customisation, and here it does not.
- */
-export const AVATARS = {
-  corin: {
-    file: 'hero-corin.glb',
-    height: 1.78,
-    clips: {
-      idle: 'Idle', walk: 'Walking', run: 'Running',
-      attack: 'Attack', down: 'Dying Backwards',
-    },
-    tint: { mat_skin: 'skin', mat_hair: 'hair', mat_clothprimary: 'a', mat_clothsecondary: 'b' },
-  },
-  renn: {
-    file: 'hero-renn.glb',
-    height: 1.78,
-    clips: {
-      idle: 'Idle', walk: 'Walking', run: 'Running',
-      attack: 'Attack', down: 'Dying Backwards', cast: 'Cast Release',
-    },
-    tint: { mat_hair: 'hair' },
-  },
-};
-
-/** Which body a player's choice maps to. */
-export function avatarFor(body) {
-  return body === 'slim' ? 'renn' : 'corin';
-}
-
 /** One line each, because each pack shares one licence. */
 export const MODEL_CREDIT =
-  'Creatures: sculpted in code for this game.';
-export const AVATAR_CREDIT =
-  'Character models: Aether Star Online open assets, released CC0 (public domain).';
+  'Creatures and people: sculpted in code for this game.';
 
 // ---------------------------------------------------------------------------
 // loading
@@ -462,115 +424,6 @@ export async function attachModel(group, speciesId) {
 }
 
 /**
- * Chibi proportions, set on the bones.
- *
- * Both humanoids are drawn at adult proportions — about seven heads tall, a
- * long spine, a cloak to the ankles — which is a realistic figure in a world
- * the brief calls cute and casual. A big head, stubby legs, shorter arms and
- * chunky hands and feet turn the same rig, the same clips and the same colour
- * tinting into the MapleStory-sized hero the brief asked for, with nothing
- * re-modelled. Legs are shortened along the bone rather than shrunk, so they
- * read stocky instead of spindly.
- *
- * The exporter wrote a scale key for every bone on every frame — all 1.0 — so
- * the mixer would put the adult proportions back on the next frame. Those
- * tracks are dropped once per file; rotation and translation are untouched.
- */
-const CHIBI = {
-  Head: [1.55, 1.55, 1.55],
-  LeftArm: [0.86, 0.86, 0.86], RightArm: [0.86, 0.86, 0.86],
-  LeftHand: [1.3, 1.3, 1.3], RightHand: [1.3, 1.3, 1.3],
-  LeftUpLeg: [0.97, 0.74, 0.97], RightUpLeg: [0.97, 0.74, 0.97],
-  LeftLeg: [1, 0.9, 1], RightLeg: [1, 0.9, 1],
-  LeftFoot: [1.3, 1.3, 1.3], RightFoot: [1.3, 1.3, 1.3],
-};
-/** Of the adult height. Small next to a door, which is most of what reads cute. */
-export const CHIBI_HEIGHT = 0.8;
-const clipsNoScale = new WeakMap();
-function playableClips(gltf) {
-  let clips = clipsNoScale.get(gltf);
-  if (!clips) {
-    clips = gltf.animations.map((a) => {
-      const c = a.clone();
-      c.tracks = c.tracks.filter((t) => !t.name.endsWith('.scale'));
-      return c;
-    });
-    clipsNoScale.set(gltf, clips);
-  }
-  return clips;
-}
-function chibify(model) {
-  model.traverse((o) => {
-    const k = o.isBone && CHIBI[o.name];
-    if (k) o.scale.set(k[0], k[1], k[2]);
-  });
-  model.updateMatrixWorld(true);
-}
-
-/**
- * Swap a procedurally built avatar for its model, in place.
- *
- * Same surgery as `attachModel`, but these files carry their own animation, so
- * what gets stored is a mixer and a set of named actions rather than a rig.
- */
-export async function attachAvatar(group, appearance = {}) {
-  const def = AVATARS[avatarFor(appearance.body)];
-  if (!def || !group) return false;
-  const gltf = await fetchModel(def.file);
-  if (!gltf || !group.parent) return false;
-
-  const outfit = appearance.outfit || {};
-  const tint = {};
-  for (const [material, slot] of Object.entries(def.tint || {})) {
-    const colour = slot === 'skin' ? appearance.skin
-      : slot === 'hair' ? appearance.hair
-        : slot === 'a' ? (outfit.a || appearance.outfitA)
-          : (outfit.b || appearance.outfitB);
-    if (colour) tint[material] = new Color(colour);
-  }
-
-  const model = cloneSkinned(gltf.scene);
-  const outline = STYLE.outline > 0 && QUALITY.tier !== 'low'
-    ? outlineMaterial(0.009) : null;
-  toonify(model, outline, tint);
-  chibify(model);
-
-  // Measured after the proportions change, so the feet land on the ground.
-  const box = new Box3().setFromObject(model);
-  const size = box.getSize(new Vector3());
-  const height = def.height * CHIBI_HEIGHT * (appearance.body === 'tall' ? 1.045
-    : appearance.body === 'stocky' ? 0.955 : 1);
-  const scale = height / Math.max(0.001, size.y);
-  model.scale.set(scale * (appearance.body === 'stocky' ? 1.1 : 1), scale, scale);
-  model.position.y = -box.min.y * scale;
-
-  const holder = new Group();
-  holder.add(model);
-  for (const child of [...group.children]) {
-    group.remove(child);
-    child.traverse?.((o) => { if (o.isMesh) o.geometry?.dispose?.(); });
-  }
-  group.add(holder);
-
-  const mixer = new AnimationMixer(model);
-  const actions = {};
-  const clips = playableClips(gltf);
-  for (const [state, name] of Object.entries(def.clips)) {
-    const clip = clips.find((c) => c.name === name);
-    if (clip) actions[state] = mixer.clipAction(clip);
-  }
-  actions.idle?.play();
-
-  group.userData.model = {
-    def, mixer, actions, holder, height,
-    current: 'idle', once: null, last: null,
-  };
-  group.userData.rig = null;
-  group.userData.height = height;
-  return true;
-}
-
-/**
  * Play a one-shot clip — a punch, a knockdown — and fall back to the walk cycle
  * when it finishes. A no-op on anything that has no such clip, so callers never
  * have to ask what kind of thing they are animating.
@@ -755,5 +608,5 @@ export function animateModel(group, timeMs, moving, speed = 1) {
 
 /** Everything that has to appear in the game's credits. */
 export function modelCredits() {
-  return [MODEL_CREDIT, AVATAR_CREDIT];
+  return [MODEL_CREDIT];
 }

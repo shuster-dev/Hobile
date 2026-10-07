@@ -43,6 +43,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 await page.goto(`http://127.0.0.1:${PORT}/solo.html`, { waitUntil: 'load' });
 await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
+await page.waitForSelector('#btn-next', { timeout: 25000 }); await page.click('#btn-next');
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'מאיר');
@@ -253,6 +254,10 @@ const indoors = await page.evaluate(async () => {
     { x: door.door.x + (door.door.x - door.x) / out * 6, z: door.door.z + (door.door.z - door.z) / out * 6 },
     { x: door.door.x, z: door.door.z },
   ];
+  // This is about the door, not about finding a way across town from wherever
+  // the fight was (a straight walk can stall on a house): start outside it.
+  const me = g.net.room?.self?.();
+  if (me) { me.x = goals[0].x; me.z = goals[0].z; w.snapSelf(me.x, me.z); }
   for (const goal of goals) {
     for (let i = 0; i < 90; i++) {
       const p = w.selfPosition();

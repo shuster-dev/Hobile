@@ -7,6 +7,8 @@ import {
   randomLevel, statsFor, weightedPick,
 } from '../../shared/gamedata.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
+import { fieldPoint, wildTarget } from '../../shared/worldplan.js';
+import { tickWilds, populate } from '../game/wilds.js';
 import {
   activeCreature, activateZoneQuests, normalizeDoc, publicProfile, syncQuests, uid, grantXp, giveItem, DAY_MS,
 } from '../game/combat.js';
@@ -90,7 +92,13 @@ export class WorldRoom extends Room {
     this.ctxBySession = new Map();
     this.docsBySession = new Map();
 
-    for (let i = 0; i < WILD_TARGET; i++) this.spawnWild();
+    // the wilds: who comes out where, in what numbers (game/wilds.js)
+    this.wilds = {
+      zone: this.zone, colliders: this.colliders, state: this.state, wildDocs: this.wildDocs,
+      target: wildTarget(this.zone, WILD_TARGET),
+      spawn: (species, level, at) => this.spawnWild(species, level, at),
+    };
+    populate(this.wilds);
     this.scheduleBoss();
 
     // Every world message goes through the shared protocol module. Registering
@@ -152,9 +160,10 @@ export class WorldRoom extends Room {
       id: doc.id, name: doc.name, level: doc.level,
       x: spawn.x, y: 0, z: spawn.z, rot: 0, moving: false, status: 'idle',
       guildTag: '', partyId: '',
-      petSpecies: activeCreature(doc)?.species || '', hpRatio: hpRatio(doc),
+      petSpecies: activeCreature(doc)?.species || '', petStar: activeCreature(doc)?.star || 1, hpRatio: hpRatio(doc),
       body: doc.appearance.body, skin: doc.appearance.skin,
       hair: doc.appearance.hair, outfit: doc.appearance.outfit,
+      kind: doc.appearance.kind, look: doc.appearance.look,
     });
     this.state.players.set(client.sessionId, p);
     this.docsBySession.set(client.sessionId, doc);
@@ -286,6 +295,9 @@ export class WorldRoom extends Room {
   }
 
   randomFieldPoint() {
+    // a planned zone knows its own ground (worldplan.js); the town does not
+    const planned = !this.zone.urban && fieldPoint(this.zone, this.colliders);
+    if (planned) return planned;
     const half = this.zone.size / 2 - 8;
     for (let i = 0; i < 24; i++) {
       const x = (Math.random() * 2 - 1) * half;
@@ -322,7 +334,7 @@ export class WorldRoom extends Room {
     const a = Math.random() * Math.PI * 2;
     const at = resolveCollision(this.colliders, p.x + Math.cos(a) * 3.5, p.z + Math.sin(a) * 3.5, 0.5);
     const id = this.spawnWild(species, level, at);
-    Object.assign(this.wildDocs.get(id), { summonedUntil: Date.now() + SUMMON_LIFE_MS, home: { x: at.x, z: at.z } });
+    Object.assign(this.wildDocs.get(id), { summonedUntil: Date.now() + SUMMON_LIFE_MS, home: { x: at.x, z: at.z }, roam: 4 });
     return id;
   }
 
@@ -429,33 +441,11 @@ export class WorldRoom extends Room {
     const now = Date.now();
     this.state.serverTime = now;
 
-    // wild wander — a wild with a mood (coming for someone, running, looking
-    // around for who it lost) is moved by the field instead
-    for (const [id, w] of this.state.wilds) {
-      const d = this.wildDocs.get(id);
-      if (!d || w.engagedBy || d.mode) continue;
-      if (d.summonedUntil && now > d.summonedUntil) {
-        this.state.wilds.delete(id); this.wildDocs.delete(id);
-        continue;
-      }
-      if (now >= d.next) {
-        // A summoned one stays near where it was called: "next to me" should
-        // still be next to you in half a minute.
-        const a = Math.random() * Math.PI * 2, r = 1 + Math.random() * 4;
-        const t = d.home ? resolveCollision(this.colliders, d.home.x + Math.cos(a) * r, d.home.z + Math.sin(a) * r, 0.5)
-          : this.randomFieldPoint();
-        d.target = t;
-        d.next = now + 4000 + Math.random() * 6000;
-      }
-      const dx = d.target.x - w.x, dz = d.target.z - w.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 0.4) {
-        const step = Math.min(dist, 1.6 * (TICK_MS / 1000));
-        const p = resolveCollision(this.colliders, w.x + (dx / dist) * step, w.z + (dz / dist) * step, 0.5);
-        w.x = p.x; w.z = p.z; w.rot = Math.atan2(dx, dz);
-      }
-    }
-    while (this.state.wilds.size < WILD_TARGET) this.spawnWild();
+    // the wilds come out, amble where they came out, and keep their hours; a
+    // wild with a mood (coming for someone, running, looking around for who
+    // it lost) is moved by the field instead. A summoned one wanders round
+    // where it was called and goes home after a while.
+    tickWilds(this.wilds, now, TICK_MS);
 
     // who notices whom
     tickField(this.field, now, TICK_MS);

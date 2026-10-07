@@ -45,6 +45,45 @@ const boltShape = (h, w) => [[0, 0], [w * 0.55, h * 0.42], [w * 0.2, h * 0.42], 
 /** A fin: a swept triangle with a curved trailing edge. */
 const finShape = (l, h) => [[0, 0], [l * 0.35, h], [l * 0.62, h * 0.82], [l * 0.8, h * 0.45], [l, 0]];
 
+/** A heart, its point at the origin and its notch out along +x, `r` long:
+ *  a clover leaf. */
+const heartShape = (r, n = 20) => Array.from({ length: n }, (_, i) => {
+  const t = Math.PI + i / n * Math.PI * 2;
+  const hx = 16 * Math.pow(Math.sin(t), 3), hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+  return [(hy + 17) / 29 * r, hx / 29 * r];
+}).reverse();
+const norm3 = (v) => { const l = Math.hypot(...v) || 1; return v.map((c) => c / l); };
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+/** `n` heart leaves round a centre, facing `up`, and a dot where they meet. */
+const clover = (bone, c, n, r, col, col1, up = [0, 1, 0]) => {
+  const N = norm3(up), e1 = norm3(cross3(N, Math.abs(N[0]) > 0.9 ? [0, 0, 1] : [1, 0, 0])), e2 = cross3(N, e1);
+  return [
+    ...Array.from({ length: n }, (_, i) => {
+      const a = i / n * Math.PI * 2 + (n === 4 ? Math.PI / 4 : Math.PI / 2);
+      const d = norm3([0, 1, 2].map((k) => Math.cos(a) * e1[k] + Math.sin(a) * e2[k] + N[k] * 0.25));
+      const w = norm3(cross3(N, d));
+      return plate(bone, col, heartShape(r), 0.012, { o: c, x: d, y: w, z: N }, { c1: col1, rampX: 1 });
+    }),
+    ball(bone, col1, add3(c, N.map((v) => v * 0.01)), r * 0.16),
+  ];
+};
+
+/** A ram's horn: a spiral of tube from `start`, back, down and round under
+ *  itself, flaring out to side `sx`, `R` across, `turns` round. */
+const curl = (bone, c, c1, start, sx, R, turns, r0, n = 18) => {
+  const rho = (th) => R * 0.5 * (1 - 0.6 * th / (Math.PI * 2 * turns));
+  const centre = [start[0], start[1] - rho(0), start[2]];
+  const at = (i) => {
+    const th = i / n * Math.PI * 2 * turns, r = rho(th);
+    return [centre[0] + sx * R * 0.38 * i / n, centre[1] + Math.cos(th) * r, centre[2] - Math.sin(th) * r];
+  };
+  const mix = (t) => { const A = [c >> 16, (c >> 8) & 255, c & 255], B = [c1 >> 16, (c1 >> 8) & 255, c1 & 255]; return A.map((v, k) => Math.round(v + (B[k] - v) * t)).reduce((s, v) => s * 256 + v, 0); };
+  return Array.from({ length: n }, (_, i) => {
+    const ra = r0 * (1 - 0.62 * i / n), rb = r0 * (1 - 0.62 * (i + 1) / n);
+    return tube(bone, mix(i / n), at(i), at(i + 1), ra * 1.04, { taper: rb / ra, c1: mix((i + 1) / n), sides: 10, rings: 2 });
+  });
+};
+
 /** Flames fanned round a centre: a mane, a crown, a ruff. */
 const flameRing = (bone, c, n, R, len, r, o = {}) => Array.from({ length: n }, (_, i) => {
   const a = (o.from ?? 0) + (o.span ?? Math.PI * 2) * (o.span ? i / Math.max(1, n - 1) : i / n);
@@ -1188,6 +1227,569 @@ export const FIGURINES = {
       ],
       eyes: { at: [0.075, hy + 0.02, 0.24], r: 0.04, iris: 0xFF7AF0, tall: 1.1, depth: 0.3, sink: 0.35, splay: 0.05 },
     };
+  })(),
+
+  // ======================================================= v0.30: the wilds
+  // Each field zone's own line — something you only meet there, shaped by
+  // what the zone is — and the rare ones that come out in their own hour.
+
+  // ----------------------------------------------------------- the meadow
+  // A field rabbit whose ears turn to leaf at the tips, a clover sprouting
+  // between them and a puff of a tail.
+  burrowbun: (() => {
+    const q = quad({ size: 1.25, a: 0xC9A27A, b: 0xFFF4E2, paw: 0xFFF4E2, len: 0.5, wide: 0.25, deep: 0.23, y: 0.3, head: 0.33, legR: 0.07,
+      ear: { len: 1.45, r: 0.3, tip: 0.17, spread: 0.12, tilt: 0.34, back: 0.2, x: 0.34, inner: 0xFFB0B8, tipC: 0x7FCF6A },
+      muzzle: { w: 0.36, h: 0.25, l: 0.3 }, noseC: 0xFF8A9A, iris: 0x3A2414 });
+    const c = q.at.crown;
+    return make(q, {
+      hop: true,
+      bones: { crest: [0, c[1] - 0.04, c[2] - 0.02, 'head'] },
+      parts: [
+        S('body', 0xFFFAF0, [0, q.at.y + 0.05, -q.at.L * 0.56], 0.11, 0.05),
+        ...[[0.1, 0.05], [-0.08, 0.08], [0.02, -0.02]].map(([x, z]) => paint(0xA87E56, S('head', 0, [x, q.at.hy + q.at.hr * 0.7, q.at.hz + z], 0.035), 0.012)),
+      ],
+      details: [
+        tube('crest', 0x4FA858, [0, c[1] - 0.03, c[2]], [0, c[1] + 0.12, c[2] + 0.03], 0.016, { taper: 0.8, bend: [0, 0, 0.03] }),
+        ...clover('crest', [0, c[1] + 0.12, c[2] + 0.03], 3, 0.13, 0x5BC76A, 0xA8EE8A, [0, 1, 0.5]),
+      ],
+    });
+  })(),
+
+  // Grown long in the leg and quick as the wind over the grass: ears that
+  // became two great leaves, a four-leaf clover on its brow, a dandelion
+  // clock for a tail.
+  clovhare: (() => {
+    const q = quad({ size: 2.2, a: 0xB98A5E, b: 0xFFF4E2, paw: 0xFFF4E2, len: 0.8, wide: 0.22, deep: 0.24, y: 0.46, head: 0.28, neck: true, legR: 0.07,
+      muzzle: { w: 0.36, h: 0.25, l: 0.36 }, noseC: 0xFF8A9A, tail: { len: 0.1, rise: 0.16, r: 0.06, segs: 1 }, iris: 0x2A4A1E, eye: 0.26, blush: false });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    const earB = (sx) => [sx * hr * 0.32, hy + hr * 0.78, hz - hr * 0.25];
+    return make(q, {
+      bones: { earL: [...earB(1), 'head'], earR: [...earB(-1), 'head'], crest: [0, hy + hr * 0.6, hz + hr * 0.5, 'head'] },
+      parts: [
+        mir(C('earL', 0xB98A5E, earB(1), add3(earB(1), [0.04, 0.12, -0.03]), 0.06, 0.045, 0.04)),
+        mir(paint(0x8A6440, E('body', 0, [0.17, q.at.y + 0.05, -0.18], [0.04, 0.1, 0.16], 0, { rot: [0, 0, 0.3] }), 0.02)),
+      ],
+      details: [
+        ...[1, -1].map((sx) => plate(sx > 0 ? 'earL' : 'earR', 0xB98A5E, leafShape(0.62, 0.15), 0.02,
+          { o: add3(earB(sx), [0, 0.06, 0]), x: [sx * 0.25, 1, -0.42], y: [0, 0.4, 1], z: [1, 0, 0] }, { c1: 0x7FD46A, curl: sx * 0.04, rampX: 1 })),
+        ...clover('crest', [0, hy + hr * 0.62, hz + hr * 0.8], 4, 0.07, 0x3FAF52, 0x9AEA80, [0, 0.55, 1]),
+        // the dandelion clock: a white puff with seeds standing out of it
+        ball(q.at.tailBone, 0xFFFFFF, q.at.tailTip, 0.11),
+        ...Array.from({ length: 10 }, (_, i) => {
+          const a = i * 2.4, u = (i + 0.5) / 10 * 2 - 1, r = Math.sqrt(1 - u * u);
+          const d = [Math.cos(a) * r, u, Math.sin(a) * r - 0.3];
+          return tube(q.at.tailBone, 0xFFFFFF, q.at.tailTip, add3(q.at.tailTip, d.map((v) => v * 0.2)), 0.012, { taper: 0.4, c1: 0xFFF3C0 });
+        }),
+        // wind-swept tufts at the cheeks
+        ...[1, -1].flatMap((sx) => [0, 1].map((i) => horn('head', 0xFFF4E2, [sx * hr * 0.78, hy - hr * (0.25 + i * 0.18), hz], [sx * hr * 1.05, hy - hr * (0.2 + i * 0.22), hz - hr * 0.5], 0.035, { bend: [sx * 0.01, 0.02, 0] }))),
+      ],
+    });
+  })(),
+
+  // ------------------------------------------------------- emberfall canyon
+  // A salamander of the lava banks: flames for gills, embers down its back
+  // and a little fire at the end of its tail.
+  salamite: (() => {
+    const q = quad({ size: 1.5, a: 0xE8552E, b: 0xFFC07A, paw: 0xFF9A5A, len: 0.68, wide: 0.22, deep: 0.15, y: 0.2, head: 0.27, legR: 0.06, stance: 0.2,
+      muzzle: { w: 0.6, h: 0.3, l: 0.32, drop: 0.25 }, tail: { len: 0.55, rise: 0.06, r: 0.1, segs: 3, taper: 0.26, hook: 0.08 },
+      iris: 0x2A1008, eye: 0.25, nose: false, mask: false, blushC: 0xFF8A6A });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    return make(q, {
+      parts: [
+        ...[[0.08, 0.16], [-0.07, 0.02], [0.07, -0.12], [-0.06, -0.26], [0.04, -0.4]].map(([x, z]) => paint(0xFFD24A, S('body', 0, [x, q.at.y + q.at.Hb * 0.9, z], 0.04), 0.012, { glow: 0.8 })),
+        paint(0x3A1408, E('head', 0, [0, hy - hr * 0.42, hz + hr * 0.62], [hr * 0.42, hr * 0.03, hr * 0.2]), 0.01),
+      ],
+      details: [
+        ...[1, -1].flatMap((sx) => [0.3, 0, -0.3].map((t, i) => flame('head', [sx * hr * 0.82, hy + hr * (0.05 + t * 0.4), hz - hr * 0.25], [sx * 1, 0.6 + t, -0.6], 0.22 - i * 0.03, 0.055, { ...FIRE, glow: 0.7 }))),
+        flame(q.at.tailBone, q.at.tailTip, [0, 1, -0.4], 0.2, 0.07, FIRE),
+      ],
+    });
+  })(),
+
+  // The salamander cooled into a basalt dragon: hexagon columns down its
+  // back with fire in the seams, a ruff of flame where the gills were.
+  basalisk: (() => {
+    const q = quad({ size: 3.3, a: 0x7E7068, b: 0xFF7A2A, paw: 0x4A3E3A, len: 1.1, wide: 0.3, deep: 0.22, y: 0.4, head: 0.27, neck: true, legR: 0.11, stance: 0.3,
+      muzzle: { w: 0.62, h: 0.32, l: 0.5, out: 0.72, c: 0x7E7068 }, tail: { len: 0.85, rise: 0.06, r: 0.16, segs: 3, taper: 0.27, hook: 0.1 },
+      iris: 0xFFC43A, eye: 0.25, eyeTall: 0.95, blush: false, nose: false, mask: false, bellyPaint: false });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    const lava = { glow: 1 };
+    return make(q, {
+      lookK: 0.6, eyeStyle: 2, eyeGlow: 0.2,
+      parts: [
+        ...[[0.22, 0.12, 0.4], [-0.24, -0.1, -0.3], [0.2, -0.3, 0.2], [-0.18, 0.28, -0.5]].map(([x, z, r]) => paint(0xFF6A1F, E('body', 0, [x, q.at.y + 0.04, z], [0.015, 0.12, 0.14], 0, { rot: [r, 0.2, 0.3] }), 0.01, lava)),
+        paint(0xFF6A1F, E('head', 0, [0, hy - hr * 0.45, hz + hr * 0.75], [hr * 0.55, hr * 0.03, hr * 0.25]), 0.01, lava),
+        paint(0xFF7A2A, E('body', 0, [0, q.at.y - q.at.Hb * 0.62, 0.05], [0.24, 0.12, 0.48]), 0.04, { glow: 0.45 }),
+        ...[[0.12, 0.2], [-0.1, 0.0], [0.14, -0.22], [-0.16, 0.3], [0.0, -0.4]].map(([x, z]) => paint(0xA89A90, E('body', 0, [x, q.at.y + q.at.Hb * 0.7, z], [0.08, 0.035, 0.07], 0, { rot: [0, 0.5, 0] }), 0.01)),
+      ],
+      details: [
+        // basalt columns along the spine, tallest over the shoulders
+        ...Array.from({ length: 9 }, (_, i) => {
+          const t = i / 8, z = 0.34 - t * 0.95, h = 0.2 + Math.sin(Math.PI * (0.15 + t * 0.7)) * 0.18;
+          const x = (i % 2 ? 0.06 : -0.06), base = [x, q.at.y + q.at.Hb * 0.62 - t * 0.08, z];
+          const top = add3(base, [x * 0.4, h, -0.04]), bone = t < 0.55 ? 'body' : 'tail';
+          return [tube(bone, 0x4A3E3A, base, top, 0.06, { taper: 1, sides: 6, rings: 3, c1: 0x8A7A70 }), ball(bone, 0xFFB43A, top, 0.055, { glow: 0.9, sy: 0.4 })];
+        }).flat(),
+        ...collar('chest', [0, q.at.y + q.at.Hb * 1.1, q.at.zF + 0.14], [0, 0.7, 0.72], 0.2, 9, 0.3, 0.08),
+        ...[1, -1].flatMap((sx) => [-0.06, 0, 0.06].map((dx) => horn(sx > 0 ? 'legFL' : 'legFR', 0x1A100A, [sx * q.at.st * 1.04 + dx, 0.07, q.at.zF + 0.2], [sx * q.at.st * 1.04 + dx * 1.3, 0.02, q.at.zF + 0.28], 0.03))),
+        flame(q.at.tailBone, q.at.tailTip, [0, 1, -0.5], 0.32, 0.1, FIRE),
+      ],
+    });
+  })(),
+
+  // --------------------------------------------------------- stonewake mesa
+  // A kid goat of the cliffs: a fleece like a cloud, stone nubs for horns,
+  // grey stockings and a wisp of a beard.
+  cragkid: (() => {
+    const q = quad({ size: 1.35, a: 0xF2E6D2, b: 0xFFF8EE, paw: 0x4A3E36, len: 0.54, wide: 0.24, deep: 0.23, y: 0.4, head: 0.3, legR: 0.06,
+      ear: { len: 0.36, r: 0.24, tip: 0.1, spread: 0.85, tilt: 0.05, y: 0.42, x: 0.62, inner: 0xFFC0B0 }, tail: { len: 0.08, rise: 0.14, r: 0.06, segs: 1 },
+      muzzle: { w: 0.36, h: 0.28, l: 0.36, c: 0xB8A898 }, noseC: 0x4A3E36, iris: 0x3A2A1A, maskC: 0xB8A898 });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    return make(q, {
+      hop: true,
+      parts: [
+        // the fleece: puffs over the back and the brow
+        ...[[0.12, 0.1, 0.16], [-0.12, 0.1, 0.12], [0.1, 0.08, -0.12], [-0.1, 0.1, -0.16], [0, 0.16, 0]].map(([x, y, z]) => S('body', 0xFFFAF2, [x, q.at.y + y, z], 0.14, 0.06)),
+        S('head', 0xFFFAF2, [0, hy + hr * 0.62, hz - hr * 0.1], hr * 0.45, 0.06),
+        // grey stockings
+        ...[[q.at.st, q.at.zF], [q.at.st * 1.05, q.at.zB]].map(([x, z]) => mir(paint(0x8A7A6A, C(z > 0 ? 'legFL' : 'legBL', 0, [x, 0.2, z], [x, 0.02, z + 0.02], 0.075, 0.075, 0), 0.03))),
+      ],
+      details: [
+        ...[1, -1].map((sx) => horn('head', 0x8A8078, [sx * hr * 0.34, hy + hr * 0.74, hz + hr * 0.08], [sx * hr * 0.56, hy + hr * 1.3, hz - hr * 0.5], 0.065, { c1: 0xC8C0B8, bend: [0, 0.05, 0.03], sides: 7 })),
+        horn('head', 0xE6DACA, [0, hy - hr * 0.62, hz + hr * 0.62], [0, hy - hr * 1.0, hz + hr * 0.5], 0.04, { bend: [0, 0, 0.03] }),
+      ],
+    });
+  })(),
+
+  // The kid grown into the ram that holds the high ledges: a fleece the wind
+  // combs into clouds, and horns of curled slate.
+  ramstone: (() => {
+    const q = quad({ size: 3.0, a: 0xEADFCB, b: 0xFFF8EE, paw: 0x3A322C, len: 0.9, wide: 0.34, deep: 0.3, y: 0.62, head: 0.27, neck: true, legR: 0.09, stance: 0.24,
+      ear: { len: 0.4, r: 0.24, tip: 0.1, spread: 0.85, tilt: 0.05, y: 0.2, x: 0.7, c: 0x9A8E84, inner: 0xFFC0B0 }, tail: { len: 0.1, rise: 0.12, r: 0.08, segs: 1 },
+      muzzle: { w: 0.42, h: 0.34, l: 0.46, c: 0x9A8E84 }, noseC: 0x3A322C, iris: 0xE8A040, eye: 0.23, maskC: 0x9A8E84, cheek: 0x9A8E84, blush: false });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    return make(q, {
+      lookK: 0.6,
+      parts: [
+        ...[[0.2, 0.12, 0.26], [-0.2, 0.12, 0.22], [0.22, 0.1, -0.02], [-0.2, 0.12, -0.08], [0.14, 0.1, -0.3], [-0.14, 0.12, -0.32], [0, 0.22, 0.1], [0, 0.2, -0.2]]
+          .map(([x, y, z]) => S('body', 0xFFFAF2, [x, q.at.y + y, z], 0.19, 0.07)),
+        S('chest', 0xFFFAF2, [0, q.at.y + 0.16, q.at.zF + 0.12], 0.2, 0.07),
+        paint(0x8A7E74, E('head', 0, [0, hy - hr * 0.15, hz + hr * 0.45], [hr * 0.95, hr * 0.8, hr * 0.75]), 0.04),
+        S('head', 0xFFFAF2, [0, hy + hr * 0.62, hz - hr * 0.25], hr * 0.52, 0.06),
+        ...[[q.at.st, q.at.zF], [q.at.st * 1.05, q.at.zB]].map(([x, z]) => mir(paint(0x7A6E64, C(z > 0 ? 'legFL' : 'legBL', 0, [x, 0.34, z], [x, 0.02, z + 0.02], 0.11, 0.11, 0), 0.04))),
+      ],
+      details: [
+        ...[1, -1].flatMap((sx) => curl('head', 0x7A7068, 0xD8D0C6, [sx * hr * 0.62, hy + hr * 0.62, hz - hr * 0.05], sx, hr * 1.7, 1.1, 0.11)),
+      ],
+    });
+  })(),
+
+  // ----------------------------------------------------------- tidal hollow
+  // A hermit crab in a borrowed shell, one claw bigger than the other and
+  // too proud of it.
+  shellop: (() => {
+    const by = 0.26;
+    const shell = [
+      S('crest', 0xF6D8C0, [0, 0.34, -0.16], 0.24, 0.05),
+      C('crest', 0xF0CDB0, [0, 0.4, -0.2], [0, 0.72, -0.5], 0.2, 0.025, 0.05),
+      ...[0, 1, 2, 3].map((i) => Tr('crest', 0xE8B898, [0, 0.42 + i * 0.075, -0.22 - i * 0.07], 0.2 - i * 0.045, 0.028 - i * 0.004, 0.02, { rot: [0.75, 0, 0] })),
+    ];
+    return {
+      size: 1.1, plan: 'biped', lid: 0xFF8A6A,
+      bones: {
+        root: [0, 0, 0], body: [0, by, 0.05, 'root'], head: [0, by + 0.1, 0.16, 'body'], crest: [0, 0.4, -0.2, 'body'],
+        armL: [0.16, by, 0.2, 'body'], armR: [-0.16, by, 0.2, 'body'], legL: [0.14, 0.12, 0.05, 'body'], legR: [-0.14, 0.12, 0.05, 'body'],
+      },
+      parts: [
+        ...shell,
+        paint(0xFFF4E8, E('crest', 0, [0, 0.3, 0.02], [0.18, 0.16, 0.08]), 0.03),
+        ...[[0.12, 0.46, -0.24], [-0.14, 0.4, -0.3], [0.06, 0.56, -0.38], [-0.05, 0.3, -0.36]].map(([x, y, z]) => paint(0xC8865A, S('crest', 0, [x, y, z], 0.05), 0.015)),
+        E('body', 0xFF8A6A, [0, by, 0.08], [0.2, 0.17, 0.18], 0.06),
+        S('head', 0xFF8A6A, [0, by + 0.1, 0.17], 0.15, 0.08),
+        paint(0xFFE0C8, E('head', 0, [0, by + 0.03, 0.29], [0.11, 0.08, 0.05]), 0.03),
+        mir(paint(0xFF9CB0, E('head', 0, [0.1, by + 0.08, 0.28], [0.03, 0.02, 0.025]), 0.01)),
+        // the claws: a big one and a small one
+        C('armL', 0xFF7A5A, [0.16, by, 0.2], [0.26, by - 0.06, 0.32], 0.04, 0.045, 0.04),
+        E('armL', 0xFF6A4A, [0.27, by - 0.04, 0.4], [0.1, 0.075, 0.11], 0.04),
+        C('armR', 0xFF7A5A, [-0.16, by, 0.2], [-0.22, by - 0.08, 0.3], 0.03, 0.034, 0.04),
+        E('armR', 0xFF6A4A, [-0.23, by - 0.07, 0.35], [0.06, 0.05, 0.07], 0.04),
+      ],
+      details: [
+        horn('armL', 0xFFE0C8, [0.27, by - 0.02, 0.46], [0.27, by + 0.04, 0.56], 0.04, { c1: 0xFF8A6A }),
+        horn('armR', 0xFFE0C8, [-0.23, by - 0.06, 0.39], [-0.23, by - 0.02, 0.45], 0.025, { c1: 0xFF8A6A }),
+        ...[1, -1].flatMap((sx) => [0.12, -0.02].map((z) => tube(sx > 0 ? 'legL' : 'legR', 0xFF7A5A, [sx * 0.14, by - 0.06, z], [sx * 0.24, 0.02, z + 0.04], 0.022, { taper: 0.5, bend: [sx * 0.03, 0.04, 0] }))),
+        ...[1, -1].map((sx) => tube('head', 0xFF7A5A, [sx * 0.05, by + 0.22, 0.2], [sx * 0.1, by + 0.36, 0.24], 0.012, { taper: 0.6 })),
+      ],
+      eyes: { at: [0.065, by + 0.13, 0.29], r: 0.05, iris: 0x1A1A2A, tall: 1.25 },
+    };
+  })(),
+
+  // The crab found the biggest shell on the shore: a lighthouse, red and
+  // white, with a lamp at the top it keeps lit through the night.
+  beaconch: (() => {
+    const by = 0.42, tz = -0.28;
+    const tower = (y0, y1, r0, r1) => C('crest', 0xFFFFFF, [0, y0, tz], [0, y1, tz], r0, r1, 0.03);
+    return {
+      size: 2.3, plan: 'biped', lid: 0xE8604A, lookK: 0.6,
+      bones: {
+        root: [0, 0, 0], body: [0, by, 0.05, 'root'], head: [0, by + 0.12, 0.22, 'body'], crest: [0, 0.6, tz, 'body'], orb: [0, 1.36, tz, 'crest'],
+        armL: [0.26, by, 0.24, 'body'], armR: [-0.26, by, 0.24, 'body'], legL: [0.22, 0.2, 0.05, 'body'], legR: [-0.22, 0.2, 0.05, 'body'],
+      },
+      parts: [
+        tower(0.38, 1.22, 0.36, 0.21),
+        ...[0, 1, 2].map((i) => paint(0xE23A30, E('crest', 0, [0, 0.7 + i * 0.21, tz], [0.5, 0.08, 0.5]), 0.006)),
+        S('crest', 0xE8D8C8, [0, 0.42, tz], 0.38, 0.08),
+        E('body', 0xE8604A, [0, by, 0.12], [0.3, 0.24, 0.26], 0.07),
+        S('head', 0xE8604A, [0, by + 0.14, 0.24], 0.22, 0.09),
+        paint(0xFFE0C8, E('head', 0, [0, by + 0.04, 0.42], [0.16, 0.12, 0.07]), 0.03),
+        C('armL', 0xE8604A, [0.26, by, 0.24], [0.42, by - 0.08, 0.42], 0.07, 0.075, 0.05),
+        E('armL', 0xD8503A, [0.44, by - 0.04, 0.56], [0.15, 0.11, 0.17], 0.05),
+        C('armR', 0xE8604A, [-0.26, by, 0.24], [-0.4, by - 0.1, 0.4], 0.06, 0.065, 0.05),
+        E('armR', 0xD8503A, [-0.42, by - 0.06, 0.52], [0.12, 0.09, 0.13], 0.05),
+      ],
+      details: [
+        // gallery, lantern and roof
+        ring('crest', 0x3A3A44, [0, 1.22, tz], 0.25, 0.02, [Math.PI / 2, 0, 0]),
+        tube('crest', 0x3A3A44, [0, 1.21, tz], [0, 1.25, tz], 0.25, { taper: 1, sides: 12, rings: 2 }),
+        ball('orb', 0xFFF2A8, [0, 1.36, tz], 0.13, { glow: 1, sy: 1.2 }),
+        horn('crest', 0xE23A30, [0, 1.48, tz], [0, 1.66, tz], 0.18, { c1: 0x9A2420, sides: 10, rings: 3 }),
+        ball('crest', 0x3A3A44, [0, 1.68, tz], 0.03),
+        horn('armL', 0xFFE0C8, [0.46, by, 0.7], [0.46, by + 0.08, 0.84], 0.06, { c1: 0xD8503A }),
+        horn('armR', 0xFFE0C8, [-0.44, by - 0.02, 0.62], [-0.44, by + 0.05, 0.74], 0.05, { c1: 0xD8503A }),
+        ...[1, -1].flatMap((sx) => [0.2, 0.02, -0.14].map((z) => tube(sx > 0 ? 'legL' : 'legR', 0xE8604A, [sx * 0.24, by - 0.1, z], [sx * 0.42, 0.02, z + 0.06], 0.035, { taper: 0.5, bend: [sx * 0.05, 0.08, 0] }))),
+        ...[1, -1].map((sx) => tube('head', 0xE8604A, [sx * 0.08, by + 0.32, 0.28], [sx * 0.16, by + 0.52, 0.34], 0.016, { taper: 0.6 })),
+      ],
+      eyes: { at: [0.09, by + 0.18, 0.43], r: 0.065, iris: 0x1A1A2A, tall: 1.2 },
+    };
+  })(),
+
+  // ------------------------------------------------------ stormreach heights
+  // A jellyfish of the high air: a bell like a small cloud with a bulb of
+  // lightning in it, and three trailing threads that end in sparks.
+  nimbulb: (() => {
+    const tent = (bone, b2, x, z) => [
+      tube(bone, 0xC8D8FF, [x, 0.6, z], [x * 1.25, 0.36, z * 1.2], 0.035, { taper: 0.75, bend: [x * 0.2, 0, z * 0.2] }),
+      tube(b2, 0xC8D8FF, [x * 1.25, 0.36, z * 1.2], [x * 1.1, 0.12, z * 1.35], 0.026, { taper: 0.5, c1: 0xFFE070, bend: [-x * 0.2, 0, 0] }),
+      ball(b2, 0xFFE070, [x * 1.1, 0.1, z * 1.35], 0.035, { glow: 1 }),
+    ];
+    return {
+      size: 1.1, plan: 'biped', floats: true, hover: 0.28, lid: 0xDCE8FF, lively: 1.3,
+      bones: {
+        root: [0, 0, 0], body: [0, 0.7, 0, 'root'], head: [0, 0.74, 0, 'body'],
+        tail: [0.1, 0.6, 0.06, 'body'], tail2: [0.12, 0.36, 0.07, 'tail'],
+        tailB: [-0.1, 0.6, 0.06, 'body'], tailB2: [-0.12, 0.36, 0.07, 'tailB'],
+        tailC: [0, 0.6, -0.12, 'body'], tailC2: [0, 0.36, -0.14, 'tailC'],
+      },
+      parts: [
+        E('head', 0xD6E4FF, [0, 0.8, 0], [0.34, 0.25, 0.32], 0.04),
+        S('head', 0xF2F6FF, [0.19, 0.94, -0.06], 0.15, 0.025), S('head', 0xF2F6FF, [-0.18, 0.95, -0.03], 0.14, 0.025),
+        S('head', 0xFFFFFF, [0.02, 1.04, -0.06], 0.16, 0.025), S('head', 0xF2F6FF, [0.0, 0.92, 0.16], 0.13, 0.025),
+        E('head', 0xB8C8F0, [0, 0.62, 0], [0.29, 0.07, 0.27], 0.06),
+        paint(0xFFE070, E('head', 0, [0, 0.6, 0], [0.18, 0.05, 0.17]), 0.04, { glow: 1 }),
+        mir(paint(0xFF9CB0, E('head', 0, [0.17, 0.74, 0.27], [0.04, 0.025, 0.03]), 0.012)),
+      ],
+      details: [
+        ...tent('tail', 'tail2', 0.12, 0.08), ...tent('tailB', 'tailB2', -0.12, 0.08), ...tent('tailC', 'tailC2', 0, -0.13),
+        plate('head', 0xFFD23A, boltShape(0.2, 0.13), 0.025, { o: [-0.04, 0.9, 0.29], x: [1, 0, 0], y: [0, 1, -0.2], z: [0, 0.2, 1] }, { c1: 0xFFF6C0, glow: 0.8 }),
+        ball('head', 0xFFE070, [0, 0.6, 0.0], 0.12, { glow: 1, sy: 0.6 }),
+      ],
+      eyes: { at: [0.13, 0.8, 0.3], r: 0.065, iris: 0x1E2A4A, tall: 1.2 },
+    };
+  })(),
+
+  // Grown into a thunderhead that drifts over the chasm: a dark bell with a
+  // crown of lightning and six long threads that hum.
+  thundrift: (() => {
+    const T = [[0.2, 0.12], [-0.2, 0.12], [0.24, -0.1], [-0.24, -0.1], [0.06, -0.22], [-0.06, 0.24]];
+    const names = [['tail', 'tail2'], ['tailB', 'tailB2'], ['tailC', 'tailC2'], ['tailC', 'tailC2'], ['tail', 'tail2'], ['tailB', 'tailB2']];
+    return {
+      size: 2.8, plan: 'biped', floats: true, hover: 0.2, lid: 0x5A6688, eyeStyle: 2, eyeGlow: 0.3, lookK: 0.6,
+      bones: {
+        root: [0, 0, 0], body: [0, 1.0, 0, 'root'], head: [0, 1.04, 0, 'body'],
+        tail: [0.16, 0.86, 0.1, 'body'], tail2: [0.2, 0.5, 0.12, 'tail'],
+        tailB: [-0.16, 0.86, 0.1, 'body'], tailB2: [-0.2, 0.5, 0.12, 'tailB'],
+        tailC: [0, 0.86, -0.16, 'body'], tailC2: [0, 0.5, -0.2, 'tailC'],
+      },
+      parts: [
+        E('head', 0x6E7A9A, [0, 1.1, 0], [0.48, 0.3, 0.46], 0.07),
+        ...[[0.26, 1.24, 0.06, 0.2], [-0.24, 1.26, 0.0, 0.21], [0.05, 1.34, -0.14, 0.23], [0.16, 1.3, 0.2, 0.15], [-0.18, 1.22, -0.26, 0.17]].map(([x, y, z, r]) => S('head', 0x8A96B8, [x, y, z], r, 0.09)),
+        E('head', 0x4A5478, [0, 0.88, 0], [0.42, 0.08, 0.4], 0.06),
+        paint(0xFFE070, E('head', 0, [0, 0.85, 0], [0.3, 0.06, 0.28]), 0.04, { glow: 1 }),
+      ],
+      details: [
+        ...T.flatMap(([x, z], i) => {
+          const [b1, b2] = names[i], a = [x, 0.86, z], m = [x * 1.3, 0.5, z * 1.3], e = [x * 1.15, 0.12, z * 1.45];
+          return [
+            tube(b1, 0x8A96B8, a, m, 0.05, { taper: 0.7, bend: [x * 0.2, 0, z * 0.2] }),
+            tube(b2, 0x8A96B8, m, e, 0.035, { taper: 0.4, c1: 0xFFE070 }),
+            ...(i < 4 ? [plate(b2, 0xFFE070, boltShape(0.2, 0.12), 0.02, { o: lerp3(m, e, 0.4), x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, { c1: 0xFFF6C0, glow: 0.7 })] : []),
+          ];
+        }),
+        ...[0, 1, 2, 3, 4].map((i) => { const a = (i / 4 - 0.5) * 1.6; return crystal('head', 0xFFE070, [Math.sin(a) * 0.22, 1.42, Math.cos(a) * 0.05 - 0.04], [Math.sin(a) * 0.7, 1, -0.2], 0.28 - Math.abs(i - 2) * 0.05, 0.05, { c1: 0xFFFFFF, glow: 0.8 }); }),
+      ],
+      eyes: { at: [0.13, 1.1, 0.44], r: 0.065, iris: 0xFFE070, tall: 0.7, depth: 0.3, sink: 0.1, splay: 0.1 },
+    };
+  })(),
+
+  // --------------------------------------------------------- frostpeak ridge
+  // A seal pup on the frozen lake: all white fluff and dark eyes, a dappling
+  // of blue-grey, whiskers and flippers it slaps the ice with.
+  sleetpup: (() => ({
+    size: 1.3, plan: 'biped', lid: 0xF4F9FF, hop: true,
+    bones: {
+      root: [0, 0, 0], body: [0, 0.2, 0, 'root'], head: [0, 0.34, 0.26, 'body'],
+      finL: [0.22, 0.14, 0.18, 'body'], finR: [-0.22, 0.14, 0.18, 'body'], tail: [0, 0.16, -0.34, 'body'], tail2: [0, 0.12, -0.56, 'tail'],
+    },
+    parts: [
+      E('body', 0xF4F9FF, [0, 0.2, -0.06], [0.25, 0.2, 0.4], 0.06),
+      C('tail', 0xF4F9FF, [0, 0.18, -0.32], [0, 0.11, -0.56], 0.17, 0.08, 0.06),
+      S('head', 0xF4F9FF, [0, 0.42, 0.3], 0.25, 0.08),
+      E('head', 0xFFFFFF, [0, 0.34, 0.5], [0.13, 0.09, 0.08], 0.04),
+      mir(E('finL', 0xDCE8F4, [0.26, 0.07, 0.22], [0.13, 0.035, 0.08], 0.04, { rot: [0, 0.5, -0.3] })),
+      ...[[0.16, 0.34, -0.1], [-0.12, 0.36, 0.06], [0.2, 0.26, 0.12], [-0.2, 0.24, -0.24], [0.08, 0.32, -0.36], [0.14, 0.56, 0.24], [-0.1, 0.6, 0.18]]
+        .map(([x, y, z]) => paint(0x9FB8D0, S(z > 0.15 ? 'head' : 'body', 0, [x, y, z], 0.045), 0.015)),
+      mir(paint(0xFF9CB0, E('head', 0, [0.15, 0.38, 0.48], [0.04, 0.025, 0.03]), 0.012)),
+      paint(0xEAF2FA, E('body', 0, [0, 0.05, 0], [0.2, 0.06, 0.36]), 0.04),
+    ],
+    details: [
+      ball('head', 0x2A2A34, [0, 0.39, 0.585], 0.035, { sy: 0.75 }),
+      ...[1, -1].flatMap((sx) => [0, 1, 2].map((i) => tube('head', 0xFFFFFF, [sx * 0.08, 0.35 - i * 0.02, 0.56], [sx * 0.24, 0.37 - i * 0.05, 0.58 - i * 0.02], 0.006, { taper: 0.5 }))),
+      ...[1, -1].map((sx) => plate('tail2', 0xDCE8F4, finShape(0.16, 0.12), 0.025, { o: [sx * 0.03, 0.1, -0.54], x: [sx * 0.6, 0, -1], y: [sx * 0.2, 0.1, 0.1], z: [0, 1, 0] }, { c1: 0xF4F9FF })),
+    ],
+    eyes: { at: [0.11, 0.46, 0.49], r: 0.075, iris: 0x101820, tall: 1.15 },
+  }))(),
+
+  // The pup grown into the old walrus of the ridge: tusks of blue ice cut
+  // with runes that glow, a moustache like a snowdrift.
+  walrune: (() => {
+    const rune = (bone, p, rot) => paint(0x6FE0FF, E(bone, 0, p, [0.012, 0.07, 0.04], 0, { rot }), 0.006, { glow: 1 });
+    return {
+      size: 3.0, plan: 'biped', lid: 0x7A8AA0, lookK: 0.5,
+      bones: {
+        root: [0, 0, 0], body: [0, 0.4, 0, 'root'], head: [0, 0.62, 0.36, 'body'],
+        finL: [0.34, 0.26, 0.28, 'body'], finR: [-0.34, 0.26, 0.28, 'body'], tail: [0, 0.3, -0.5, 'body'], tail2: [0, 0.18, -0.82, 'tail'],
+      },
+      parts: [
+        E('body', 0x8A9AB0, [0, 0.42, -0.06], [0.42, 0.38, 0.56], 0.08),
+        C('tail', 0x8A9AB0, [0, 0.36, -0.46], [0, 0.16, -0.84], 0.3, 0.12, 0.07),
+        S('head', 0x8A9AB0, [0, 0.74, 0.42], 0.27, 0.1),
+        mir(E('head', 0xF2EEE6, [0.11, 0.62, 0.62], [0.13, 0.11, 0.1], 0.04)),
+        mir(E('finL', 0x6E7E96, [0.42, 0.1, 0.36], [0.22, 0.05, 0.13], 0.05, { rot: [0, 0.5, -0.25] })),
+        paint(0xA8B8CC, E('body', 0, [0, 0.12, 0.05], [0.32, 0.12, 0.5]), 0.05),
+        rune('body', [0.4, 0.5, 0.1], [0, 0, 0.2]), rune('body', [0.41, 0.42, -0.02], [0, 0, -0.5]), rune('body', [0.4, 0.48, -0.16], [0, 0, 0.8]),
+        rune('body', [-0.4, 0.5, 0.06], [0, 0, -0.2]), rune('body', [-0.41, 0.44, -0.08], [0, 0, 0.6]),
+        ...[[0.2, 0.68, -0.12], [-0.22, 0.6, -0.3], [0.1, 0.5, -0.5]].map(([x, y, z]) => paint(0x6E7E96, S('body', 0, [x, y, z], 0.07), 0.02)),
+      ],
+      details: [
+        ...[1, -1].map((sx) => crystal('head', 0xDFF6FF, [sx * 0.1, 0.56, 0.66], [sx * 0.12, -1, 0.22], 0.42, 0.045, { c1: 0x8FDBFF, glow: 0.35 })),
+        ...[1, -1].flatMap((sx) => [0.47, 0.37].map((y) => ring('head', 0x6FE0FF, [sx * 0.11 + sx * (0.56 - y) * 0.11, y, 0.66 + (0.56 - y) * 0.2], 0.03, 0.008, [Math.PI / 2 - 0.22, 0, 0], { glow: 1 }))),
+        ...[1, -1].flatMap((sx) => [0, 1, 2, 3].map((i) => tube('head', 0xFFFFFF, [sx * (0.05 + i * 0.04), 0.6, 0.7], [sx * (0.1 + i * 0.06), 0.52 - i * 0.015, 0.68], 0.014, { taper: 0.5 }))),
+        ball('head', 0x2A2A34, [0, 0.7, 0.68], 0.04, { sy: 0.7 }),
+        ...[1, -1].map((sx) => plate('tail2', 0x6E7E96, finShape(0.3, 0.22), 0.04, { o: [sx * 0.05, 0.14, -0.82], x: [sx * 0.6, 0, -1], y: [sx * 0.2, 0.1, 0.1], z: [0, 1, 0] }, { c1: 0x8A9AB0 })),
+        ...spineSpikes('body', 0xDFF6FF, [0, 0.8, 0.1], [0, 0.66, -0.42], 4, 0.16, 0.05, { crystal: true, c1: 0x8FDBFF, glow: 0.3, dir: [0, 1, -0.3] }),
+      ],
+      eyes: { at: [0.12, 0.8, 0.62], r: 0.045, iris: 0x101820, tall: 1.05 },
+    };
+  })(),
+
+  // ------------------------------------------------------------ umbral grove
+  // A toadstool that got up and walked: a cap wider than it is, dotted with
+  // spots that glow when the grove goes dark.
+  glowcap: (() => {
+    const q = biped({ size: 1.05, a: 0xEDE4F4, bodyC: 0xE4D8EE, b: 0xC8B8D8, head: 0.22, body: 0.17, leg: 0.1, arm: 0.14, armR: 0.04, iris: 0x1A1430, eye: 0.3, hy: 0.5, belly: 0xF6F0FA });
+    const hy = q.at.hy, hr = q.at.hr, top = hy + hr * 0.62;
+    const spot = (a, e, r) => { const p = [Math.cos(a) * 0.36 * Math.sin(e), top + 0.06 + Math.cos(e) * 0.2, Math.sin(a) * 0.36 * Math.sin(e)]; return paint(0x6FF0E0, S('head', 0, p, r), 0.012, { glow: 1 }); };
+    return make(q, {
+      lookK: 0.8,
+      parts: [
+        E('head', 0x5A4A9A, [0, top + 0.08, -0.02], [0.4, 0.2, 0.38], 0.05),
+        E('head', 0xB8A8D8, [0, top - 0.04, -0.02], [0.36, 0.05, 0.34], 0.03),
+        paint(0x8FF6EA, E('head', 0, [0, top - 0.07, -0.02], [0.3, 0.02, 0.28]), 0.02, { glow: 0.5 }),
+        spot(1.6, 0.2, 0.06), spot(0.6, 0.75, 0.05), spot(2.5, 0.8, 0.055), spot(-0.5, 0.9, 0.045), spot(-2.4, 0.85, 0.05), spot(-1.4, 0.6, 0.045), spot(3.6, 0.4, 0.04),
+      ],
+      details: [],
+    });
+  })(),
+
+  // The elder of the grove: a cap like a roof, glowing gills, bracket fungi
+  // for shoulders, a beard of white threads and a staff with a lamp.
+  mycelord: (() => {
+    const q = biped({ size: 2.7, a: 0xE6DCEC, bodyC: 0xD8CCE2, b: 0x9A8AB0, head: 0.26, body: 0.28, leg: 0.2, arm: 0.42, armR: 0.07, iris: 0x6FF0E0, eye: 0.24, eyeTall: 0.9, hy: 0.98, blush: false, belly: 0xEEE6F4 });
+    const hy = q.at.hy, hr = q.at.hr, top = hy + hr * 1.05;
+    const spot = (a, e, r) => { const p = [Math.cos(a) * 0.52 * Math.sin(e), top + 0.1 + Math.cos(e) * 0.26, Math.sin(a) * 0.5 * Math.sin(e) - 0.04]; return paint(0x6FF0E0, S('head', 0, p, r), 0.012, { glow: 1 }); };
+    const bracket = (sx, y, z, w) => plate('chest', 0x8A6AA8, [[0, -w * 0.15], [w * 0.5, -w * 0.32], [w, 0], [w * 0.5, w * 0.12], [0, w * 0.12]], 0.035,
+      { o: [sx * q.at.br * 0.9, y, z], x: [sx, 0.15, 0], y: [0, 0, 1], z: [0, 1, 0] }, { c1: 0xC8A8E8 });
+    return make(q, {
+      lookK: 0.5, eyeStyle: 2, eyeGlow: 0.3,
+      bones: { staff: [-0.42, 0.62, 0.2, 'armR'] },
+      parts: [
+        C('head', 0xE6DCEC, [0, hy + hr * 0.4, -0.02], [0, top, -0.04], hr * 0.7, hr * 0.5, 0.05),
+        E('head', 0x4A3A7A, [0, top + 0.1, -0.04], [0.56, 0.26, 0.53], 0.05),
+        C('head', 0x4A3A7A, [0, top + 0.2, -0.04], [0, top + 0.5, -0.12], 0.2, 0.04, 0.08),
+        E('head', 0x2E2450, [0, top - 0.06, -0.04], [0.5, 0.05, 0.47], 0.03),
+        paint(0x6FF0E0, E('head', 0, [0, top - 0.09, -0.04], [0.42, 0.03, 0.4]), 0.02, { glow: 0.8 }),
+        paint(0x6A5AA8, E('head', 0, [0, top + 0.12, -0.04], [0.6, 0.035, 0.57]), 0.01),
+        spot(1.6, 0.15, 0.08), spot(0.5, 0.7, 0.07), spot(2.6, 0.75, 0.075), spot(-0.6, 0.85, 0.06), spot(-2.5, 0.8, 0.07), spot(-1.5, 0.55, 0.065), spot(3.5, 0.35, 0.05), spot(-3.0, 0.45, 0.05),
+      ],
+      details: [
+        ...[0, 1, 2, 3, 4, 5, 6].map((i) => { const x = (i / 6 - 0.5) * 0.24; return tube('head', 0xF6F2FA, [x, hy - hr * 0.55, hr * 0.62], [x * 1.4, hy - hr * 1.5 - (i % 2) * 0.06, hr * 0.72], 0.016, { taper: 0.3, bend: [0, 0, 0.04] }); }),
+        bracket(1, q.at.by + 0.3, 0.04, 0.24), bracket(-1, q.at.by + 0.26, -0.02, 0.2), bracket(1, q.at.by + 0.12, -0.08, 0.16),
+        tube('staff', 0x5A4434, [-q.at.hand[0], 0.04, q.at.hand[2] + 0.04], [-q.at.hand[0] - 0.02, 1.2, q.at.hand[2] + 0.02], 0.025, { taper: 0.9, bend: [0.02, 0, 0.02] }),
+        ball('staff', 0x6FF0E0, [-q.at.hand[0] - 0.02, 1.26, q.at.hand[2] + 0.02], 0.07, { glow: 1 }),
+        ...[0.32, 0.7, 1.12].map((y, i) => ring('staff', 0x6FF0E0, [-q.at.hand[0] - 0.015, y, q.at.hand[2] + 0.03], 0.032, 0.008, [Math.PI / 2, 0, 0], { glow: 0.8 })).slice(0, 2),
+        plate('staff', 0x4A3A7A, circle(0.09, 12), 0.03, { o: [-q.at.hand[0] - 0.02, 1.33, q.at.hand[2] + 0.02], x: [1, 0, 0], y: [0, 0, 1], z: [0, 1, 0] }, { c1: 0x6A5AA0 }),
+      ],
+    });
+  })(),
+
+  // ------------------------------------------------------------ the rare ones
+  // A moth that only flies at night: fur like fresh snow, feathered feelers
+  // and two moons on each forewing that glow.
+  lumoth: (() => {
+    const by = 0.62;
+    const wing = (sx, fore) => {
+      const bone = sx > 0 ? 'wingL' : 'wingR';
+      const place = fore
+        ? { o: [sx * 0.1, by + 0.08, 0.04], x: [sx, 0.55, 0.15], y: [0, 0.25, 1], z: [0, 1, -0.25] }
+        : { o: [sx * 0.1, by - 0.02, -0.06], x: [sx, -0.1, -0.55], y: [0, 0.2, 1], z: [0, 1, -0.2] };
+      const L = fore ? 0.62 : 0.42, H = fore ? 0.32 : 0.26;
+      const shape = fore ? [[0, 0], [L * 0.28, H * 0.75], [L * 0.8, H * 1.05], [L, H * 0.55], [L * 0.86, -H * 0.05], [L * 0.45, -H * 0.3], [L * 0.12, -H * 0.18]]
+        : [[0, 0], [L * 0.35, H * 0.6], [L * 0.85, H * 0.55], [L, H * 0.1], [L * 0.7, -H * 0.45], [L * 0.3, -H * 0.4]];
+      const out = [plate(bone, fore ? 0xF4F8FF : 0xFFFCF4, shape, 0.016, place, { c1: fore ? 0xA8DCF4 : 0xE8F0F8, rampX: 1, bevel: 0.006 })];
+      if (fore) {
+        const P = place, X = norm3(P.x), Y = norm3(P.y), Z = norm3(P.z);
+        const at = (u, v) => [0, 1, 2].map((k) => P.o[k] + X[k] * u + Y[k] * v + Z[k] * 0.012);
+        out.push(plate(bone, 0x9FE8FF, circle(0.1, 16), 0.008, { o: at(L * 0.6, H * 0.4), x: X, y: Y, z: Z }, { c1: 0xFFFFFF, glow: 0.9 }));
+        out.push(plate(bone, 0x3A5A8A, crescent(0.07), 0.008, { o: at(L * 0.6, H * 0.4).map((v, k) => v + Z[k] * 0.01), x: X, y: Y, z: Z }));
+      } else {
+        const X = norm3(place.x), Y = norm3(place.y), Z = norm3(place.z);
+        out.push(plate(bone, 0x9FE8FF, crescent(0.08), 0.008, { o: [0, 1, 2].map((k) => place.o[k] + X[k] * L * 0.55 + Z[k] * 0.012), x: X, y: Y, z: Z }, { c1: 0xFFFFFF, glow: 0.8 }));
+      }
+      return out;
+    };
+    return {
+      size: 1.7, plan: 'biped', flies: true, hover: 0.22, lid: 0xF4F0E6, lively: 1.2,
+      bones: {
+        root: [0, 0, 0], body: [0, by, 0, 'root'], head: [0, by + 0.12, 0.16, 'body'], tail: [0, by - 0.06, -0.12, 'body'],
+        wingL: [0.08, by + 0.06, 0, 'body'], wingR: [-0.08, by + 0.06, 0, 'body'], antL: [0.05, by + 0.3, 0.22, 'head'], antR: [-0.05, by + 0.3, 0.22, 'head'],
+        legL: [0.06, by - 0.1, 0.06, 'body'], legR: [-0.06, by - 0.1, 0.06, 'body'],
+      },
+      parts: [
+        S('body', 0xFFFCF4, [0, by, 0.02], 0.14, 0.06),
+        Tr('body', 0xFFFFFF, [0, by + 0.06, 0.08], 0.11, 0.06, 0.06, { rot: [1.2, 0, 0] }),
+        E('tail', 0xEDE6D8, [0, by - 0.1, -0.22], [0.1, 0.1, 0.2], 0.06),
+        ...[0, 1, 2].map((i) => paint(0xC8D8E8, E('tail', 0, [0, by - 0.1, -0.14 - i * 0.08], [0.11, 0.11, 0.015]), 0.012)),
+        S('head', 0xFFFCF4, [0, by + 0.16, 0.18], 0.14, 0.06),
+        mir(paint(0xFF9CB0, E('head', 0, [0.08, by + 0.12, 0.29], [0.025, 0.018, 0.02]), 0.01)),
+      ],
+      details: [
+        ...wing(1, true), ...wing(-1, true), ...wing(1, false), ...wing(-1, false),
+        ...[1, -1].map((sx) => plate(sx > 0 ? 'antL' : 'antR', 0xEDE6D8, leafShape(0.24, 0.07), 0.01,
+          { o: [sx * 0.05, by + 0.28, 0.22], x: [sx * 0.5, 1, 0.35], y: [0, -0.3, 1], z: [1, 0, 0] }, { c1: 0xFFFFFF, curl: sx * 0.02, rampX: 1 })),
+        ...[1, -1].flatMap((sx) => [0.08, -0.02].map((z) => tube(sx > 0 ? 'legL' : 'legR', 0xD8D0C0, [sx * 0.06, by - 0.08, z], [sx * 0.12, by - 0.26, z + 0.03], 0.014, { taper: 0.6 }))),
+      ],
+      eyes: { at: [0.07, by + 0.19, 0.29], r: 0.055, iris: 0x1A2A4A, tall: 1.2 },
+    };
+  })(),
+
+  // A lamb whose fleece is a rain cloud: it only comes down to graze when it
+  // rains, and it drips.
+  drizzlamb: (() => {
+    const q = quad({ size: 1.6, a: 0xB8C6D8, b: 0xDCE6F2, paw: 0x2E3A4A, len: 0.56, wide: 0.24, deep: 0.23, y: 0.42, head: 0.27, legR: 0.055,
+      ear: { len: 0.4, r: 0.26, tip: 0.12, spread: 0.85, tilt: 0.05, y: 0.3, x: 0.62, c: 0x4A5A70, inner: 0xFFB0C0 }, tail: { len: 0.06, rise: 0.12, r: 0.07, segs: 1 },
+      muzzle: { w: 0.36, h: 0.27, l: 0.34, c: 0x4A5A70 }, noseC: 0x1E2630, iris: 0x101820, maskC: 0x4A5A70, cheek: 0x4A5A70, blushC: 0xFF9CB0 });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    const puffs = [[0.14, 0.12, 0.18, 0.15], [-0.14, 0.12, 0.16, 0.15], [0.16, 0.1, -0.12, 0.15], [-0.15, 0.12, -0.14, 0.15], [0, 0.22, 0.04, 0.17], [0.0, 0.2, -0.2, 0.14], [0.2, 0.0, 0.02, 0.12], [-0.2, 0.0, 0.0, 0.12]];
+    return make(q, {
+      parts: [
+        paint(0x4A5A70, E('head', 0, [0, hy - hr * 0.1, hz + hr * 0.35], [hr * 0.9, hr * 0.85, hr * 0.8]), 0.04),
+        ...puffs.map(([x, y, z, r]) => S('body', 0xE6EEF8, [x, q.at.y + y, z], r, 0.03)),
+        S('head', 0xE6EEF8, [0, hy + hr * 0.7, hz - hr * 0.2], hr * 0.55, 0.03),
+        paint(0x8A9AB4, E('body', 0, [0, q.at.y - 0.1, 0], [0.34, 0.1, 0.4]), 0.06),
+      ],
+      details: [
+        ...[[0.16, 0.18], [-0.12, 0.2], [0.2, -0.1], [-0.18, -0.14], [0.04, -0.24], [0.1, 0.02], [-0.06, -0.02]].map(([x, z], i) =>
+          ball('body', 0x4FB0FF, [x * 1.1, q.at.y - 0.16 - (i % 3) * 0.05, z], 0.035, { glow: 0.6, sy: 1.5 })),
+      ],
+    });
+  })(),
+
+  // A stag that runs ahead of the storm: a coat like the night between
+  // flashes, dappled with sparks, and antlers of forked lightning.
+  stormstag: (() => {
+    const q = quad({ size: 3.0, a: 0x3A4A7A, b: 0xDCE4F4, paw: 0x1E2640, len: 0.84, wide: 0.2, deep: 0.22, y: 0.7, head: 0.24, neck: true, legR: 0.06, stance: 0.15,
+      ear: { len: 0.55, r: 0.26, tip: 0.1, spread: 0.7, tilt: 0.2, y: 0.4, inner: 0xFFE070 }, tail: { len: 0.1, rise: 0.18, r: 0.07, segs: 1, c: 0xFFFFFF },
+      muzzle: { w: 0.34, h: 0.26, l: 0.44, c: 0xDCE4F4 }, noseC: 0x1E2640, iris: 0xFFC43A, eye: 0.25, blush: false });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr;
+    // a zigzag of bolt from the brow, with a tine off each corner
+    const antler = (sx) => {
+      const P = [[sx * hr * 0.35, hy + hr * 0.8, hz - hr * 0.1]];
+      const steps = [[0.14, 0.2, -0.05], [-0.04, 0.16, -0.06], [0.16, 0.2, -0.08], [-0.03, 0.17, -0.04]];
+      for (const [dx, dy, dz] of steps) { const l = P[P.length - 1]; P.push([l[0] + sx * dx, l[1] + dy, l[2] + dz]); }
+      const out = [];
+      for (let i = 0; i < P.length - 1; i++) out.push(tube('head', 0xFFD23A, P[i], P[i + 1], 0.032 * (1 - i * 0.18), { taper: 0.8, c1: 0xFFF6C0, glow: 0.6 }));
+      out.push(horn('head', 0xFFF6C0, P[P.length - 1], add3(P[P.length - 1], [sx * 0.02, 0.1, 0.02]), 0.018, { glow: 0.6 }));
+      for (const i of [1, 3]) out.push(horn('head', 0xFFD23A, P[i], add3(P[i], [sx * 0.02, 0.14, 0.1]), 0.02, { c1: 0xFFF6C0, glow: 0.6 }));
+      return out;
+    };
+    return make(q, {
+      lookK: 0.6,
+      parts: [
+        ...[[0.16, 0.12, 0.2], [0.17, 0.06, 0.0], [0.15, 0.12, -0.18], [0.18, 0.02, -0.3], [-0.16, 0.1, 0.16], [-0.17, 0.04, -0.06], [-0.15, 0.12, -0.24], [0.06, 0.2, 0.06], [-0.06, 0.2, -0.12]]
+          .map(([x, y, z]) => paint(0xFFE070, S('body', 0, [x, q.at.y + y, z], 0.03), 0.008, { glow: 0.9 })),
+        paint(0xDCE4F4, E('chest', 0, [0, q.at.y + 0.02, q.at.zF + 0.14], [0.14, 0.16, 0.1]), 0.04),
+      ],
+      details: [...antler(1), ...antler(-1)],
+    });
+  })(),
+
+  // A fox of the ash that falls on the canyon: charcoal fur cracked with
+  // embers, a tail that is mostly smoke, and sparks where it trails off.
+  cindervix: (() => {
+    const q = quad({ size: 2.0, a: 0x403A3E, b: 0x8A8086, paw: 0x2A2428, len: 0.66, wide: 0.19, deep: 0.19, y: 0.42, head: 0.27, legR: 0.055,
+      ear: { len: 0.95, r: 0.36, tip: 0.1, spread: 0.32, tilt: 0.12, inner: 0xFF7A2A, tipC: 0xFF9A3A }, tail: { len: 0.5, rise: 0.4, r: 0.07, segs: 3, taper: 0.1, hook: 0.2, c: 0x6A6268 },
+      muzzle: { w: 0.32, h: 0.24, l: 0.5, out: 0.7, c: 0xB8B0B4 }, noseC: 0x1A1416, iris: 0xFFB82E, eye: 0.25, maskC: 0xB8B0B4, blush: false });
+    const hy = q.at.hy, hz = q.at.hz, hr = q.at.hr, tt = q.at.tailTip;
+    const crack = (bone, p, rot, s = 1) => paint(0xFF6A1F, E(bone, 0, p, [0.012, 0.07 * s, 0.03 * s], 0, { rot }), 0.006, { glow: 1 });
+    return make(q, {
+      parts: [
+        crack('body', [0.17, q.at.y + 0.04, 0.1], [0.3, 0, 0.5]), crack('body', [0.18, q.at.y, -0.12], [-0.4, 0, 0.3]),
+        crack('body', [-0.17, q.at.y + 0.06, 0.04], [0.5, 0, -0.4]), crack('body', [-0.18, q.at.y - 0.02, -0.18], [-0.3, 0, -0.6]),
+        crack('legFL', [q.at.st * 1.04, 0.16, q.at.zF + 0.05], [0, 0, 0.2], 0.8), crack('legBL', [q.at.st * 1.05, 0.14, q.at.zB + 0.06], [0, 0, -0.2], 0.8),
+        crack('legFR', [-q.at.st * 1.04, 0.18, q.at.zF + 0.05], [0, 0, -0.3], 0.8),
+        // the smoke: puffs fattening out along the tail
+        ...[[0.3, 0.09, 0.03], [0.55, 0.12, -0.03], [0.78, 0.14, 0.04]].map(([f, r, dx], i) => S(i ? 'tail3' : 'tail2', i % 2 ? 0x8A8288 : 0x726A70, add3(lerp3([0, q.at.y + 0.1, -q.at.L * 0.5], tt, f), [dx, 0, 0]), r, 0.02)),
+        S('tail3', 0xA49CA2, tt, 0.16, 0.02),
+        S('tail3', 0xB8B0B6, add3(tt, [0.04, 0.1, -0.06]), 0.1, 0.02),
+      ],
+      details: [
+        ...[0, 1, 2, 3, 4].map((i) => ball('tail3', i % 2 ? 0xFFB43A : 0xFF6A1F, add3(tt, [Math.sin(i * 2.3) * 0.14, 0.1 + i * 0.05, -0.1 - (i % 3) * 0.06]), 0.02, { glow: 1 })),
+        flame('tail3', add3(tt, [0, 0.05, -0.05]), [0, 1, -0.6], 0.18, 0.06, { ...FIRE, glow: 0.6 }),
+      ],
+    });
+  })(),
+
+  // A mole that digs for the light: claws grown into crystal, and on its
+  // back a geode cracked open, full of amethyst.
+  geodig: (() => {
+    const q = quad({ size: 1.7, a: 0x7A6A8A, b: 0xD8C8E8, paw: 0xFFB0C8, len: 0.62, wide: 0.3, deep: 0.26, y: 0.32, head: 0.26, legR: 0.08, stance: 0.24,
+      muzzle: { w: 0.28, h: 0.22, l: 0.62, out: 0.8, c: 0xFFB0C8 }, noseC: 0xFF7AA0, tail: { len: 0.08, rise: 0.04, r: 0.05, segs: 1 },
+      iris: 0x1A1018, eye: 0.17, eyeY: 0.18, maskC: 0xB8A8C8 });
+    const y = q.at.y, top = [0, y + q.at.Hb * 0.85, -0.06];
+    return make(q, {
+      parts: [
+        // the geode: a rough brown rind, split along the top
+        E('body', 0x8A6A4A, add3(top, [0, -0.02, 0]), [0.26, 0.16, 0.32], 0.05),
+        carve(E('body', 0, add3(top, [0, 0.1, 0]), [0.17, 0.12, 0.24]), 0.03, 0x4A2A6A),
+        ...[[0.2, 0.08, 0.1], [-0.22, 0.06, -0.1], [0.12, 0.1, -0.24]].map(([x, dy, z]) => paint(0x6A4A30, S('body', 0, add3(top, [x, dy - 0.05, z]), 0.06), 0.02)),
+      ],
+      details: [
+        ...[[0, 0.06, 0, 0.2], [0.07, 0.04, 0.08, 0.15], [-0.07, 0.04, -0.06, 0.16], [0.05, 0.03, -0.14, 0.12], [-0.06, 0.04, 0.1, 0.12], [0.0, 0.03, 0.17, 0.1]]
+          .map(([x, dy, z, l], i) => crystal('body', i % 2 ? 0xC88AFF : 0xA86AE8, add3(top, [x, dy, z]), [x * 3, 1, z * 2], l * 1.35, l * 0.34, { c1: 0xF2E0FF, glow: 0.5 })),
+        // crystal claws, three to a paw
+        ...[1, -1].flatMap((sx) => [-0.05, 0, 0.05].map((dx) => crystal(sx > 0 ? 'legFL' : 'legFR', 0xC88AFF, [sx * q.at.st * 1.04 + dx, 0.06, q.at.zF + 0.1], [dx * 3, 0.2, 1], 0.14, 0.03, { c1: 0xF2E0FF, glow: 0.4 }))),
+      ],
+    });
   })(),
 };
 

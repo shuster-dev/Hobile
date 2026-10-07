@@ -1310,6 +1310,478 @@ var MOVES = {
         eyes: 3874048
       }
     }),
+    // -- v0.30: each field zone's own line, and the rare ones that only come
+    // out in their hour (shared/habitats.js says where and when).
+    burrowbun: def({
+      id: "burrowbun",
+      name: "Burrowbun",
+      he: "בורובאן",
+      types: ["verdant"],
+      rarity: "common",
+      base: {
+        hp: 48,
+        atk: 50,
+        def: 44,
+        spa: 40,
+        spd: 46,
+        spe: 78
+      },
+      learn: [[1, "tackle"], [1, "vinewhip"], [7, "gustcut"], [11, "focus"], [15, "leechbloom"], [28, "thornstorm"]],
+      evolve: {
+        into: "clovhare",
+        level: 18
+      },
+      model: {
+        shape: "quad",
+        a: 13214330,
+        b: 16774370,
+        scale: 0.72,
+        eyes: 3810324
+      }
+    }),
+    clovhare: def({
+      id: "clovhare",
+      name: "Clovhare",
+      he: "קלובהייר",
+      types: ["verdant", "gale"],
+      rarity: "evolved",
+      base: {
+        hp: 66,
+        atk: 76,
+        def: 60,
+        spa: 58,
+        spd: 64,
+        spe: 116
+      },
+      learn: [[1, "vinewhip"], [1, "gustcut"], [1, "leechbloom"], [20, "cyclonelift"], [26, "tailwind"], [32, "thornstorm"]],
+      model: {
+        shape: "quad",
+        a: 12159582,
+        b: 16774370,
+        scale: 1,
+        eyes: 2771486
+      }
+    }),
+    salamite: def({
+      id: "salamite",
+      name: "Salamite",
+      he: "סלמייט",
+      types: ["ember"],
+      rarity: "common",
+      base: {
+        hp: 50,
+        atk: 54,
+        def: 48,
+        spa: 60,
+        spd: 46,
+        spe: 52
+      },
+      learn: [[1, "tackle"], [1, "emberjab"], [10, "rockfling"], [15, "cinderburst"], [20, "guard"], [30, "magmawave"]],
+      evolve: {
+        into: "basalisk",
+        level: 24
+      },
+      model: {
+        shape: "quad",
+        a: 15226158,
+        b: 16760954,
+        scale: 0.8,
+        eyes: 2756616
+      }
+    }),
+    basalisk: def({
+      id: "basalisk",
+      name: "Basalisk",
+      he: "בזליסק",
+      types: ["ember", "terra"],
+      rarity: "evolved",
+      base: {
+        hp: 78,
+        atk: 88,
+        def: 92,
+        spa: 80,
+        spd: 70,
+        spe: 62
+      },
+      learn: [[1, "emberjab"], [1, "rockfling"], [1, "cinderburst"], [28, "quakestep"], [32, "bulwark"], [38, "magmawave"]],
+      model: {
+        shape: "quad",
+        a: 3811878,
+        b: 16738847,
+        scale: 1.1,
+        eyes: 16761914
+      }
+    }),
+    cragkid: def({
+      id: "cragkid",
+      name: "Cragkid",
+      he: "קראגקיד",
+      types: ["terra"],
+      rarity: "common",
+      base: {
+        hp: 54,
+        atk: 62,
+        def: 58,
+        spa: 34,
+        spd: 44,
+        spe: 60
+      },
+      learn: [[1, "tackle"], [1, "rockfling"], [12, "gustcut"], [16, "guard"], [22, "quakestep"]],
+      evolve: {
+        into: "ramstone",
+        level: 26
+      },
+      model: {
+        shape: "quad",
+        a: 15918802,
+        b: 9075306,
+        scale: 0.8,
+        eyes: 3811866
+      }
+    }),
+    ramstone: def({
+      id: "ramstone",
+      name: "Ramstone",
+      he: "רמסטון",
+      types: ["terra", "gale"],
+      rarity: "evolved",
+      base: {
+        hp: 82,
+        atk: 104,
+        def: 86,
+        spa: 44,
+        spd: 66,
+        spe: 88
+      },
+      learn: [[1, "rockfling"], [1, "gustcut"], [1, "quakestep"], [30, "bulwark"], [34, "cyclonelift"], [40, "focus"]],
+      model: {
+        shape: "quad",
+        a: 15392715,
+        b: 7234648,
+        scale: 0.95,
+        eyes: 3811866
+      }
+    }),
+    shellop: def({
+      id: "shellop",
+      name: "Shellop",
+      he: "שלופ",
+      types: ["aqua"],
+      rarity: "common",
+      base: {
+        hp: 52,
+        atk: 56,
+        def: 78,
+        spa: 44,
+        spd: 54,
+        spe: 28
+      },
+      learn: [[1, "tackle"], [1, "bubblelash"], [14, "guard"], [20, "tidecrash"], [26, "rockfling"]],
+      evolve: {
+        into: "beaconch",
+        level: 28
+      },
+      model: {
+        shape: "blob",
+        a: 16747114,
+        b: 16180168,
+        scale: 0.75,
+        eyes: 1710634
+      }
+    }),
+    beaconch: def({
+      id: "beaconch",
+      name: "Beaconch",
+      he: "ביקונץ'",
+      types: ["aqua", "lumen"],
+      rarity: "evolved",
+      base: {
+        hp: 82,
+        atk: 70,
+        def: 104,
+        spa: 90,
+        spd: 90,
+        spe: 40
+      },
+      learn: [[1, "bubblelash"], [1, "glintray"], [1, "tidecrash"], [32, "mendinglight"], [40, "solarlance"], [44, "maelstrom"]],
+      model: {
+        shape: "blob",
+        a: 15229002,
+        b: 16777215,
+        scale: 1.3,
+        glow: !0,
+        eyes: 1710634
+      }
+    }),
+    nimbulb: def({
+      id: "nimbulb",
+      name: "Nimbulb",
+      he: "נימבאלב",
+      types: ["volt"],
+      rarity: "common",
+      base: {
+        hp: 46,
+        atk: 34,
+        def: 44,
+        spa: 74,
+        spd: 62,
+        spe: 54
+      },
+      learn: [[1, "tackle"], [1, "sparkbite"], [18, "gustcut"], [22, "arcbolt"], [26, "cyclonelift"]],
+      evolve: {
+        into: "thundrift",
+        level: 30
+      },
+      model: {
+        shape: "sprite",
+        a: 14477567,
+        b: 16769136,
+        scale: 0.8,
+        eyes: 1976906
+      }
+    }),
+    thundrift: def({
+      id: "thundrift",
+      name: "Thundrift",
+      he: "ת'אנדריפט",
+      types: ["volt", "gale"],
+      rarity: "evolved",
+      base: {
+        hp: 70,
+        atk: 50,
+        def: 66,
+        spa: 116,
+        spd: 92,
+        spe: 84
+      },
+      learn: [[1, "sparkbite"], [1, "arcbolt"], [1, "cyclonelift"], [34, "tailwind"], [40, "thunderdome"]],
+      model: {
+        shape: "sprite",
+        a: 8029864,
+        b: 16769136,
+        scale: 1.1,
+        eyes: 16769136
+      }
+    }),
+    sleetpup: def({
+      id: "sleetpup",
+      name: "Sleetpup",
+      he: "סליטפאפ",
+      types: ["frost"],
+      rarity: "common",
+      base: {
+        hp: 70,
+        atk: 44,
+        def: 52,
+        spa: 58,
+        spd: 56,
+        spe: 36
+      },
+      learn: [[1, "tackle"], [1, "frostnip"], [24, "bubblelash"], [26, "guard"], [28, "icelance"]],
+      evolve: {
+        into: "walrune",
+        level: 34
+      },
+      model: {
+        shape: "blob",
+        a: 16054783,
+        b: 9418968,
+        scale: 0.8,
+        eyes: 1054752
+      }
+    }),
+    walrune: def({
+      id: "walrune",
+      name: "Walrune",
+      he: "וולרון",
+      types: ["frost", "terra"],
+      rarity: "evolved",
+      base: {
+        hp: 110,
+        atk: 96,
+        def: 88,
+        spa: 70,
+        spd: 76,
+        spe: 50
+      },
+      learn: [[1, "frostnip"], [1, "rockfling"], [1, "icelance"], [38, "quakestep"], [40, "bulwark"], [46, "glacierfall"]],
+      model: {
+        shape: "blob",
+        a: 9083568,
+        b: 14677759,
+        scale: 1.15,
+        eyes: 1054752
+      }
+    }),
+    glowcap: def({
+      id: "glowcap",
+      name: "Glowcap",
+      he: "גלוקאפ",
+      types: ["verdant", "umbra"],
+      rarity: "common",
+      base: {
+        hp: 52,
+        atk: 40,
+        def: 50,
+        spa: 70,
+        spd: 66,
+        spe: 40
+      },
+      learn: [[1, "tackle"], [1, "vinewhip"], [30, "shadowclaw"], [32, "leechbloom"], [34, "duskbind"]],
+      evolve: {
+        into: "mycelord",
+        level: 38
+      },
+      model: {
+        shape: "sprite",
+        a: 5917338,
+        b: 7336160,
+        scale: 0.75,
+        eyes: 1709104
+      }
+    }),
+    mycelord: def({
+      id: "mycelord",
+      name: "Mycelord",
+      he: "מייסלורד",
+      types: ["verdant", "umbra"],
+      rarity: "evolved",
+      base: {
+        hp: 92,
+        atk: 66,
+        def: 84,
+        spa: 110,
+        spd: 92,
+        spe: 56
+      },
+      learn: [[1, "leechbloom"], [1, "shadowclaw"], [1, "duskbind"], [42, "voidpulse"], [46, "thornstorm"]],
+      model: {
+        shape: "sprite",
+        a: 4864634,
+        b: 7336160,
+        scale: 1.05,
+        eyes: 7336160
+      }
+    }),
+    lumoth: def({
+      id: "lumoth",
+      name: "Lumoth",
+      he: "לומות'",
+      types: ["lumen", "gale"],
+      rarity: "rare",
+      base: {
+        hp: 64,
+        atk: 46,
+        def: 60,
+        spa: 110,
+        spd: 96,
+        spe: 94
+      },
+      learn: [[1, "glintray"], [1, "gustcut"], [12, "cyclonelift"], [18, "mendinglight"], [30, "solarlance"]],
+      model: {
+        shape: "insect",
+        a: 16052454,
+        b: 10479871,
+        scale: 1,
+        wings: !0,
+        glow: !0,
+        eyes: 1714762
+      }
+    }),
+    drizzlamb: def({
+      id: "drizzlamb",
+      name: "Drizzlamb",
+      he: "דריזלאמב",
+      types: ["aqua", "gale"],
+      rarity: "rare",
+      base: {
+        hp: 80,
+        atk: 50,
+        def: 70,
+        spa: 92,
+        spd: 88,
+        spe: 70
+      },
+      learn: [[1, "bubblelash"], [1, "gustcut"], [12, "tidecrash"], [18, "tailwind"], [36, "maelstrom"]],
+      model: {
+        shape: "quad",
+        a: 12109528,
+        b: 4872816,
+        scale: 0.95,
+        eyes: 1054752
+      }
+    }),
+    stormstag: def({
+      id: "stormstag",
+      name: "Stormstag",
+      he: "סטורמסטאג",
+      types: ["volt", "lumen"],
+      rarity: "rare",
+      base: {
+        hp: 76,
+        atk: 96,
+        def: 70,
+        spa: 100,
+        spd: 72,
+        spe: 86
+      },
+      learn: [[1, "sparkbite"], [1, "glintray"], [1, "arcbolt"], [1, "focus"], [36, "thunderdome"], [44, "solarlance"]],
+      model: {
+        shape: "quad",
+        a: 3820154,
+        b: 16769136,
+        scale: 1.0,
+        glow: !0,
+        eyes: 16769136
+      }
+    }),
+    cindervix: def({
+      id: "cindervix",
+      name: "Cindervix",
+      he: "סינדרוויקס",
+      types: ["ember", "umbra"],
+      rarity: "rare",
+      base: {
+        hp: 66,
+        atk: 90,
+        def: 62,
+        spa: 96,
+        spd: 70,
+        spe: 96
+      },
+      learn: [[1, "emberjab"], [1, "shadowclaw"], [1, "cinderburst"], [20, "duskbind"], [30, "magmawave"], [40, "voidpulse"]],
+      model: {
+        shape: "quad",
+        a: 3814456,
+        b: 16742954,
+        scale: 1.05,
+        eyes: 16758830
+      }
+    }),
+    geodig: def({
+      id: "geodig",
+      name: "Geodig",
+      he: "ג'יאודיג",
+      types: ["terra", "lumen"],
+      rarity: "rare",
+      base: {
+        hp: 74,
+        atk: 98,
+        def: 96,
+        spa: 54,
+        spd: 70,
+        spe: 78
+      },
+      learn: [[1, "rockfling"], [1, "glintray"], [1, "ironfang"], [16, "quakestep"], [24, "bulwark"], [40, "solarlance"]],
+      model: {
+        shape: "quad",
+        a: 8018570,
+        b: 15255807,
+        scale: 1,
+        eyes: 1708056
+      }
+    }),
+
     duskmaw: def({
       id: "duskmaw",
       name: "Duskmaw",
@@ -1519,6 +1991,7 @@ var MOVES = {
   // listed is calm: it wanders, and it only fights when you start it.
   //   fierce     sees you, shouts, comes for you (server/game/field.js)
   //   nocturnal  calm by day, fierce after dark
+  //   shy        never comes for you; runs from a trainer who comes running
   // Past the meadow, each zone's fierce ones are mostly of its own element, so
   // a companion of that element is the way to walk it in peace; and every
   // zone keeps calm ones too, so none is a gauntlet (tools/qa.mjs holds the
@@ -1538,7 +2011,19 @@ var MOVES = {
     glacilisk: "fierce",
     ferrogeist: "fierce",
     duskmaw: "fierce",
-    nocturnix: "nocturnal"
+    basalisk: "fierce",
+    ramstone: "fierce",
+    thundrift: "fierce",
+    walrune: "fierce",
+    mycelord: "fierce",
+    nocturnix: "nocturnal",
+    // shy: bolts from a trainer who comes at a run (walk up slowly — a half
+    // tilt of the stick — and it lets you near). The rare ones are shy.
+    lumoth: "shy",
+    drizzlamb: "shy",
+    stormstag: "shy",
+    cindervix: "shy",
+    geodig: "shy"
   },
   ITEMS = {
     sphere_basic: {
@@ -1758,18 +2243,18 @@ var MOVES = {
       accent: 3817552,
       sky: 9418456,
       capturable: !1,
-      size: 130,
+      size: 200,
       urban: !0,
       safe: !0,
       water: {
-        z: -38,
+        z: -62,
         level: -1.35,
         color: 1919587
       },
       rift: {
         x: 0,
-        y: 28,
-        z: -52,
+        y: 30,
+        z: -78,
         r: 10
       },
       spawns: [["sparkit", 20], ["mossnail", 20], ["pebblin", 20], ["coglet", 20], ["zephyrb", 20]],
@@ -1779,7 +2264,7 @@ var MOVES = {
         he: "כיכר הרסיס",
         x: 0,
         z: 0,
-        r: 9
+        r: 10
       }, {
         kind: "archive",
         name: "The Archive",
@@ -1797,78 +2282,85 @@ var MOVES = {
         kind: "shop",
         name: "Market Row",
         he: "שוק הרחוב",
-        x: -12,
+        x: -60,
         z: 12,
         r: 7.5,
         npc: "tavi",
         interior: "shop",
         door: {
-          x: -12,
+          x: -60,
           z: 17.5
         }
       }, {
         kind: "workshop",
         name: "Ren’s Workshop",
         he: "המסגרייה של רן",
-        x: 12,
+        x: 60,
         z: -12,
         r: 7.5,
         npc: "ren",
         interior: "workshop",
         door: {
-          x: 12,
+          x: 60,
           z: -6.5
         }
       }, {
         kind: "clinic",
         name: "Tideward Clinic",
         he: "מרפאת הגאות",
-        x: -36,
-        z: 12,
+        x: 36,
+        z: 36,
         r: 7.5,
         interior: "clinic",
         door: {
-          x: -36,
-          z: 17.5
+          x: 36,
+          z: 41.5
         }
       }, {
         kind: "base",
-        name: "Your Yard",
-        he: "החצר שלך",
-        x: 12,
-        z: 12,
-        r: 7.5
+        name: "Your Farm",
+        he: "החווה שלך",
+        x: -48,
+        z: 62,
+        r: 13
+      }, {
+        kind: "garden",
+        name: "Lantern Garden",
+        he: "גן הפנסים",
+        x: 48,
+        z: 62,
+        r: 11
       }, {
         kind: "pier",
         name: "Rift Pier",
         he: "מזח הקרע",
         x: 0,
-        z: -44,
+        z: -68,
         r: 8
       }, {
         kind: "gate",
         name: "North Gate",
         he: "השער הצפוני",
         x: 0,
-        z: 36,
+        z: 72,
         r: 5,
         npc: "sela"
       }, {
         kind: "dungeon",
         to: "undercity_cistern",
         x: -36,
-        z: -12
+        z: -36
       }, {
         kind: "portal",
         to: "verdant_meadow",
         x: 0,
-        z: 46
+        z: 84
       }, {
         kind: "portal",
         gate: "ember",
         to: "emberfall_canyon",
         x: -9,
-        z: -40,
+        z: -64,
         name: "Flame Gate",
         he: "שער הלהבה",
         band: [8, 16]
@@ -1877,7 +2369,7 @@ var MOVES = {
         gate: "aqua",
         to: "tidal_hollow",
         x: -3,
-        z: -47,
+        z: -71,
         name: "Tide Gate",
         he: "שער הגאות",
         band: [14, 24]
@@ -1886,7 +2378,7 @@ var MOVES = {
         gate: "terra",
         to: "stonewake_mesa",
         x: 3,
-        z: -47,
+        z: -71,
         name: "Stone Gate",
         he: "שער האבן",
         band: [10, 20]
@@ -1895,7 +2387,7 @@ var MOVES = {
         gate: "volt",
         to: "stormreach_heights",
         x: 9,
-        z: -40,
+        z: -64,
         name: "Storm Gate",
         he: "שער הסופה",
         band: [18, 28]
@@ -1911,25 +2403,29 @@ var MOVES = {
       sky: 9425151,
       capturable: !0,
       element: "verdant",
-      size: 120,
-      spawns: [["sproutle", 18], ["cindcub", 10], ["puddlet", 10], ["sparkit", 16], ["zephyrb", 16], ["pebblin", 16], ["mossnail", 14]],
+      size: 240,
+      spawns: [["burrowbun", 18, { at: "grass", herd: [2, 3] }], ["sproutle", 14, { at: "grass" }], ["zephyrb", 14], ["sparkit", 12], ["mossnail", 12, { at: "water" }],
+        ["puddlet", 10, { at: "water" }], ["pebblin", 10], ["cindcub", 8], ["clovhare", 3, { at: "grass" }],
+        ["lumoth", 4, { when: "night" }], ["drizzlamb", 5, { when: "rain", herd: [1, 2] }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "clovhare",
       landmarks: [{
         kind: "camp",
         name: "Meadow Watch",
         he: "משמר האחו",
         x: 0,
-        z: 34,
+        z: 72,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
-        x: 2,
-        z: 46
+        x: 0,
+        z: 100
       }, {
         kind: "portal",
         to: "emberfall_canyon",
-        x: 48,
-        z: -34
+        x: 74,
+        z: -70
       }]
     },
     stonewake_mesa: {
@@ -1942,30 +2438,33 @@ var MOVES = {
       sky: 15255450,
       capturable: !0,
       element: "terra",
-      size: 132,
-      spawns: [["pebblin", 22], ["boulderon", 12], ["coglet", 16], ["mossnail", 14], ["cindcub", 10], ["ferrogeist", 8], ["sproutle", 10], ["duskmaw", 3]],
+      size: 240,
+      spawns: [["cragkid", 20, { at: "cliff", herd: [2, 4] }], ["pebblin", 18], ["coglet", 12], ["boulderon", 8, { at: "cliff" }], ["mossnail", 8, { at: "water" }],
+        ["cindcub", 6], ["ferrogeist", 6], ["ramstone", 5, { at: "cliff" }], ["geodig", 3, { at: "cliff" }], ["duskmaw", 2]],
+      // the prize of the zone quest: its own line, grown
+      prize: "ramstone",
       landmarks: [{
         kind: "camp",
         name: "Quarry Rest",
         he: "מנוחת המחצבה",
-        x: -18,
-        z: 20,
+        x: -40,
+        z: 45,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 50
+        z: 100
       }, {
         kind: "portal",
         to: "emberfall_canyon",
-        x: 46,
-        z: -38
+        x: 40,
+        z: -92
       }, {
         kind: "dungeon",
         to: "sunken_vault",
-        x: 20,
-        z: 26
+        x: 45,
+        z: 70
       }]
     },
     stormreach_heights: {
@@ -1978,30 +2477,33 @@ var MOVES = {
       sky: 7176112,
       capturable: !0,
       element: "volt",
-      size: 134,
-      spawns: [["sparkit", 20], ["voltmane", 14], ["zephyrb", 14], ["cirrowing", 12], ["coglet", 12], ["frostnib", 10], ["glimmer", 10], ["ferrogeist", 6]],
+      size: 240,
+      spawns: [["nimbulb", 20, { herd: [2, 3] }], ["sparkit", 14], ["voltmane", 10], ["zephyrb", 10], ["cirrowing", 10, { at: "cliff" }], ["coglet", 10],
+        ["glimmer", 8], ["ferrogeist", 5], ["thundrift", 4], ["frostnib", 4], ["stormstag", 4, { when: "storm" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "thundrift",
       landmarks: [{
         kind: "camp",
         name: "Mast Camp",
         he: "מחנה התורן",
-        x: 16,
-        z: 18,
+        x: 35,
+        z: 40,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 52
+        z: 100
       }, {
         kind: "portal",
         to: "frostpeak_ridge",
-        x: -48,
-        z: -40
+        x: -76,
+        z: -68
       }, {
         kind: "dungeon",
         to: "storm_spire",
-        x: -22,
-        z: 24
+        x: -45,
+        z: 52
       }]
     },
     emberfall_canyon: {
@@ -2014,35 +2516,38 @@ var MOVES = {
       sky: 16757370,
       capturable: !0,
       element: "ember",
-      size: 130,
-      spawns: [["cindcub", 18], ["emberfly", 20], ["pebblin", 18], ["sparkit", 14], ["pyrelynx", 8], ["coglet", 12], ["boulderon", 4]],
+      size: 240,
+      spawns: [["salamite", 20, { at: "lava", herd: [2, 3] }], ["emberfly", 18], ["cindcub", 14], ["pebblin", 12], ["sparkit", 8], ["coglet", 8],
+        ["pyrelynx", 6], ["boulderon", 4], ["basalisk", 4, { at: "lava" }], ["cindervix", 5, { when: "ash" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "basalisk",
       landmarks: [{
         kind: "camp",
         name: "Cinder Camp",
         he: "מחנה הגחלים",
-        x: -20,
-        z: 18,
+        x: -45,
+        z: 40,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 50
+        z: 100
       }, {
         kind: "portal",
         to: "verdant_meadow",
-        x: -52,
-        z: 36
+        x: -80,
+        z: 60
       }, {
         kind: "portal",
         to: "tidal_hollow",
-        x: 44,
-        z: -40
+        x: 74,
+        z: -70
       }, {
         kind: "dungeon",
         to: "sunken_vault",
-        x: 22,
-        z: 30
+        x: 45,
+        z: 64
       }]
     },
     tidal_hollow: {
@@ -2055,35 +2560,39 @@ var MOVES = {
       sky: 8379647,
       capturable: !0,
       element: "aqua",
-      size: 130,
-      spawns: [["puddlet", 16], ["tidefin", 12], ["mossnail", 18], ["zephyrb", 12], ["frostnib", 12], ["glimmer", 12], ["cirrowing", 6]],
+      size: 240,
+      spawns: [["shellop", 20, { at: "shore", herd: [2, 3] }], ["puddlet", 14, { at: "water" }], ["mossnail", 12, { at: "water" }], ["tidefin", 10, { at: "water" }],
+        ["zephyrb", 10], ["glimmer", 10], ["frostnib", 6], ["cirrowing", 5], ["beaconch", 4, { at: "shore" }],
+        ["lumoth", 3, { when: "night" }], ["drizzlamb", 4, { when: "rain", herd: [1, 2] }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "beaconch",
       landmarks: [{
         kind: "camp",
         name: "Hollow Docks",
         he: "מזח החלול",
-        x: 18,
-        z: -12,
+        x: 35,
+        z: 10,
         r: 10
       }, {
         kind: "portal",
         to: "aetherport",
         x: 0,
-        z: 50
+        z: 100
       }, {
         kind: "portal",
         to: "emberfall_canyon",
-        x: -48,
-        z: 42
+        x: -78,
+        z: 62
       }, {
         kind: "portal",
         to: "frostpeak_ridge",
-        x: 46,
-        z: -44
+        x: 84,
+        z: 52
       }, {
         kind: "dungeon",
         to: "storm_spire",
-        x: -26,
-        z: -28
+        x: -52,
+        z: 46
       }]
     },
     frostpeak_ridge: {
@@ -2096,25 +2605,28 @@ var MOVES = {
       sky: 12575999,
       capturable: !0,
       element: "frost",
-      size: 140,
-      spawns: [["frostnib", 20], ["glacilisk", 8], ["coglet", 14], ["zephyrb", 12], ["glimmer", 14], ["cirrowing", 10], ["duskmaw", 3]],
+      size: 240,
+      spawns: [["sleetpup", 20, { at: "ice", herd: [2, 3] }], ["frostnib", 16], ["glimmer", 10], ["glacilisk", 8], ["coglet", 8], ["zephyrb", 8],
+        ["cirrowing", 8], ["walrune", 4, { at: "ice" }], ["duskmaw", 3], ["lumoth", 2, { when: "night" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "walrune",
       landmarks: [{
         kind: "camp",
         name: "Rime Outpost",
         he: "מוצב הכפור",
-        x: -14,
-        z: -20,
+        x: -50,
+        z: -45,
         r: 10
       }, {
         kind: "portal",
         to: "tidal_hollow",
-        x: -50,
-        z: 46
+        x: -74,
+        z: 70
       }, {
         kind: "portal",
         to: "umbral_grove",
-        x: 48,
-        z: -46
+        x: 74,
+        z: -70
       }]
     },
     umbral_grove: {
@@ -2127,25 +2639,28 @@ var MOVES = {
       sky: 2761552,
       capturable: !0,
       element: "umbra",
-      size: 140,
-      spawns: [["umbrat", 20], ["nocturnix", 12], ["ferrogeist", 10], ["duskmaw", 8], ["glacilisk", 8], ["solaraith", 6], ["aurorix", 1]],
+      size: 240,
+      spawns: [["glowcap", 18, { at: "forest", herd: [2, 4] }], ["umbrat", 18], ["nocturnix", 10], ["ferrogeist", 8], ["duskmaw", 8], ["glacilisk", 6],
+        ["solaraith", 6], ["mycelord", 5, { at: "forest" }], ["aurorix", 1], ["lumoth", 3, { when: "night" }]],
+      // the prize of the zone quest: its own line, grown
+      prize: "mycelord",
       landmarks: [{
         kind: "camp",
         name: "Lantern Rest",
         he: "מנוחת הפנס",
-        x: 12,
-        z: 22,
+        x: 25,
+        z: 62,
         r: 10
       }, {
         kind: "portal",
         to: "frostpeak_ridge",
-        x: -52,
-        z: 48
+        x: -74,
+        z: 70
       }, {
         kind: "dungeon",
         to: "hollow_keep",
-        x: -20,
-        z: -30
+        x: -62,
+        z: -62
       }]
     }
   },
@@ -2234,8 +2749,8 @@ var MOVES = {
     id: "wb_magmadon",
     species: "magmadon",
     zone: "emberfall_canyon",
-    x: 10,
-    z: -22,
+    x: 20,
+    z: -40,
     level: 22,
     everyMinutes: 20,
     windowMinutes: 6
@@ -2243,8 +2758,8 @@ var MOVES = {
     id: "wb_leviathorn",
     species: "leviathorn",
     zone: "tidal_hollow",
-    x: -18,
-    z: 16,
+    x: -30,
+    z: 22,
     level: 30,
     everyMinutes: 25,
     windowMinutes: 6
@@ -2253,7 +2768,7 @@ var MOVES = {
     species: "nullwarden",
     zone: "umbral_grove",
     x: 0,
-    z: -14,
+    z: -30,
     level: 42,
     everyMinutes: 30,
     windowMinutes: 8
@@ -2541,7 +3056,9 @@ function zoneQuestChain(i) {
       starter: 1,
       common: 0
     },
-    o = [...(i.spawns || [])].map(([h]) => h).filter(h => Object.prototype.hasOwnProperty.call(SPECIES, h)).sort((h, d) => (r[SPECIES[d].rarity] ?? 0) - (r[SPECIES[h].rarity] ?? 0))[0],
+    // the zone's own line where it names one; else its rarest regular (one
+    // that only comes out in its hour would make the quest a wait)
+    o = SPECIES[i.prize] ? i.prize : [...(i.spawns || [])].filter(h => !(h[2] && h[2].when)).map(([h]) => h).filter(h => Object.prototype.hasOwnProperty.call(SPECIES, h)).sort((h, d) => (r[SPECIES[d].rarity] ?? 0) - (r[SPECIES[h].rarity] ?? 0))[0],
     a = ELEMENTS[i.element] || null,
     l = a ? `${a.icon} ` : "",
     c = {};
@@ -3061,8 +3578,18 @@ function starRank(i, e) {
 }
 
 var AVATAR = {
+  // The kinds of adventurer a player can be; src/client/gfx/people.js dresses
+  // them. A character is a kind, one of two looks, and a skin tone.
+  kinds: ["rogue", "pirate", "fire", "catcher", "ranger", "mage", "explorer"],
+  looks: ["a", "b"],
+  // Warmer than they look on a swatch: a figure is lit from the ground under
+  // it, and a meadow's green bounce turns a neutral tone grey.
+  skins: ["#fbd7bd", "#f2b98e", "#dc955f", "#b86d3a", "#8a4c26", "#5c3119"],
+  // Characters made before there were kinds: the kind nearest their outfit,
+  // and back the other way for anything that still reads an outfit.
+  legacyKind: { wanderer: "explorer", ranger: "ranger", scholar: "mage", nomad: "fire", shade: "rogue", tide: "pirate" },
+  kindOutfit: { explorer: "wanderer", ranger: "ranger", mage: "scholar", fire: "nomad", rogue: "shade", pirate: "tide", catcher: "wanderer" },
   bodies: ["slim", "stocky", "tall"],
-  skins: ["#f6d3b1", "#e0ac7e", "#c68642", "#8d5524", "#5a3821", "#f0dcc8"],
   hair: ["#2b1b16", "#6b3e1e", "#c9a227", "#d94f4f", "#3f7ad9", "#8b5cf6", "#e8e8e8", "#2fb27a"],
   outfits: [{
     id: "wanderer",
@@ -3162,4 +3689,22 @@ for (let z of Object.values(ZONES)) if (z.capturable) Object.assign(QUESTS, zone
 Object.assign(QUESTS, NPC_QUESTS);
 Object.assign(ITEMS, MATERIALS);
 
-export { ACTIONS, AVATAR, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+/**
+ * An appearance, made whole: a kind (from the outfit, for a character made
+ * before kinds), a look, a skin from the palette. Unknown values fall back;
+ * the old fields are kept, and filled, for anything that still reads them.
+ */
+function avatarLook(a = {}) {
+  let kind = AVATAR.kinds.includes(a.kind) ? a.kind : AVATAR.legacyKind[a.outfit] || "explorer",
+    look = AVATAR.looks.includes(a.look) ? a.look : a.body === "slim" ? "b" : "a";
+  return {
+    kind,
+    look,
+    skin: typeof a.skin == "string" && /^#[0-9a-f]{6}$/i.test(a.skin) ? a.skin : AVATAR.skins[1],
+    body: AVATAR.bodies.includes(a.body) ? a.body : look === "b" ? "slim" : "stocky",
+    hair: typeof a.hair == "string" && /^#[0-9a-f]{6}$/i.test(a.hair) ? a.hair : AVATAR.hair[0],
+    outfit: AVATAR.outfits.some(o => o.id === a.outfit) ? a.outfit : AVATAR.kindOutfit[kind] || AVATAR.outfits[0].id
+  };
+}
+
+export { ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

@@ -15,12 +15,13 @@ import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, SPECIES, ZONES, statsFor } 
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { giverView } from '../../shared/story.js';
 import { resolveCollision } from '../../shared/props.js';
+import { stepWithin } from '../../shared/worldplan.js';
 import {
   acceptQuest, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
   collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
-  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView,
+  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView, atFarm,
 } from './combat.js';
-import { hpRatio } from './player.js';
+import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
 import { handleGm } from './gm.js';
 
@@ -153,10 +154,20 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let half = ctx.zone.size / 2;
             tx = Math.max(-half, Math.min(half, tx));
             tz = Math.max(-half, Math.min(half, tz));
-            let o = resolveCollision(ctx.colliders, tx, tz, 0.42);
+            // ...and never into the river, up a cliff or over the chasm
+            // (worldplan.js): the same step the client predicts with
+            let o = stepWithin(ctx.zone, ctx.colliders, s.x, s.z, tx, tz, 0.42);
             // The client reports ~12 times a second whether or not the stick
             // is held, so "stepped" is a real change of place, not a packet.
             (t.moving || Math.hypot(o.x - s.x, o.z - s.z) > 0.05) && (ctx.lastStepAt = r);
+            // How fast they are coming, smoothed over a few packets: a shy
+            // wild bolts from a run and lets a creep come close (field.js).
+            {
+              let gap = r - (ctx.lastMoveAt || 0), went = Math.hypot(o.x - s.x, o.z - s.z);
+              ctx.lastMoveAt = r;
+              if (gap > 0 && gap < 1000) ctx.pace = (ctx.pace || 0) * 0.55 + Math.min(12, went / gap * 1000) * 0.45;
+              else ctx.pace = 0;
+            }
             s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, keepSpot(n, ctx.zoneId, s), ctx.checkVisits(n, s);
           }
           break;
@@ -320,6 +331,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
             ctx.speak(n, typeof t?.npcId == "string" ? t.npcId : "");
             break;
           }
+        case "baseLook":
+          {
+            // the farm wants to draw its pods: the garden is not collected
+            let o = baseView(n);
+            o.collected?.length && (ctx.net.save(), ctx.net.emit("profile", publicProfile(n)));
+            ctx.net.emit("base", o);
+            break;
+          }
         case "baseOpen":
           {
             let o = collectGarden(n);
@@ -358,6 +377,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
               kind: "star",
               star: o.star
             }) : [];
+            // who walks beside you may have changed (gone to the farm, back)
+            petOf(s, n), s.hpRatio = hpRatio(n);
             ctx.net.save();
             for (let c of a) ctx.net.emit("questDone", {
               id: c
@@ -420,10 +441,10 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "setTeam":
           {
-            let o = (t.team || []).filter(l => n.creatures[l]).slice(0, 6);
+            let o = (t.team || []).filter(l => typeof l == "string" && n.creatures[l] && !atFarm(n, l)).slice(0, 6);
             if (!o.length) return;
             let a = new Set([...n.team, ...n.box]);
-            n.team = o, n.box = [...a].filter(l => !o.includes(l)), s.petSpecies = activeCreature(n)?.species || "", s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
+            n.team = o, n.box = [...a].filter(l => !o.includes(l)), petOf(s, n), s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
             break;
           }
         case "questAccept":

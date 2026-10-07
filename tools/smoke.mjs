@@ -43,7 +43,8 @@ const step = async (label, fn) => { try { await fn(); console.log('  ok  ' + lab
 
 await page.goto(`http://127.0.0.1:${PORT}/${PAGE}`, { waitUntil: 'load' });
 await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
-await step('boot: character creation appears', () => page.waitForSelector('#pick-starter .starter', { timeout: 25000 }));
+await step('boot: character creation appears', () => page.waitForSelector('#btn-next', { timeout: 25000 }));
+await step('pick a kind of adventurer', async () => { await page.click('#pick-kind .cc-kind'); await page.click('#btn-next'); });
 await step('pick a starter', async () => { await page.click('#pick-starter .starter'); });
 await step('name the trainer', () => page.fill('#in-charname', 'QA'));
 await step('start the journey', () => page.click('#btn-create'));

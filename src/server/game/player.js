@@ -7,10 +7,18 @@ function hpRatio(i) {
   return e ? e.hp / Math.max(1, e.maxHp) : 1;
 }
 
+/** What walks beside a player, as the room shows it to everyone. */
+function petOf(state, doc) {
+  if (!state) return;
+  const c = activeCreature(doc);
+  state.petSpecies = c?.species || '';
+  state.petStar = c?.star || 1;
+}
+
 function guildBuffs(i) {
   let e = {};
   for (let t of GUILD.buffs) if (!(t.level > i.buffLevel)) for (let [n, s] of Object.entries(t.bonus)) e[n] = (e[n] || 0) + s;
   return e;
 }
 
-export { hpRatio, guildBuffs };
+export { hpRatio, guildBuffs, petOf };

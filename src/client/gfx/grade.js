@@ -14,7 +14,7 @@
  */
 import {
   Mesh, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial,
-  LinearFilter, RGBAFormat, WebGLRenderTarget, Vector2,
+  LinearFilter, RGBAFormat, SRGBColorSpace, WebGLRenderTarget, Vector2,
 } from 'three';
 
 const VERT = `
@@ -32,9 +32,17 @@ uniform vec3  uLift;      // pushed into the shadows
 uniform vec3  uGain;      // pushed into the highlights
 uniform float uNight;
 uniform float uFlash;     // lightning, added flat
+uniform float uExposure;
 
 void main() {
-  vec3 c = texture2D(tScene, vUv).rgb;
+  // The target holds light, not screen colour: three draws into a render
+  // target without the renderer's exposure or its sRGB encoding, and those
+  // used to be skipped here as well, so every phone above the low tier (every
+  // iPhone) saw the light itself as if it were colour — the world darker and
+  // redder than drawn, the deep zones near black. Exposure, then sRGB, then
+  // the grade, which was always meant to work on screen colour.
+  vec3 c = texture2D(tScene, vUv).rgb * uExposure;
+  c = sRGBTransferOETF(vec4(max(c, vec3(0.0)), 1.0)).rgb;
 
   // Contrast around mid grey. A straight multiply crushes the blacks this
   // palette depends on, so it pivots instead.
@@ -66,9 +74,11 @@ export class Grade {
   constructor(renderer, opts = {}) {
     this.renderer = renderer;
     this.enabled = opts.enabled !== false;
+    // sRGB storage: eight bits spent where the eye sees them, so the dark end
+    // does not band. Sampling it gives back light.
     this.target = new WebGLRenderTarget(1, 1, {
       minFilter: LinearFilter, magFilter: LinearFilter, format: RGBAFormat,
-      depthBuffer: true, stencilBuffer: false,
+      depthBuffer: true, stencilBuffer: false, colorSpace: SRGBColorSpace,
     });
     this.material = new ShaderMaterial({
       vertexShader: VERT,
@@ -77,8 +87,9 @@ export class Grade {
       depthWrite: false,
       uniforms: {
         tScene: { value: this.target.texture },
-        uContrast: { value: opts.contrast ?? 1.05 },
-        uSaturation: { value: opts.saturation ?? 1.22 },
+        uContrast: { value: opts.contrast ?? 1.08 },
+        uSaturation: { value: opts.saturation ?? 1.16 },
+        uExposure: { value: renderer.toneMappingExposure ?? 1 },
         uVignette: { value: opts.vignette ?? 0.4 },
         uLift: { value: opts.lift ?? { x: 0.004, y: 0.012, z: 0.04 } },
         uGain: { value: opts.gain ?? { x: 0.036, y: 0.02, z: -0.01 } },

@@ -20,8 +20,14 @@ export function isNight(now = Date.now()) {
 
 export function temperOf(species, night = false) {
   const t = Object.prototype.hasOwnProperty.call(TEMPER, species) ? TEMPER[species] : null;
-  return t === 'fierce' || (t === 'nocturnal' && night) ? 'fierce' : 'calm';
+  return t === 'fierce' || (t === 'nocturnal' && night) ? 'fierce' : t === 'shy' ? 'shy' : 'calm';
 }
+
+/** Metres: a shy wild notices a trainer this close. */
+export const SHY_R = 7.5;
+/** m/s: a trainer coming slower than this (a half tilt of the stick is 3.7)
+ *  is creeping up, and a shy wild lets them. A walk at full tilt is 7.4. */
+export const SNEAK_PACE = 4.4;
 
 /**
  * How a fierce wild of this species and level takes a trainer whose creature

@@ -2,6 +2,8 @@ import { AdditiveBlending, BoxGeometry, DodecahedronGeometry, MeshStandardMateri
 import { Audio } from '../audio.js';
 import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
+import { setStarLook } from './starlook.js';
+import { KINDS, personAct } from './people.js';
 import { ELEMENTS, MOVES, SPECIES } from '../../shared/gamedata.js';
 import { MEADOW, flowerBase, flowerHead, meadowTuft, thinMaterial } from './world.js';
 
@@ -258,8 +260,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           };
         return takeGlow(c), this.fade(rec, 0.6), c;
       }]);
-      appearance && list.push([`trainer:${appearance.body || ""}`, (cast) => {
-        let g = buildAvatar(appearance);
+      appearance && list.push([`trainer:${appearance.kind || appearance.outfit || ""}`, (cast) => {
+        let g = buildAvatar(appearance, { hi: !0 });
         // The trainer's model arrives a moment after the body is built, and
         // only if it has somewhere to stand: add it, then wait for it.
         return cast.add(g), g.userData.wait = async () => {
@@ -449,7 +451,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       s.ghost = !0, s.benched = !0, this.relayout();
     }
     reskinTrainer(e) {
-      let t = buildAvatar(this.appearance || {});
+      let t = buildAvatar(this.appearance || {}, { hi: !0 });
       t.userData.phase = e.group.userData.phase || 0, e.holder.remove(e.group), fadeTree(e.group), e.mats = null, e.flashMats = null, e.holder.add(t), e.group = t, this.trainer && this.trainer.actorId === e.id && (this.trainer.avatar = t);
     }
     sync(e, t) {
@@ -527,9 +529,9 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     spawnActor(e) {
       let t = new Group(),
         n = e.kind === "trainer",
-        s = n ? buildAvatar(this.appearance || {}) : buildCreature(e.species, {
+        s = n ? buildAvatar(this.appearance || {}, { hi: !0 }) : setStarLook(buildCreature(e.species, {
           hi: !0
-        });
+        }), e.star || 1);
       let glow = n ? null : takeGlow(s);
       s.userData.phase = lb(e.id), ir.setFromObject(s);
       let r = Number.isFinite(ir.max.y) ? Math.max(0.6, ir.max.y) : 1.6,
@@ -772,7 +774,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     }
     playTrainerHit(e, t) {
       let n = Math.min(1, (e.dmg || 0) / Math.max(24, t?.maxHp || 90));
-      this.shake = Math.max(this.shake, Math.min(1.1, 0.44 + n * 0.66)), this.flashVignette(16723231, 0.45 + n * 0.55, 0.5), audio.sfx("hurt"), t && (this.flash(t, 16734794), this.knock(t), this.rally(t.side, 0.9));
+      this.shake = Math.max(this.shake, Math.min(1.1, 0.44 + n * 0.66)), this.flashVignette(16723231, 0.45 + n * 0.55, 0.5), audio.sfx("hurt"), t && (this.flash(t, 16734794), this.knock(t), personAct(t.group, "hit", 0.6), this.rally(t.side, 0.9));
     }
     melee(e, t, n, s) {
       let r = e.home.clone(),
@@ -1089,7 +1091,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           beam: null,
           bornAt: Date.now()
         };
-      this.sphereFx = a, this.effects.push(a), this.trainer && this.effects.push({
+      this.sphereFx = a, this.effects.push(a), this.trainer && !personAct(this.trainer.avatar, "throw", 0.8) && this.effects.push({
         kind: "throwPose",
         t: 0
       });
@@ -1377,7 +1379,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         to: 4.2,
         peak: 0.5,
         ease: 3
-      }), this.puff(nt.copy(e.home).setY(0.4), 13156270, 18), this.shake = Math.max(this.shake, 0.45), this.flashVignette(16733744, 0.55, 0.9), audio.sfx("crit");
+      }), this.puff(nt.copy(e.home).setY(0.4), 13156270, 18), this.shake = Math.max(this.shake, 0.45), this.flashVignette(16733744, 0.55, 0.9), audio.sfx("crit"), personAct(e.group, KINDS[e.group?.userData?.kind]?.pose || "cheer", 1.3);
     }
     stepSphere(e, t) {
       let n = e.ball,
