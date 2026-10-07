@@ -177,6 +177,9 @@ function zoneMinimap(i) {
       l = o.getCenter(new Vector3()),
       c = Math.max(a.x, a.y, a.z) || 1,
       h = c / (2 * Math.tan(s.fov * Math.PI / 360)) * 1.12;
+    // far enough to hold a raid boss (built twenty metres tall): with a fixed
+    // 60m far plane those came out as an empty square
+    s.far = Math.max(60, h * 1.2 + c * 2), s.updateProjectionMatrix();
     r.rotation.y = 0.6, s.position.set(h * 0.42, l.y + c * 0.18, h), s.lookAt(l.x, l.y, l.z), t.render(n, s), e = t.domElement.toDataURL("image/png"), n.remove(r), r.traverse(d => {
       if (d.isMesh) {
         d.geometry?.dispose();

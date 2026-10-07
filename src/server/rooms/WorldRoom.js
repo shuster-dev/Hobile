@@ -58,6 +58,7 @@ function reachPlayer(id) {
         doc,
         zoneId: room.zoneId,
         self: () => room.state.players.get(sessionId),
+        ctx: () => room.ctxBySession.get(sessionId),
         send: (event, data) => client.send(event, data),
         save: () => { room.dirty = true; },
       };
@@ -410,6 +411,8 @@ export class WorldRoom extends Room {
   /** Every GM action, in the server log and in the store. */
   audit(doc, user, entry) {
     const row = {
+      // an id, so a row can be undone from the log (server/game/gm.js `undo`)
+      id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
       at: Date.now(),
       gm: { id: doc.id, name: doc.name, username: user?.username || '' },
       zone: this.zoneId,

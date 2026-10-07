@@ -201,8 +201,13 @@ var UI = class {
     }
   }
   toast(e, t = "") {
-    let n = el("div", `toast ${t}`);
-    n.textContent = typeof e == "string" && USERNAME_RE.test(e.trim()) ? usernameError(e) : e, $("#toasts").appendChild(n), setTimeout(() => n.remove(), 2800);
+    let n = el("div", `toast ${t}`),
+      host = $("#toasts");
+    n.textContent = typeof e == "string" && USERNAME_RE.test(e.trim()) ? usernameError(e) : e;
+    // the same words again (a button tapped five times) replace the ones on
+    // screen instead of piling up under them
+    for (let o of host.querySelectorAll(".toast")) o.textContent === n.textContent && o.remove();
+    host.appendChild(n), setTimeout(() => n.remove(), 2800);
   }
   celebrate(e, t = "level") {
     let n = $("#toasts"),
@@ -596,6 +601,10 @@ var UI = class {
   }
 
   pushChat(e) {
+    // The zone says hello on every arrival — back from each fight too — and
+    // the same line twice is noise: a system line already said lately is not
+    // said again.
+    if (e.ch === "system" && e.text && this.chatLog.slice(-30).some(r => r.ch === "system" && r.text === e.text && (e.t || 0) - (r.t || 0) < 15 * 6e4)) return;
     this.chatLog.push(e), this.chatLog.length > 200 && this.chatLog.shift();
     let t = $("#chat-mini"),
       n = el("div", `line ch-${e.ch}`, this.chatLine(e));
@@ -849,16 +858,24 @@ var UI = class {
       row = (...kids) => {
         let r = el("div", "row gm-row");
         return r.append(...kids), r;
+      },
+      // taking away asks twice: the first tap arms it, the second does it
+      sure = (label, onsure) => {
+        let b = btn(label, "danger", () => {
+          if (b.dataset.armed) return clearTimeout(b._t), b.dataset.armed = "", b.textContent = label, onsure();
+          b.dataset.armed = "1", b.textContent = "בטוח? הקש שוב", b._t = setTimeout(() => (b.dataset.armed = "", b.textContent = label), 3e3);
+        });
+        return b;
       };
     let hint = el("div", "hint");
-    hint.textContent = "כל פעולה כאן נרשמת ביומן שבתחתית, עם השם שלך.";
+    hint.textContent = "כל פעולה כאן נרשמת ביומן שבתחתית, עם השם שלך — ואפשר לבטל אותה משם (↩).";
     e.appendChild(hint);
 
     // who
     e.appendChild(section("למי"));
     let who = el("select", "field-input");
     who.setAttribute("aria-label", "למי");
-    who.onchange = () => { f.to = who.value; };
+    who.onchange = () => { f.to = who.value, this.gmCreatures = null, this.fillGmCreatures(); };
     this._gmWho = who, this.fillGmWho();
     e.appendChild(row(who, btn("🔄", "small icon-only", () => ask("players"))));
 
@@ -884,11 +901,18 @@ var UI = class {
     sh.textContent = "״תן״ מוסיף לצוות (או לקופסה כשהצוות מלא). ״זמן לידי״ מביא יצור פראי לידך — אפשר להילחם בו ולתפוס אותו.";
     e.appendChild(sh);
 
+    // taking a creature back
+    e.appendChild(section("הסרת יצור"));
+    let cbox = el("div", "gm-creatures");
+    this._gmCreaturesBox = cbox, this._gmSure = sure, this.fillGmCreatures(), e.appendChild(cbox);
+    e.appendChild(btn("🔄 הצג את היצורים של השחקן", "small ghost", () => ask("creatures", { to: f.to })));
+
     // gold and things
     e.appendChild(section("זהב וחפצים"));
     let gold = num(f.gold, 1, this.gm?.limits?.gold || 1e7);
     gold.setAttribute("aria-label", "כמה זהב"), gold.onchange = () => { f.gold = clampNum(gold, 1, this.gm?.limits?.gold || 1e7, 1e4); };
-    e.appendChild(row(gold, btn("💰 תן זהב", "", () => (f.gold = clampNum(gold, 1, this.gm?.limits?.gold || 1e7, 1e4), ask("give", { to: f.to, what: "gold", amount: f.gold })))));
+    e.appendChild(row(gold, btn("💰 תן זהב", "", () => (f.gold = clampNum(gold, 1, this.gm?.limits?.gold || 1e7, 1e4), ask("give", { to: f.to, what: "gold", amount: f.gold }))),
+      sure("💸 הורד זהב", () => (f.gold = clampNum(gold, 1, this.gm?.limits?.gold || 1e7, 1e4), ask("take", { to: f.to, what: "gold", amount: f.gold })))));
     let it = el("select", "field-input");
     it.setAttribute("aria-label", "איזה חפץ");
     let kinds = { sphere: "כדורים", heal: "שיקויים", revive: "החייאה", stamina: "מרץ", trainerHeal: "ריפוי מאמן", gear: "ציוד", material: "חומרים" };
@@ -899,10 +923,17 @@ var UI = class {
       g.children.length && it.appendChild(g);
     }
     it.value = f.item, it.onchange = () => { f.item = it.value; };
-    let qty = num(f.qty, 1, this.gm?.limits?.qty || 999);
-    qty.setAttribute("aria-label", "כמות"), qty.classList.add("gm-num"), qty.onchange = () => { f.qty = clampNum(qty, 1, this.gm?.limits?.qty || 999, 1); };
+    let qmax = this.gm?.limits?.takeQty || 999999,
+      qty = num(f.qty, 1, qmax);
+    qty.setAttribute("aria-label", "כמות"), qty.classList.add("gm-num"), qty.onchange = () => { f.qty = clampNum(qty, 1, qmax, 1); };
     e.appendChild(row(it, qty));
-    e.appendChild(btn("📦 תן את החפץ", "", () => (f.qty = clampNum(qty, 1, this.gm?.limits?.qty || 999, 1), ask("give", { to: f.to, what: "item", item: f.item, qty: f.qty }))));
+    e.appendChild(row(
+      btn("📦 תן את החפץ", "", () => (f.qty = clampNum(qty, 1, this.gm?.limits?.qty || 999, 1), ask("give", { to: f.to, what: "item", item: f.item, qty: f.qty }))),
+      sure("🗑 הורד את החפץ", () => (f.qty = clampNum(qty, 1, qmax, 1), ask("take", { to: f.to, what: "item", item: f.item, qty: f.qty })))
+    ));
+    let th0 = el("div", "hint");
+    th0.textContent = "״הורד״ לוקח בדיוק את הכמות שבשדה (לא יותר ממה שיש לשחקן). נתת 500 במקום 50? כתוב 450 והורד — או בטל את המתנה מהיומן.";
+    e.appendChild(th0);
     let fill = btn("♾ משאבים בלי סוף", "primary", () => ask("fill", { to: f.to }));
     fill.style.marginTop = "var(--s2)", e.appendChild(fill);
     let fh = el("div", "hint");
@@ -967,16 +998,51 @@ var UI = class {
     box.innerHTML = "";
     let rows = this.gmLog || [];
     if (!rows.length) return box.appendChild(emptyState("🗒", "עוד אין פעולות ביומן"));
+    let undone = new Set(rows.filter(r => r.op === "undo").map(r => r.detail?.ref));
     for (let r of rows.slice(0, 40)) {
       let d = new Date(r.at),
         line = el("div", "gm-log-row"),
         time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-      line.innerHTML = `<span class="mono">${ltr(time)}</span> <b>${Ze(r.gm?.name || "")}</b> ${Ze(this.gmSummary(r.op, r.detail, r.to && r.to.id !== r.gm?.id ? r.to.name : null))}`, box.appendChild(line);
+      line.innerHTML = `<span class="mono">${ltr(time)}</span> <b>${Ze(r.gm?.name || "")}</b> ${Ze(this.gmSummary(r.op, r.detail, r.to && r.to.id !== r.gm?.id ? r.to.name : null))}`;
+      if (undone.has(r.id)) line.appendChild(el("span", "pill", "בוטל"));
+      else if (r.id && this.gmUndoable(r)) {
+        let b = el("button", "btn small ghost gm-undo", "↩ בטל");
+        b.onclick = () => {
+          if (!b.dataset.armed) return b.dataset.armed = "1", b.textContent = "לבטל? הקש שוב", setTimeout(() => (b.dataset.armed = "", b.textContent = "↩ בטל"), 3e3);
+          b.disabled = !0, this.hooks.gm?.("undo", { id: r.id });
+        };
+        line.appendChild(b);
+      }
+      box.appendChild(line);
     }
   }
   gmRefresh(kind) {
     if (this.openPanelId !== "gm") return;
-    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "economy" && this.fillGmEconomy();
+    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "creatures" ? this.fillGmCreatures() : kind === "economy" && this.fillGmEconomy();
+  }
+  /** A row of the log that can be taken back (gm.js `undo`). */
+  gmUndoable(r) {
+    let d = r.detail || {};
+    return r.op === "give" ? d.what === "creature" ? !!d.uid : d.what === "level" ? Number.isFinite(d.from) : d.what === "gold" || d.what === "item"
+      : r.op === "fill" ? !!d.added : r.op === "take" && (d.what !== "creature" || !!d.creature);
+  }
+  /** The chosen player's creatures, each with a way to take it back. */
+  fillGmCreatures() {
+    let box = this._gmCreaturesBox, f = this.gmForm, list = this.gmCreatures;
+    if (!box) return;
+    box.innerHTML = "";
+    let to = f?.to === "me" ? this.profile?.id : f?.to;
+    if (!list || list.to !== to) return box.appendChild(el("div", "hint", "לחץ על ״הצג״ כדי לראות את היצורים של השחקן שנבחר."));
+    let where = { team: "בצוות", box: "בקופסה", pod: "באימון", work: "עובד בחווה" };
+    for (let c of list.list) {
+      let sp = SPECIES[c.species],
+        line = el("div", "list-item gm-creature");
+      line.innerHTML = `<div class="grow"><b>${Ze(loc(sp) || c.species)} ${c.shiny ? "✨" : ""} <span class="pill">Lv ${c.level}</span> <span class="stars">${starLabel(c.star || 1)}</span></b><span>${where[c.where] || ""}</span></div>`;
+      let face = zoneMinimap(c.species);
+      face && line.insertAdjacentHTML("afterbegin", `<div class="thumb"><img src="${face}" alt=""></div>`);
+      line.appendChild(this._gmSure("🗑 הסר", () => this.hooks.gm?.("take", { to: f.to, what: "creature", uid: c.uid }))), box.appendChild(line);
+    }
+    list.list.length || box.appendChild(el("div", "hint", "אין לשחקן יצורים"));
   }
   /** Gold in by source, out by sink, and how much of it the game takes back. */
   fillGmEconomy() {
@@ -993,7 +1059,10 @@ var UI = class {
   gmSummary(op, d = {}, to = null) {
     d ||= {};
     let whom = to ? ` ← ${to}` : "",
+      thing = () => d.what === "creature" ? `${loc(SPECIES[d.species]) || d.species} Lv ${d.level}` : d.what === "gold" ? `${Math.abs(Number(d.amount || 0)).toLocaleString("en-US")}⛁` : d.what === "item" ? `${loc(ITEMS[d.item]) || d.item} ×${Math.abs(d.qty || 0)}` : d.what === "level" ? `רמת מאמן ${d.level}` : d.what === "fill" ? "משאבים בלי סוף" : "",
       what = {
+        take: () => `🗑 הוסר: ${thing()}${d.asked > (d.amount ?? d.qty ?? 0) ? ` (היו רק ${Number(d.amount ?? d.qty).toLocaleString("en-US")})` : ""}`,
+        undo: () => `↩ ביטול ${d.of === "take" ? "הסרה — הוחזר" : d.of === "fill" ? "משאבים בלי סוף" : "מתנה"}: ${d.of === "fill" ? `${Math.abs(d.gold || 0).toLocaleString("en-US")}⛁, ${d.items || 0} סוגי חפצים` : thing()}`,
         give: () => d.what === "creature" ? `${loc(SPECIES[d.species]) || d.species} ${d.shiny ? "✨ " : ""}Lv ${d.level}${d.where === "box" ? " (לקופסה)" : ""}` : d.what === "gold" ? `${Number(d.amount || 0).toLocaleString("en-US")}⛁` : d.what === "level" ? `רמת מאמן ${d.level}` : `${loc(ITEMS[d.item]) || d.item} ×${d.qty}`,
         fill: () => "משאבים בלי סוף",
         heal: () => "ריפוי הצוות",
@@ -2282,6 +2351,12 @@ var UI = class {
         o = r ? Math.round(captureChance(r, this.bestSphere || "sphere_basic") * 100) : 0,
         a = s.querySelector(".odds");
       a && (a.textContent = r ? `${o}%` : ""), s.classList.toggle("good", o >= 60), s.classList.toggle("slim", !!r && o < 20);
+    }
+    // the wait after a switch, on the creatures you could switch to
+    let sw = Math.max(0, Math.ceil(((e.swap || 0) - t) / 1e3));
+    for (let r of document.querySelectorAll("#battle-team .tm")) {
+      let w = sw && !r.classList.contains("active") && !r.classList.contains("down") ? String(sw) : "";
+      r.dataset.wait !== w && (r.dataset.wait = w, r.classList.toggle("cooling", !!w));
     }
     for (let r of document.querySelectorAll(".tb")) {
       let o = r.dataset.trainer,

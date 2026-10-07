@@ -16,7 +16,7 @@
 import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
-  duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
+  duplicateReward, settleHp, fieldCreature, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
   statsOf, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
 } from './combat.js';
 import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES, skillsFor, statsFor } from '../../shared/gamedata.js';
@@ -194,7 +194,7 @@ export class PartyBattle {
     if (!part || part.left || this.resolved) return;
     const you = this.you(part);
     // what their creature has left goes home with it (as a run does in BattleSim)
-    if (this.mode === 'pve') { const n = activeCreature(part.doc); n && you?.creature && (n.hp = Math.max(0, Math.round(you.hp))); }
+    if (this.mode === 'pve') settleHp(this.sim, you, part.doc);
     part.left = true;
     if (this.sim.pendingThrow && this.sim.combatants.get(this.sim.pendingThrow.by)?.ownerId === id) {
       this.sim.pendingThrow = null;
@@ -222,14 +222,14 @@ export class PartyBattle {
     const doc = part.doc, you = this.you(part);
     if (type === 'swap') {
       const r = swapToUid(this.sim, you, t.uid);
-      r.ok || part.emit('actionRejected', { reason: r.reason, uid: t.uid });
+      r.ok || part.emit('actionRejected', { reason: r.reason, uid: t.uid, wait: r.wait });
       this.sync();
       return;
     }
     if (type === 'skill') {
       const target = typeof t.target === 'string' ? t.target : null;
       const r = this.sim.useSkill(you.id, t.skill, target);
-      r.ok || part.emit('actionRejected', { reason: r.reason, skill: t.skill });
+      r.ok || part.emit('actionRejected', { reason: r.reason, skill: t.skill, wait: r.wait });
       this.sync();
       return;
     }
@@ -285,11 +285,12 @@ export class PartyBattle {
 
   /** What one player takes home from a wild — BattleSim.resolve, per player. */
   settleWild(part, e) {
-    const t = part.doc, n = activeCreature(t), you = this.you(part);
+    const t = part.doc, you = this.you(part);
+    settleHp(this.sim, you, t);
+    const n = fieldCreature(t, you);
     const won = e.outcome === 'a', captured = e.outcome === 'captured';
     const mine = captured && this.captureBy === part.id && part.capture;
     const o = { outcome: captured && !mine ? 'a' : e.outcome, won: won || (captured && !mine), xp: 0, gold: 0, items: [], events: [], questsDone: [], coop: [...this.parts.values()].filter((p) => !p.left).length > 1 };
-    if (n && you?.creature) n.hp = Math.max(0, Math.round(you.hp));
     if (won || captured) {
       // the season and the guild's fortune each pay their share
       const a = Math.round(creaturePower(this.foe, t.level) * eventMul('xp') * (1 + (t.guildPerks?.xp || 0))), l = Math.round(creatureScore(this.foe) * eventMul('gold') * (1 + (t.guildPerks?.gold || 0)));
