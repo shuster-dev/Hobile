@@ -11,6 +11,7 @@
 import { ITEMS, PROGRESSION, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { activeCreature, addCreature, creatureCard, dexRecord, giveItem, healTeam, makeCreature, publicProfile } from './combat.js';
 import { hpRatio } from './player.js';
+import { earn, economyReport } from './economy.js';
 
 export const GM_LIMITS = {
   gold: 10_000_000,        // most gold in one gift
@@ -67,6 +68,11 @@ export function handleGm(ctx, t = {}) {
       ctx.net.emit('gm', { kind: 'players', players: ctx.gm.online() });
       return;
 
+    case 'economy':
+      // the books: where gold came from and went, this process (economy.js)
+      ctx.net.emit('gm', { kind: 'economy', report: economyReport() });
+      return;
+
     case 'log':
       Promise.resolve(ctx.gm.recent(40))
         .then((rows) => ctx.net.emit('gm', { kind: 'log', rows }))
@@ -91,7 +97,8 @@ export function handleGm(ctx, t = {}) {
         const amount = int(t.amount, 0, GM_LIMITS.gold, 0);   // nothing, or less: refused
         if (!amount) return fail('bad_amount');
         const before = doc.gold || 0;
-        doc.gold = Math.min(GM_LIMITS.goldCap, before + amount);
+        // in the ledger as the GM's, so it does not read as the game paying out
+        earn(doc, Math.max(0, Math.min(GM_LIMITS.goldCap, before + amount) - before), 'gm');
         detail = { what, amount: doc.gold - before };
         gift = { what, amount: doc.gold - before };
       } else if (what === 'item') {
@@ -122,7 +129,7 @@ export function handleGm(ctx, t = {}) {
       const target = targetOf(ctx, t.to);
       if (!target) return fail('player_offline');
       const doc = target.doc;
-      doc.gold = Math.max(doc.gold || 0, GM_LIMITS.fillGold);
+      earn(doc, Math.max(0, GM_LIMITS.fillGold - (doc.gold || 0)), 'gm');
       let kinds = 0;
       for (const [id, it] of Object.entries(ITEMS)) {
         if (!FILL_KINDS.has(it.kind)) continue;

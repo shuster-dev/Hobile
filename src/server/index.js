@@ -12,6 +12,7 @@ import { WorldRoom } from './rooms/WorldRoom.js';
 import { BattleRoom } from './rooms/BattleRoom.js';
 import { DungeonRoom } from './rooms/DungeonRoom.js';
 import { createPlayerDoc, normalizeDoc, publicProfile, uid } from './game/combat.js';
+import { economyReport } from './game/economy.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
 // A log pipe that closes (a supervisor restarting, a test harness that died)
@@ -135,6 +136,14 @@ app.get('/api/leaderboard', requireAuth, async (req, res) => {
   res.json(await store.leaderboard(String(req.query.kind || 'level'), 50, await adminIds(store)));
 });
 app.get('/api/guilds', requireAuth, async (req, res) => res.json(await store.listGuilds()));
+
+// Gold in and out since this process started, by source and by hour
+// (game/economy.js). GMs only: it is the game's books.
+app.get('/api/admin/economy', requireAuth, async (req, res) => {
+  const user = await store.findUserById(req.userId);
+  if (!isAdmin(user)) return res.status(403).json({ error: 'forbidden' });
+  res.json(economyReport());
+});
 
 // The built client, when it is served from the same origin.
 const webRoot = path.resolve('dist/web');

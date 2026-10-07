@@ -17,7 +17,8 @@
 //   - one that only comes out in its hour (the night, the rain) is gone when
 //     the hour is over, unless someone is fighting it;
 //   - a bigger zone keeps more of them.
-import { randomLevel } from '../../shared/gamedata.js';
+import { SPECIES, randomLevel } from '../../shared/gamedata.js';
+import { spawnMul } from '../../shared/events.js';
 import { herdSize, howOf, outOfHour, spawnPool } from '../../shared/habitats.js';
 import { fieldPoint, planFor, standable, stepWithin, wildTarget } from '../../shared/worldplan.js';
 
@@ -31,8 +32,9 @@ export const WILDS = {
 /** One row of the pool, by weight. A row's weight is its share of the wilds
  *  you meet, one by one — so a species that comes in herds is picked that
  *  much less often, and a herd of three is not three times its share. */
-function pickRow(pool, rnd) {
-  const w = (r) => { const h = howOf(r).herd; return r[1] / (Array.isArray(h) ? (h[0] + h[1]) / 2 : 1); };
+function pickRow(pool, rnd, now = Date.now()) {
+  // a season brings its elements out more (shared/events.js)
+  const w = (r) => { const h = howOf(r).herd; return r[1] * spawnMul(SPECIES[r[0]]?.types, now) / (Array.isArray(h) ? (h[0] + h[1]) / 2 : 1); };
   let total = 0;
   for (const r of pool) total += w(r);
   let n = rnd() * total;
@@ -55,7 +57,7 @@ function besideOf(world, at, rnd) {
 export function spawnGroup(world, now = Date.now(), rnd = Math.random, room = Infinity) {
   const pool = spawnPool(world.zone, now);
   if (!pool.length || room < 1) return 0;
-  const row = pickRow(pool, rnd), how = howOf(row);
+  const row = pickRow(pool, rnd, now), how = howOf(row);
   const at = fieldPoint(world.zone, world.colliders, rnd, how.at || null);
   if (!at) return 0;
   const n = Math.min(room, herdSize(row, rnd));

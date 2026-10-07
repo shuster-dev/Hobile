@@ -3,6 +3,7 @@ import { Audio } from '../audio.js';
 import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
 import { setStarLook } from './starlook.js';
+import { EvolveCeremony } from './evolve.js';
 import { KINDS, personAct } from './people.js';
 import { ELEMENTS, MOVES, SPECIES } from '../../shared/gamedata.js';
 import { MEADOW, flowerBase, flowerHead, meadowTuft, thinMaterial } from './world.js';
@@ -1134,8 +1135,17 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     endCapture() {
       this.sphereFx || (this.frozenUntil = 0);
     }
+    /** The evolution scene (gfx/evolve.js); it has the camera until it ends. */
+    evolve(steps, hooks = {}) {
+      this.ceremony?.finish();
+      return this.ceremony = new EvolveCeremony(this, steps, hooks, { speciesColor, fxFor });
+    }
     update(e, t) {
       this.adapt(e), e = Math.min(0.06, Math.max(0, e || 0)), this.time += e;
+      if (this.ceremony) {
+        this.stepEffects(e), this.ceremony?.step(e, t), this.stepGlow(), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera);
+        return;
+      }
       let n = !!this.sphereFx || Date.now() < this.frozenUntil;
       this.stepStage(e, t, n), this.stepEffects(e), this.stepCamera(e), this.stepGlow(), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera), this.pinPrograms();
     }

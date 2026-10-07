@@ -1,4 +1,5 @@
 import { Room } from '@colyseus/core';
+import { earn } from '../game/economy.js';
 import { WorldState, PlayerState, WildState, BossContributor } from '../state.js';
 import { engageWild, handleWorldMessage, speakTo, visitCheck } from '../game/world-messages.js';
 import { hpRatio } from '../game/player.js';
@@ -403,8 +404,11 @@ export class WorldRoom extends Room {
       if (rank < 0) continue;
       const share = board[rank][1].damage / Math.max(1, b.maxHp);
       const xp = Math.round(PROGRESSION.xpToLevel(this.bossDef.level) * 0.25 * share);
+      // gold by share, as the single-player boss pays (game/base.js endBoss):
+      // the reward line on screen says "+N gold" and online it said "+undefined"
+      const gold = share > 0 ? earn(doc, Math.floor((defeated ? 4000 : 1200) * (0.25 + share)), 'boss') : 0;
       if (defeated && xp > 0) { grantXp(doc, xp); giveItem(doc, 'aether_core', 1 + (rank === 0 ? 2 : 0)); }
-      c.send('bossReward', { defeated, rank: rank + 1, xp, share });
+      c.send('bossReward', { defeated, rank: rank + 1, xp, gold, share });
       c.send('profile', publicProfile(doc));
     }
     this.broadcast('bossEnd', { defeated });

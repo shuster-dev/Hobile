@@ -1,4 +1,4 @@
-import { Combat, Combatant, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { Combat, Combatant, inherit, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
@@ -8,6 +8,8 @@ import { fieldPoint, wildTarget } from '../../shared/worldplan.js';
 import { populate, tickWilds } from './wilds.js';
 import { FIELD, fieldHint, keepSpot, savedSpot, tickField } from './field.js';
 import { weatherAt } from '../../shared/weather.js';
+import { earn, spend } from './economy.js';
+import { eventMul } from '../../shared/events.js';
 
 var StoreBase = class {
     constructor() {
@@ -338,7 +340,7 @@ var StoreBase = class {
         let o = n / Math.max(1, t.maxHp),
           a = Math.floor((e ? 4e3 : 1200) * (0.25 + o)),
           l = Math.floor((e ? 2400 : 700) * (0.25 + o));
-        this.doc.gold += a, grantXp(this.doc, l), giveItem(this.doc, r === 1 ? "sphere_ultra" : "sphere_great", r === 1 ? 3 : 1), this.doc.stats.bossHits += 1, syncQuests(this.doc, {
+        earn(this.doc, a, "boss"), grantXp(this.doc, l), giveItem(this.doc, r === 1 ? "sphere_ultra" : "sphere_great", r === 1 ? 3 : 1), this.doc.stats.bossHits += 1, syncQuests(this.doc, {
           kind: "boss"
         }), this.net.save(), this.net.emit("bossReward", {
           rank: r,
@@ -472,7 +474,7 @@ var StoreBase = class {
         side: "b",
         kind: "wild",
         name: SPECIES[n.species].name,
-        creature: makeCreature(n.species, n.level),
+        creature: makeCreature(n.species, n.level, { shinyMul: eventMul("shiny") }),
         scale: tier.scale,
         ai: tier.ai
       }));
@@ -554,9 +556,10 @@ var StoreBase = class {
           questsDone: []
         };
       if (n && (n.hp = Math.max(0, Math.round(this.you.hp))), s || r) {
-        let a = creaturePower(this.foe, t.level),
-          l = creatureScore(this.foe);
-        if (t.gold += l, o.xp = a, o.gold = l, n && o.events.push(...grantXpTo(n, a)), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
+        // the season pays its share (shared/events.js)
+        let a = Math.round(creaturePower(this.foe, t.level) * eventMul("xp")),
+          l = Math.round(creatureScore(this.foe) * eventMul("gold"));
+        if (earn(t, l, r ? "capture" : "battle"), o.xp = a, o.gold = l, n && o.events.push(...grantXpTo(n, a, t)), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
           let foeSp = [...this.sim.combatants.values()].find(d => d.side === "b")?.creature?.species;
           t.stats.battlesWon += 1, o.questsDone = syncQuests(t, {
             kind: "defeat",
@@ -570,7 +573,7 @@ var StoreBase = class {
           Math.random() < 0.2 && (giveItem(t, "potion_s", 1), o.items.push("potion_s"));
         }
         if (r && this.pendingCapture) {
-          let c = makeCreature(this.pendingCapture.species, this.pendingCapture.level);
+          let c = makeCreature(this.pendingCapture.species, this.pendingCapture.level, this.pendingCapture.traits);
           addCreature(t, c), t.stats.captures += 1, o.captured = c;
           // The first of a species opens its card; the rest refine into the
           // materials a star upgrade costs.
@@ -591,7 +594,7 @@ var StoreBase = class {
         let a = Math.floor(t.gold * 0.02);
         // A blackout is the one fight you do not walk away from where it was:
         // you wake at the camp, as the genre always has.
-        t.gold = Math.max(0, t.gold - a), o.gold = -a, o.blackout = !0, healTeam(t, 1), t.pos = null;
+        o.gold = -spend(t, a, "blackout"), o.blackout = !0, healTeam(t, 1), t.pos = null;
       }
       this.net.save(), o.profile = publicProfile(t), this.finish(s || r), this.net.emit("battleEnd", o);
     }
@@ -645,7 +648,8 @@ var StoreBase = class {
           });
           r.ok ? this.pendingCapture = {
             species: this.foe.species,
-            level: this.foe.level
+            level: this.foe.level,
+            traits: inherit(this.foe.creature)
           } : (giveItem(n, s, 1), this.net.emit("actionRejected", {
             reason: r.reason
           })), this.net.emit("inventory", n.inventory);
@@ -778,11 +782,11 @@ var StoreBase = class {
         n = activeCreature(t);
       t.calmUntil = Date.now() + FIELD.battleCalmMs;
       n && (n.hp = Math.max(1, Math.round(this.you.hp))), e || healTeam(t, 1);
-      let s = Math.floor(this.totalXp * (e ? 1 : 0.35)),
-        r = Math.floor(this.totalGold * (e ? 1 : 0.35));
-      t.gold += r;
+      let s = Math.floor(this.totalXp * (e ? 1 : 0.35) * eventMul("xp")),
+        r = Math.floor(this.totalGold * (e ? 1 : 0.35) * eventMul("gold"));
+      earn(t, r, "dungeon");
       let o = [];
-      n && o.push(...grantXpTo(n, s)), o.push(...grantXp(t, Math.floor(s * 0.7)));
+      n && o.push(...grantXpTo(n, s, t)), o.push(...grantXp(t, Math.floor(s * 0.7)));
       let a = [],
         l = [];
       if (e) {

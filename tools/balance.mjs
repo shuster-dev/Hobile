@@ -43,8 +43,11 @@ export function trainerWith(lead, level, bench = []) {
   const doc = C.createPlayerDoc('bal', 'Bal', {}, lead);
   C.normalizeDoc(doc);
   const first = doc.creatures[doc.team[0]];
-  Object.assign(first, C.makeCreature(lead, level, { iv: 0.65 }), { uid: first.uid });
-  for (const [sp, lv] of bench) C.addCreature(doc, C.makeCreature(sp, lv, { iv: 0.65 }));
+  // An average creature: no lean in its nature, its element's common
+  // ability. The wilds it meets roll theirs as they would in the game.
+  const plain = { iv: 0.65, nature: 'steady', ability: 'surge' };
+  Object.assign(first, C.makeCreature(lead, level, plain), { uid: first.uid });
+  for (const [sp, lv] of bench) C.addCreature(doc, C.makeCreature(sp, lv, plain));
   doc.level = Math.max(1, Math.round(level * 0.8));
   return doc;
 }

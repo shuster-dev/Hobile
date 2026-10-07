@@ -513,6 +513,85 @@ var sb = 1.0594630943592953,
             at: s
           }));
           break;
+        case "buff":
+        case "ability":
+          // two bright notes, a fifth apart: something of its own just happened
+          [0, 0.07].forEach((s, r) => this.tone(n, {
+            type: "triangle",
+            freq: noteHz([79, 86][r]),
+            dur: 0.12,
+            gain: 0.12,
+            at: s
+          }));
+          break;
+        case "evolveCharge":
+          // the long rise under the morph: a shimmer that climbs and speeds up
+          this.tone(n, {
+            type: "sawtooth",
+            freq: 90,
+            to: 520,
+            dur: 3.2,
+            gain: 0.07,
+            attack: 0.6,
+            release: 0.2,
+            cutoff: 1800,
+            q: 4
+          }), this.noise(n, {
+            dur: 3.2,
+            gain: 0.05,
+            freq: 900,
+            to: 5200,
+            q: 3,
+            attack: 1.2
+          });
+          for (let k = 0; k < 14; k++) {
+            let at = 3.2 * (1 - Math.pow(1 - k / 14, 1.6));
+            this.tone(n, {
+              type: "sine",
+              freq: noteHz(72 + (k % 4) * 3 + Math.floor(k / 4) * 2),
+              dur: 0.09,
+              gain: 0.07 + k * 0.004,
+              at
+            });
+          }
+          break;
+        case "evolveBurst":
+          this.noise(n, {
+            dur: 0.9,
+            gain: 0.22,
+            type: "lowpass",
+            freq: 5e3,
+            to: 300,
+            q: 0.7
+          }), this.tone(n, {
+            type: "sine",
+            freq: 70,
+            to: 40,
+            dur: 0.5,
+            gain: 0.3
+          }), [0.12, 0.24, 0.36, 0.6].forEach((s, r) => this.tone(n, {
+            type: "triangle",
+            freq: noteHz([72, 76, 79, 84][r]),
+            dur: r === 3 ? 0.9 : 0.3,
+            gain: 0.17,
+            at: s
+          })), [0.6, 0.6].forEach((s, r) => this.tone(n, {
+            type: "sine",
+            freq: noteHz([88, 91][r]),
+            dur: 0.9,
+            gain: 0.08,
+            at: s
+          }));
+          break;
+        case "daily":
+          [0, 0.09, 0.18, 0.3, 0.42].forEach((s, r) => this.tone(n, {
+            type: r === 4 ? "sine" : "triangle",
+            freq: noteHz([76, 79, 83, 88, 91][r]),
+            dur: r === 4 ? 0.5 : 0.16,
+            gain: 0.14,
+            at: s
+          }));
+          break;
         case "quest":
           [0, 0.11, 0.22].forEach((s, r) => this.tone(n, {
             type: "sine",

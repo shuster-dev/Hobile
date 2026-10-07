@@ -2,8 +2,10 @@ import { audio } from './gfx/battle.js';
 import { zoneMinimap } from './input.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
-import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, powerOf, typeMultiplier } from '../shared/gamedata.js';
+import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, clinicCost, powerOf, questGold, typeMultiplier } from '../shared/gamedata.js';
 import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
+import { abilityInfo, natureInfo } from '../shared/traits.js';
+import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 
 /**
@@ -290,7 +292,68 @@ var UI = class {
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
     }
-    this.renderTracker(), this.openPanelId && this.renderPanel(this.openPanelId);
+    this.renderTracker(), this.renderDailyChip(), this.openPanelId && this.renderPanel(this.openPanelId);
+  }
+  /** Under the vitals: a gift waiting today, or else the season that is on. */
+  renderDailyChip() {
+    let c = $("#chip-daily");
+    if (!c || !this.profile) return;
+    let l = this.profile.login, ev = activeEvents().find(x => !x.days) || activeEvents()[0];
+    if (l && !l.claimed) c.className = "chip-daily gift", c.textContent = "🎁 פרס יומי";
+    else if (ev) c.className = "chip-daily", c.style.setProperty("--ev", ev.color), c.textContent = `${ev.icon} ${ev.he}`;
+    else c.className = "chip-daily hidden";
+    c.onclick = () => this.openPanel("daily");
+  }
+  /**
+   * The week of daily gifts and the seasons on now. Days that are taken are
+   * ticked, today's glows until it is collected, the rest wait.
+   */
+  panelDaily(e) {
+    let p = this.profile, l = p?.login;
+    if (!l) return e.appendChild(emptyState("🎁", "טוען…", null, "loading"));
+    let lead = SPECIES[p.team?.[0]?.species]?.types?.[0] || "terra",
+      head = el("div", "daily-head");
+    head.innerHTML = `<b>יום ${ltr(String((l.claimed ? (l.day + 6) % 7 : l.day) + 1))} מתוך 7</b>${l.streak > 1 ? `<span class="streak">🔥 ${ltr(String(l.streak))} ימים ברצף</span>` : ""}`;
+    e.appendChild(head);
+    let grid = el("div", "daily-grid");
+    DAILY_REWARDS.forEach((d, k) => {
+      let taken = k < l.day || l.claimed && k === (l.day + 6) % 7 && l.day === 0,
+        today = !l.claimed && k === l.day,
+        t = el("div", `daily-tile ${taken ? "taken" : ""} ${today ? "today" : ""} ${d.big ? "big" : ""}`),
+        bits = [];
+      d.gold && bits.push(`<span>⛁ ${ltr(d.gold.toLocaleString("en-US"))}</span>`);
+      for (let [id, q] of Object.entries(d.items || {})) bits.push(`<span>${ITEMS[id]?.icon || "📦"} ×${ltr(String(q))}</span>`);
+      for (let [kind, q] of Object.entries(d.lead || {})) {
+        let it = ITEMS[`${kind}_${lead}`];
+        it && bits.push(`<span>${kind === "crystal" ? "💎" : ELEMENTS[lead]?.icon || "◆"} ×${ltr(String(q))}</span>`);
+      }
+      t.innerHTML = `<div class="d">יום ${ltr(String(k + 1))}</div><div class="r">${bits.join("")}</div>${taken ? "<div class=\"tick\">✓</div>" : ""}`, grid.appendChild(t);
+    });
+    e.appendChild(grid);
+    if (l.claimed) {
+      let nextAt = (() => { let d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); })(),
+        w = el("div", "empty plain");
+      w.innerHTML = `נאסף היום ✓ · הפרס הבא בעוד <span class="mono" dir="ltr" data-countdown="${nextAt}">${formatClock(nextAt - Date.now())}</span>`, e.appendChild(w), this.startCountdowns();
+    } else {
+      let parts = [];
+      l.today?.gold && parts.push(`⛁ ${l.today.gold.toLocaleString("en-US")}`);
+      for (let [id, q] of Object.entries(l.today?.items || {})) parts.push(`${ITEMS[id]?.icon || ""} ${loc(ITEMS[id]) || id} ×${q}`);
+      let b = el("button", "btn primary daily-claim", `קבל: ${parts.join(" · ")}`);
+      b.onclick = () => (b.disabled = !0, this.hooks.dailyClaim?.()), e.appendChild(b);
+    }
+    e.appendChild(section("אירועים עכשיו"));
+    let on = activeEvents();
+    for (let x of on) {
+      let days = Math.max(0, Math.ceil((eventEnds(x) - Date.now()) / 864e5)),
+        r = el("div", "list-item event-row");
+      r.style.setProperty("--ev", x.color), r.innerHTML = `<div class="ico-lg">${x.icon}</div><div class="grow"><b>${Ze(x.he)}</b><span>${Ze(x.text)}</span></div><span class="pill">${days <= 1 ? "עד מחר" : `עוד ${ltr(String(days))} ימים`}</span>`, e.appendChild(r);
+    }
+    if (!on.length) e.appendChild(emptyState("📅", "אין אירוע כרגע", null, "plain"));
+    let nx = nextEvent();
+    if (nx) {
+      let r = el("div", "list-item soon"), days = Math.ceil((nx.at - Date.now()) / 864e5);
+      r.innerHTML = `<div class="ico-lg">${nx.event.icon}</div><div class="grow"><b>בקרוב: ${Ze(nx.event.he)}</b><span>${Ze(nx.event.text)}</span></div><span class="pill">${ltr(`${days}`)} ימים</span>`, e.appendChild(r);
+    }
   }
   setZone(e) {
     this.zone = e, this.toastHtml(`<b>${Ze(loc(e))}</b> · רמות ${rangeLabel(e.levels[0], e.levels[1])}`);
@@ -567,6 +630,7 @@ var UI = class {
         leaders: "טבלת מובילים",
         base: "הבסיס",
         card: "כרטיס יצור",
+        daily: "פרס יומי ואירועים",
         dex: "אוסף היצורים",
         species: "יומן המינים",
         clinic: "מרפאת הגאות",
@@ -597,6 +661,7 @@ var UI = class {
       leaders: () => this.panelLeaders(o),
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
+      daily: () => this.panelDaily(o),
       dex: () => this.panelDex(o),
       species: () => this.panelSpecies(o),
       clinic: () => this.panelClinic(o),
@@ -842,6 +907,12 @@ var UI = class {
       v ? (ask("announce", { text: v }), text.value = "", f.text = "") : this.toast("ההודעה ריקה", "bad");
     })));
 
+    // the books (game/economy.js)
+    e.appendChild(section("כלכלה — זהב נכנס ויוצא", ""));
+    let eco = el("div", "gm-eco");
+    this._gmEcoBox = eco, this.fillGmEconomy(), e.appendChild(eco);
+    e.appendChild(btn("📊 רענן כלכלה", "small ghost", () => ask("economy")));
+
     // the log
     e.appendChild(section("יומן פעולות", ""));
     let log = el("div", "gm-log");
@@ -873,7 +944,18 @@ var UI = class {
   }
   gmRefresh(kind) {
     if (this.openPanelId !== "gm") return;
-    kind === "players" ? this.fillGmWho() : kind === "log" && this.fillGmLog();
+    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "economy" && this.fillGmEconomy();
+  }
+  /** Gold in by source, out by sink, and how much of it the game takes back. */
+  fillGmEconomy() {
+    let box = this._gmEcoBox, r = this.gmEconomy;
+    if (!box) return;
+    if (!r) return box.innerHTML = "<div class=\"hint\">לחץ על רענן כדי לראות</div>";
+    let he = { battle: "קרבות", capture: "לכידות", quest: "משימות", daily: "פרס יומי", boss: "בוסים", dungeon: "מבוכים", pvp: "דו‑קרב", gm: "GM", shop: "חנות", clinic: "מרפאה", building: "בנייה", training: "אימון", craft: "ייצור", guild: "גילדה", blackout: "הובסו", cosmetic: "קוסמטיקה", other: "אחר" },
+      rows = (o, sign) => Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="eco-row"><span>${he[k] || k}</span><b class="mono" dir="ltr">${sign}${v.toLocaleString("en-US")}</b></div>`).join("") || "<div class=\"hint\">—</div>",
+      ratio = Math.round((r.sinkRatio || 0) * 100);
+    box.innerHTML = `<div class="eco-sum">מאז ${new Date(r.since).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · ${ltr(String(r.hours))} שע׳ · נטו <b dir="ltr">${(r.net || 0).toLocaleString("en-US")}</b> · חוזר למשחק <b>${ltr(ratio + "%")}</b></div>
+      <div class="eco-cols"><div><h5>נכנס</h5>${rows(r.in, "+")}</div><div><h5>יוצא</h5>${rows(r.out, "−")}</div></div>`;
   }
   /** One line for what a GM did: the toast after it, and its row in the log. */
   gmSummary(op, d = {}, to = null) {
@@ -899,7 +981,7 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+      n = [["🎁 פרס יומי", "daily"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
     n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
@@ -1179,12 +1261,21 @@ var UI = class {
         spe: "מהירות"
       },
       c = Math.max(...Object.entries(t.stats).filter(([x]) => x !== "hp").map(([, x]) => x), 1);
+    let nat = natureInfo(t.nature), abl = abilityInfo(t.ability, t.types || []);
     for (let [x, g] of Object.entries(t.stats)) {
-      let m = el("div", "stat"),
+      let lean = nat?.up === x ? "up" : nat?.down === x ? "down" : "",
+        m = el("div", `stat ${lean}`),
         v = x === "hp" ? Math.min(100, g / 400 * 100) : g / c * 100;
-      m.innerHTML = `<span>${l[x] || x}</span><i style="width:${v}%"></i><b class="mono">${ltr(g)}</b>`, a.appendChild(m);
+      m.innerHTML = `<span>${l[x] || x}${lean === "up" ? " ▲" : lean === "down" ? " ▼" : ""}</span><i style="width:${v}%"></i><b class="mono">${ltr(g)}</b>`, a.appendChild(m);
     }
     r.appendChild(a);
+    // What makes this one itself: its nature and its ability.
+    if (nat || abl) {
+      let tr = el("div", "traits");
+      nat && (tr.innerHTML += `<div class="trait"><span class="k">אופי</span><b>${Ze(nat.he)}</b><small>${nat.up ? `${Ze(nat.upHe)} ▲ · ${Ze(nat.downHe)} ▼` : "מאוזן — בלי נטייה"}</small></div>`);
+      abl && (tr.innerHTML += `<div class="trait ${abl.rare ? "rare" : ""}"><span class="k">יכולת${abl.rare ? " · נדירה" : ""}</span><b>${abl.icon} ${Ze(abl.he)}</b><small>${Ze(abl.text)}</small></div>`);
+      r.appendChild(tr);
+    }
     let h = el("div", "chips");
     for (let x of t.skills || []) {
       let g = MOVES[x];
@@ -1253,7 +1344,7 @@ var UI = class {
             <span>${l.chain === "npc" ? `${Ze(giverName(l.giver))}: ` : ""}${Ze(l.descHe || l.desc)}</span>
             <div class="bar xp" style="margin-top:6px"><i style="width:${Math.min(100, (a.progress || 0) / c * 100)}%"></i></div>
             <span class="mono">${rangeLabel(Math.min(a.progress || 0, c), c, " / ")}
-              · ${ltr(`${l.reward.gold}⛁`)} · ${ltr(`${l.reward.xp} XP`)}</span>
+              · ${ltr(`${questGold(l, t.level)}⛁`)} · ${ltr(`${l.reward.xp} XP`)}</span>
           </div>`, h && !a.claimed && l.chain === "npc") d.appendChild(el("span", "pill good", l.giver === "noga" ? "חזור למרפאה" : `חזור אל ${giverName(l.giver)}`));
           else if (h && !a.claimed) {
             let u = el("button", "btn small primary", "קבל");
@@ -1516,7 +1607,7 @@ var UI = class {
       r = s.filter(p => p && p.hp < p.maxHp).length,
       o = s.filter(p => p && p.hp <= 0).length,
       a = (t.trainerHp ?? 1) < (t.trainerMaxHp ?? 1),
-      l = Math.max(40, Math.round(s.reduce((p, x) => p + (x?.level || 1), 0) * 14 + o * 120)),
+      l = clinicCost(s),
       c = r > 0 || o > 0 || a;
     // The nurse's own errands, at her counter: she has no street to stand in.
     let v = giverView(t, "noga"),
@@ -1800,6 +1891,13 @@ var UI = class {
         c = a > t;
       r.disabled = c || n, l && c ? r.style.filter = "grayscale(.6)" : r.style.filter = "";
     }
+  }
+  /** The evolution scene's words, under the creature. */
+  ceremonyLine(text, cls = "") {
+    let n = document.querySelector("#ceremony .line");
+    if (!n) return;
+    n.className = "line", n.textContent = text || "";
+    text && (void n.offsetWidth, n.className = `line show ${cls}`);
   }
   battleBanner(e, t = 1400) {
     let n = $("#battle-banner");

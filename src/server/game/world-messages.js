@@ -11,7 +11,7 @@
 //   startBattle(opts), startDungeon(opts)
 //
 // WorldSim satisfies it directly; WorldRoom builds one per connected client.
-import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, SPECIES, ZONES, statsFor } from '../../shared/gamedata.js';
+import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, SPECIES, ZONES, statsFor, clinicCost } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { giverView } from '../../shared/story.js';
 import { resolveCollision } from '../../shared/props.js';
@@ -24,6 +24,8 @@ import {
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
 import { handleGm } from './gm.js';
+import { earn, spend } from './economy.js';
+import { claimDaily } from './daily.js';
 import * as Social from '../social.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
@@ -180,6 +182,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
         case "gm":
           handleGm(ctx, t);
           break;
+        case "dailyClaim":
+          {
+            // today's tile of the week (game/daily.js)
+            let r = claimDaily(n);
+            if (!r.ok) return ctx.net.emit("error", { code: r.reason });
+            ctx.net.save(), ctx.net.emit("dailyReward", { ...r, profile: publicProfile(n) });
+          }
+          break;
         case "chat":
           {
             // A player picks among the channels players have. "gm" and
@@ -258,7 +268,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             ctx._bossCd = r + 900;
             let a = activeCreature(n);
             if (!a) return;
-            let l = statsFor(a.species, a.level, a.iv),
+            let l = statsFor(a.species, a.level, a.iv, a.star || 1, a.nature),
               c = MOVES[t.skill] || MOVES[a.skills[0]],
               h = c?.kind === "special" ? l.spa : l.atk,
               d = Math.max(1, Math.floor(((2 * a.level / 5 + 2) * (c?.power || 34) * (h / 120) / 50 + 2) * (0.85 + Math.random() * 0.3)));
@@ -451,7 +461,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               });
               return;
             }
-            n.gold -= o.price * a, giveItem(n, o.id, a), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
+            spend(n, o.price * a, "shop"), giveItem(n, o.id, a), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
             break;
           }
         case "useItem":
@@ -493,9 +503,9 @@ export function handleWorldMessage(ctx, e, t = {}) {
           {
             // Priced here, not by the client: the same sum the counter shows.
             let team = teamCreaturesOf(n),
-              cost = Math.max(40, Math.round(team.reduce((a, c) => a + (c.level || 1), 0) * 14 + team.filter(c => c.hp <= 0).length * 120));
+              cost = clinicCost(team);
             if ((n.gold || 0) < cost) return ctx.net.emit("error", { code: "not_enough_gold" });
-            n.gold -= cost, healTeam(n, 1);
+            spend(n, cost, "clinic"), healTeam(n, 1);
             let me = ctx.self();
             me && (me.hpRatio = hpRatio(n)), announce(ctx, syncQuests(n, { kind: "heal" })), ctx.net.save(), ctx.net.emit("healed", { cost }), ctx.net.emit("profile", publicProfile(n));
             break;
@@ -557,7 +567,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               });
               return;
             }
-            n.gold -= GUILD.createCost;
+            spend(n, GUILD.createCost, "guild");
             let o = {
               id: "g" + uid().slice(0, 6),
               name: t.name || "Guild",
@@ -597,7 +607,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               });
               return;
             }
-            n.gold -= a, o.contribution += a, o.myContribution = (o.myContribution || 0) + a;
+            spend(n, a, "guild"), o.contribution += a, o.myContribution = (o.myContribution || 0) + a;
             for (let l of GUILD.buffs) l.level > o.buffLevel && o.contribution >= l.cost && (o.buffLevel = l.level);
             ctx.net.save(), ctx.net.emit("guild", ctx.guildView()), ctx.net.emit("profile", publicProfile(n));
             break;

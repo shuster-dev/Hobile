@@ -15,11 +15,13 @@
 // here follow its `resolve` line by line, so the two settle a wild the same way.
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
-  duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, makeCreature, publicProfile,
+  duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
   statsOf, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
 } from './combat.js';
 import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES } from '../../shared/gamedata.js';
 import { weatherAt } from '../../shared/weather.js';
+import { earn, spend } from './economy.js';
+import { eventMul } from '../../shared/events.js';
 import { FIELD } from './field.js';
 
 export const PARTY_BATTLE = {
@@ -47,7 +49,7 @@ export class PartyBattle {
       const tier = WILD_TIERS[zoneId] || {};
       this.foe = this.sim.add(new Combatant({
         side: 'b', kind: 'wild', name: SPECIES[wild.species]?.name || wild.species,
-        creature: makeCreature(wild.species, wild.level), scale: tier.scale, ai: tier.ai,
+        creature: makeCreature(wild.species, wild.level, { shinyMul: eventMul('shiny') }), scale: tier.scale, ai: tier.ai,
       }));
       this.foeBaseHp = this.foe.maxHp;
     }
@@ -219,7 +221,7 @@ export class PartyBattle {
       const sphere = ITEMS[t.sphere] ? t.sphere : 'sphere_basic';
       if (!takeItem(doc, sphere, 1)) return part.emit('actionRejected', { reason: 'no_sphere' });
       const r = this.sim.trainerAction(you.id, 'sphere', { sphere });
-      if (r.ok) { part.capture = { species: this.foe.species, level: this.foe.level }; this.captureBy = id; }
+      if (r.ok) { part.capture = { species: this.foe.species, level: this.foe.level, traits: inherit(this.foe.creature) }; this.captureBy = id; }
       else { giveItem(doc, sphere, 1); part.emit('actionRejected', { reason: r.reason }); }
       part.emit('inventory', doc.inventory);
     } else if (t.action === 'potion') {
@@ -265,9 +267,9 @@ export class PartyBattle {
     const o = { outcome: captured && !mine ? 'a' : e.outcome, won: won || (captured && !mine), xp: 0, gold: 0, items: [], events: [], questsDone: [], coop: [...this.parts.values()].filter((p) => !p.left).length > 1 };
     if (n && you?.creature) n.hp = Math.max(0, Math.round(you.hp));
     if (won || captured) {
-      const a = creaturePower(this.foe, t.level), l = creatureScore(this.foe);
-      t.gold += l; o.xp = a; o.gold = l;
-      n && o.events.push(...grantXpTo(n, a));
+      const a = Math.round(creaturePower(this.foe, t.level) * eventMul('xp')), l = Math.round(creatureScore(this.foe) * eventMul('gold'));
+      earn(t, l, captured ? 'capture' : 'battle'); o.xp = a; o.gold = l;
+      n && o.events.push(...grantXpTo(n, a, t));
       o.events.push(...grantXp(t, Math.floor(a * 0.6)));
       if (won || (captured && !mine)) {
         const sp = this.foe?.creature?.species;
@@ -278,7 +280,7 @@ export class PartyBattle {
         if (Math.random() < 0.2) { giveItem(t, 'potion_s', 1); o.items.push('potion_s'); }
       }
       if (mine) {
-        const c = makeCreature(part.capture.species, part.capture.level);
+        const c = makeCreature(part.capture.species, part.capture.level, part.capture.traits);
         addCreature(t, c); t.stats.captures += 1; o.captured = c;
         const dex = dexRecord(t, c.species, c);
         o.newSpecies = dex.isNew; o.dexCount = dex.caught; o.card = creatureCard(t, c.uid);
@@ -288,7 +290,7 @@ export class PartyBattle {
     } else if (e.outcome !== 'fled') {
       t.stats.deaths += 1;
       const lost = Math.floor(t.gold * 0.02);
-      t.gold = Math.max(0, t.gold - lost); o.gold = -lost; o.blackout = true; healTeam(t, 1); t.pos = null;
+      o.gold = -spend(t, lost, 'blackout'); o.blackout = true; healTeam(t, 1); t.pos = null;
     }
     o.profile = publicProfile(t);
     return o;
@@ -304,7 +306,7 @@ export class PartyBattle {
     t.stats.pvpWins = t.stats.pvpWins || 0; t.stats.pvpLosses = t.stats.pvpLosses || 0;
     if (won) {
       o.gold = Math.round(30 + 5 * lvl); o.xp = Math.round(20 + 4 * lvl);
-      t.gold += o.gold;
+      earn(t, o.gold, 'pvp');
       o.events.push(...grantXp(t, o.xp));
       t.stats.pvpWins += 1;
     } else if (!draw) t.stats.pvpLosses += 1;
