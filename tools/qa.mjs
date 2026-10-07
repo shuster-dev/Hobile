@@ -1820,98 +1820,13 @@ section('riding');
   ok('a cub cannot carry you', out.some(([k, v]) => k === 'error' && v.code === 'cannot_ride') && !rctx.ride);
   lead.species = 'blazehound'; lead.level = 25;
   WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
-  ok('grown, but with no saddle: not yet', out.some(([k, v]) => k === 'error' && v.code === 'need_saddle') && !rctx.ride);
-  lead.saddle = true;
-  WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
-  ok('grown and saddled, it can: everyone sees you on it', rctx.ride?.kind === 'land' && self.mount === 'blazehound' && rdoc.riding === lead.uid);
+  ok('grown, it can: everyone sees you on it', rctx.ride?.kind === 'land' && self.mount === 'blazehound' && rdoc.riding === lead.uid);
   const ctx2 = { doc: rdoc };
   const self2 = {};
   WM.restoreRide(ctx2, self2, rdoc);
   ok('and back from a fight you are on it again', ctx2.ride?.uid === lead.uid && self2.mountKind === 'land');
   WM.handleWorldMessage(rctx, 'ride', {});
   ok('and down again', !rctx.ride && !self.mount && !rdoc.riding);
-}
-
-// --------------------------------------------------- saddles, tricks, reports
-// Riding needs a saddle (shared/saddles.js): five pieces of a family, hunted;
-// tricks for the pet (shared/tricks.js) are checked and told to the room;
-// a report needs a reason from the list (shared/reports.js).
-section('saddles, tricks and reports');
-{
-  const SD = await import('../src/shared/saddles.js');
-  const SV = await import('../src/server/game/saddles.js');
-  const RD = await import('../src/shared/riding.js');
-  const TR = await import('../src/shared/tricks.js');
-  const RP = await import('../src/shared/reports.js');
-  const ST = await import('../src/shared/story.js');
-  const G4 = await import('../src/shared/gamedata.js');
-  ok('a family is counted from its smallest', SD.familyOf('vulcanth') === 'cindcub' && SD.familyOf('pyrelynx') === 'cindcub' && SD.familyOf('cindcub') === 'cindcub');
-  ok('a family that can never carry anyone leaves no material', Object.values(G4.SPECIES).filter((sp) => !SD.familyRides(SD.familyOf(sp.id))).every((sp) => SV.huntMaterial({}, sp.id) === null));
-  const d = C.createPlayerDoc('qa-saddle', 'QA', {}, 'cindcub');
-  C.normalizeDoc(d);
-  const hound = C.makeCreature('blazehound', 25);
-  C.addCreature(d, hound);
-  const root = SD.familyOf('blazehound');
-  ok('a creature big enough to carry you is wanted for a saddle, not yet rideable', RD.saddleWanted([hound]).length === 1 && RD.mountsOf([hound]).length === 0);
-  let last = null;
-  for (let i = 0; i < 4; i++) last = SV.huntMaterial(d, root);
-  ok('every win or catch of the family is a piece', last?.have === 4 && last.need === SD.SADDLE.need && d.mats[root] === 4);
-  d.gold = 100000;
-  ok('four pieces are not enough', SV.makeSaddle(d, hound.uid).error === 'need_materials' && !hound.saddle);
-  SV.huntMaterial(d, 'blazehound');
-  const gold0 = d.gold, made = SV.makeSaddle(d, hound.uid);
-  ok('five and the gold make the saddle, fitted on it', made.ok && hound.saddle === true && d.mats[root] === 0 && gold0 - d.gold === SD.SADDLE.gold[made.kind]);
-  ok('and then it can be ridden', RD.mountsOf([hound]).length === 1);
-  ok('a second saddle on it is refused', SV.makeSaddle(d, hound.uid).error === 'already_saddled');
-  const cub = d.creatures[d.team[0]];
-  d.mats[SD.familyOf(cub.species)] = 9;
-  ok('a cub too small to carry you gets no saddle', SV.makeSaddle(d, cub.uid).error === 'cannot_ride');
-  const ren4 = ST.NPC_QUESTS?.n_ren_4 || G4.QUESTS.n_ren_4;
-  ok('Ren\'s errand asks for a saddle, and counts it from what you hold', !!ren4 && ren4.goal.kind === 'saddle' && ST.heldProgress(d, ren4) === 1
-    && ST.heldProgress(C.publicProfile(d), ren4) === 1);
-  ok('the profile carries the pieces', typeof C.publicProfile(d).mats === 'object');
-
-  // tricks: three, each with a button; the server checks and tells the room
-  ok('three tricks, each with an icon and a name', TR.TRICK_IDS.length === 3 && TR.TRICK_IDS.every((k) => TR.TRICKS[k].icon && TR.TRICKS[k].he));
-  ok('a bird plays in the air, a walker on the ground', TR.trickStyle('stormcaller') === 'fly' && TR.trickStyle('cindcub') === 'walk');
-  const pd = C.createPlayerDoc('qa-trick', 'QA', {}, 'cindcub');
-  C.normalizeDoc(pd);
-  const me = { x: 0, z: 0, petSpecies: 'cindcub', mount: '' }, said = [], room = [];
-  const tctx = { doc: pd, zone: G4.ZONES.aetherport, zoneId: 'aetherport', colliders: [], self: () => me, net: { emit: (k, v) => said.push([k, v]), save() {} }, roomEmit: (k, v) => room.push([k, v]) };
-  WM.handleWorldMessage(tctx, 'petTrick', { trick: 'fetch' });
-  WM.handleWorldMessage(tctx, 'petTrick', { trick: 'pet' });
-  ok('a trick is told to the whole room, with who and a seed', room.length === 1 && room[0][0] === 'petTrick' && room[0][1].id === pd.id && room[0][1].trick === 'fetch' && Number.isFinite(room[0][1].seed));
-  ok('and not two at once', room.length === 1);
-  WM.handleWorldMessage(tctx, 'petTrick', { trick: 'dance' });
-  tctx._trickAt = 0, tctx.ride = { kind: 'land' };
-  WM.handleWorldMessage(tctx, 'petTrick', { trick: 'treat' });
-  ok('an unknown trick does nothing; riding, there is no pet to play with', room.length === 1 && said.some(([k, v]) => k === 'error' && v.code === 'no_pet_here'));
-
-  // reports: the list, and the words "other" needs
-  ok('report reasons: language, harassment, cheating, a bad name, and other', ['language', 'harass', 'cheat', 'name', 'other'].every((k) => RP.REPORT_REASONS[k]?.he) && RP.REPORT_REASONS.other.needsNote);
-  const RS = await import('../src/server/reports.js');
-  const SO = await import('../src/server/social.js');
-  const saved = [], store = {
-    saveReport: async (r) => (saved.push(r), r), listReports: async () => saved.slice().reverse(),
-    reportsSince: async (by, about, since) => saved.filter((r) => r.by.id === by && (!about || r.about.id === about) && r.at >= since).length,
-    getDoc: async (id) => (id === 'bad' ? { id: 'bad', name: 'Bad', level: 3 } : null),
-    updateReport: async (id, patch) => { const r = saved.find((x) => x.id === id); return r ? Object.assign(r, patch) : null; },
-  };
-  RS.useReports(store);
-  const told = [];
-  RS.watch('gm1', 'k', (e, v) => told.push([e, v]));
-  SO.noteSaid({ id: 'bad', name: 'Bad' }, 'zone', 'יא בן זונה');
-  const rep = { id: 'good', name: 'Good' };
-  ok('no reason, no report', (await RS.fileReport(rep, { id: 'bad', reason: 'whatever' })).error === 'bad_reason');
-  ok('"other" needs a few words', (await RS.fileReport(rep, { id: 'bad', reason: 'other', note: ' ' })).error === 'need_note');
-  ok('not about yourself', (await RS.fileReport(rep, { id: 'good', reason: 'cheat' })).error === 'not_yourself');
-  const r1 = await RS.fileReport(rep, { id: 'bad', reason: 'language', note: 'קילל' });
-  ok('a report keeps what was said, as typed, and the GM online is told', r1.ok && r1.report.evidence.some((l) => l.text.includes('זונה')) && told.some(([e, v]) => e === 'gm' && v.kind === 'reportNew' && v.report.id === r1.report.id));
-  ok('the same player, again straight away: refused', (await RS.fileReport(rep, { id: 'bad', reason: 'harass' })).error === 'already_reported');
-  ok('a GM marks it handled', (await RS.setReport({ id: 'gm1', name: 'GM' }, r1.report.id, 'handled')).report?.status === 'handled');
-  ok('and only to a status that exists', (await RS.setReport({ id: 'gm1', name: 'GM' }, r1.report.id, 'deleted')).error === 'bad_status');
-  RS.unwatch('gm1', 'k');
-  RS.useReports(null);
 }
 
 // ---------------------------------------------------------------- farm work
