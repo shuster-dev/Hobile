@@ -1,4 +1,5 @@
 import { NPC_QUESTS } from './story.js';
+import { natureMul } from './traits.js';
 var ELEMENTS = {
     ember: {
       name: "Ember",
@@ -2080,7 +2081,7 @@ var MOVES = {
       he: "אליקסיר",
       kind: "heal",
       amount: 480,
-      price: 1400,
+      price: 950,
       icon: "🧪"
     },
     revive: {
@@ -3184,19 +3185,19 @@ var DAILY_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "daily
       name: "Great Hall",
       he: "אולם ראשי",
       cost: 8e3,
-      effect: "Raises member cap to 60"
+      effect: "מקום ל‑60 חברים"
     }, {
       id: "gh_garden",
       name: "Aether Garden",
       he: "גן האתר",
       cost: 22e3,
-      effect: "Passive creature stamina regen +25%"
+      effect: "המרץ של היצורים מתמלא מהר יותר ב‑25% בקרבות"
     }, {
       id: "gh_forge",
       name: "Guild Forge",
       he: "נפחיית גילדה",
       cost: 55e3,
-      effect: "Gear upgrades cost 20% less"
+      effect: "אימון כוכבים זול ב‑15% בזהב"
     }],
     warZones: ["emberfall_canyon", "tidal_hollow", "frostpeak_ridge", "umbral_grove"],
     warDayUTC: 6,
@@ -3215,7 +3216,7 @@ var DAILY_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "daily
       return {
         crystals: [0, 4, 8, 16, 30][e],
         cores: [0, 0, 1, 3, 6][e],
-        gold: [0, 600, 1800, 5e3, 12e3][e],
+        gold: [0, 600, 1800, 5e3, 1e4][e],
         hours: [0, 2, 6, 16, 36][e]
       };
     }
@@ -3278,7 +3279,7 @@ var BUILDINGS = {
       descHe: "יצור שמושאר כאן עולה כוכב עם הזמן.",
       maxLevel: 5,
       cost: i => ({
-        gold: [400, 1200, 3200, 8e3, 18e3][i] ?? 0,
+        gold: [400, 1200, 3200, 8e3, 15e3][i] ?? 0,
         items: [{
           fiber: 6
         }, {
@@ -3311,7 +3312,7 @@ var BUILDINGS = {
       descHe: "מזקקת שברים גולמיים לגבישים.",
       maxLevel: 5,
       cost: i => ({
-        gold: [300, 900, 2600, 6500, 15e3][i] ?? 0,
+        gold: [300, 900, 2600, 6500, 12e3][i] ?? 0,
         items: [{
           scrap_iron: 5
         }, {
@@ -3343,7 +3344,7 @@ var BUILDINGS = {
       descHe: "מייצרת ציוד, כדורים ושיקויים.",
       maxLevel: 5,
       cost: i => ({
-        gold: [500, 1500, 4e3, 9500, 21e3][i] ?? 0,
+        gold: [500, 1500, 4e3, 9500, 16e3][i] ?? 0,
         items: [{
           scrap_iron: 8,
           fiber: 4
@@ -3630,24 +3631,42 @@ var AVATAR = {
   }]
 };
 
-function statsFor(i, e, t = 0.5, n = 1) {
+// `nature` (shared/traits.js) leans one stat up a tenth and one down.
+function statsFor(i, e, t = 0.5, n = 1, nature = null) {
   let s = SPECIES[i];
   if (!s) throw new Error("unknown species " + i);
   let r = STARS.multiplier(n),
-    o = a => Math.floor((Math.floor((2 * a + 20 * t) * e / 100) + 5) * r);
+    o = (a, k) => Math.floor((Math.floor((2 * a + 20 * t) * e / 100) + 5) * r * natureMul(nature, k));
   return {
     hp: Math.floor((Math.floor((2 * s.base.hp + 24 * t) * e / 45) + e * 2 + 28) * r),
-    atk: o(s.base.atk),
-    def: o(s.base.def),
-    spa: o(s.base.spa),
-    spd: o(s.base.spd),
-    spe: o(s.base.spe)
+    atk: o(s.base.atk, "atk"),
+    def: o(s.base.def, "def"),
+    spa: o(s.base.spa, "spa"),
+    spd: o(s.base.spd, "spd"),
+    spe: o(s.base.spe, "spe")
   };
+}
+
+// A daily errand pays by who is doing it: a flat 900 gold was a level-2
+// player's next three upgrades at once, and nothing to a level-40 one
+// (tools/economy.mjs). Everything else pays what its card says.
+function questGold(q, level = 1) {
+  let g = q?.reward?.gold || 0;
+  return q?.chain === "daily" ? Math.round(g * Math.max(0.3, Math.min(1.25, 0.25 + (level || 1) / 40)) / 10) * 10 : g;
+}
+
+// The clinic's price for the whole team. It was 14 a level, which by the
+// late game cost more than ten won fights a visit and made every hour lose
+// gold (tools/economy.mjs); half that keeps it a real cost.
+function clinicCost(team = []) {
+  let lv = 0, down = 0;
+  for (const c of team) c && (lv += c.level || 1, c.hp <= 0 && down++);
+  return Math.max(40, Math.round(lv * 7 + down * 90));
 }
 
 function powerOf(i) {
   if (!i || !SPECIES[i.species]) return 0;
-  let e = statsFor(i.species, i.level, i.iv, i.star || 1);
+  let e = statsFor(i.species, i.level, i.iv, i.star || 1, i.nature);
   return Math.round(e.hp * 0.5 + e.atk + e.spa + e.def * 0.8 + e.spd * 0.8 + e.spe * 0.6);
 }
 
@@ -3707,4 +3726,4 @@ function avatarLook(a = {}) {
   };
 }
 
-export { ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+export { clinicCost, questGold, ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

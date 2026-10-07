@@ -14,6 +14,9 @@ import { GIVERS, giverMark, giverView, heldProgress, questState } from '../share
 import { weatherAt } from '../shared/weather.js';
 import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '../shared/temper.js';
 import { HOURS, howOf, rowFor } from '../shared/habitats.js';
+import { abilityInfo } from '../shared/traits.js';
+import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
+const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
 
@@ -449,6 +452,12 @@ var Game = class {
     // on and compile its shaders while the player is still walking — on every
     // arrival, since each zone has its own ground (BattleView.prewarm).
     clearTimeout(this._warmTimer), this._warmTimer = setTimeout(() => this.prewarmBattle(), 2500);
+    // Today's gift, once a session, when nothing else is on screen — and not
+    // over a brand-new player's first steps (the chip is there for them).
+    clearTimeout(this._dailyTimer), this._dailyTimer = setTimeout(() => {
+      let l = this.profile?.login;
+      this.mode !== "world" || !l || l.claimed || this._dailyShown || this.ui.openPanelId || document.body.classList.contains("talking") || (this.profile.level < 2 && !l.total) || (this._dailyShown = !0, this.ui.openPanel("daily"));
+    }, 2200);
     return !0;
   }
   prewarmBattle() {
@@ -557,6 +566,23 @@ var Game = class {
         yes: "הצטרף לקרב", no: "לא",
         onYes: () => this.mode === "world" && this.net.send("coopJoin", { roomId: t.roomId })
       }), vibrate([20, 30, 20]);
+    }), e.on("dungeonOffer", t => {
+      this.ui.offer({
+        key: `dungeon:${t.roomId}`, icon: t.endless ? "🗼" : "🕳", title: `${t.fromName} נכנס/ת ל${t.he} — הצטרף!`, sub: t.endless ? "טיפוס במגדל ביחד" : `דרגה: ${loc(tierOf(t.tier))} · ניסיון ושלל לכולם`, until: t.until,
+        yes: "הצטרף", no: "לא",
+        onYes: () => this.mode === "world" && this.net.send("coopJoin", { roomId: t.roomId })
+      }), vibrate([20, 30, 20]);
+    }), e.on("arena", t => {
+      this.ui.arena = t, this.ui.openPanelId === "arena" && this.ui.renderPanel("arena");
+    }), e.on("arenaQueue", t => {
+      this.ui.arena = { ...(this.ui.arena || {}), queued: !!t.queued, since: t.since || 0 }, this.ui.openPanelId === "arena" && this.ui.renderPanel("arena");
+      !t.queued && t.why === "unavailable" && this.ui.toast("הזירה לא זמינה כרגע", "bad");
+    }), e.on("arenaMatch", t => {
+      audio.sfx("encounter"), vibrate([40, 30, 40]), this.ui.toast(`⚔ נמצא יריב: ${t.foe} (${t.foeRating})`, "good");
+    }), e.on("arenaReward", t => {
+      audio.sfx("daily"), this.ui.celebrate(`${arenaTierInfo(t.tier).icon} פרס עונה`, "quest"), this.ui.toast(`+${t.gold.toLocaleString("en-US")}⛁ · דרגת ${arenaTierInfo(t.tier).he} בעונה ${t.season}`, "good");
+    }), e.on("guildKicked", t => this.ui.toast(`הוצאת מהגילדה ${t.name}`, "bad")), e.on("guildBuff", t => {
+      audio.sfx("quest"), this.ui.celebrate(`🛡 באף גילדה ${t.level}!`, "quest");
     }), e.on("partySent", t => this.ui.toast(`הזמנה לקבוצה נשלחה ל${t.name}`, "good")), e.on("duelSent", t => this.ui.toast(t.pair ? `הזמנה לקרב זוגות נשלחה ל${t.name}` : `הזמנה לדו‑קרב נשלחה ל${t.name}`, "good")), e.on("friendResult", t => {
       t.added ? this.ui.toast(`${t.name} ואתה חברים עכשיו 👥`, "good") : t.pending && this.ui.toast(`בקשת חברות נשלחה ל${t.name}`, "good");
     }), e.on("reported", () => this.ui.toast("הדיווח נשלח. תודה.", "good")), e.on("allyJoined", t => {
@@ -640,7 +666,19 @@ var Game = class {
         zone: zd.id
       });
     }), e.on("dungeonInit", t => {
-      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer)), this.battleView.setTheme(t.dungeon.element, !0), this.ui.battleBanner(`${loc(t.dungeon)} — קומה 1`, 1800);
+      // a run with a party in it is a fight with players in it: the same
+      // seat-finding as battleInit (game/party-dungeon.js)
+      this.battle.players = t.players || [], this.battle.duel = !1, this.battle.side = "a", this.applyBattlePlayers(),
+      this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = null, this.battle.mySide = "a", this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
+      let first = !this._dungeonThemed;
+      this._dungeonThemed = !0, first && this.battleView.setTheme(t.dungeon.element, !0), first && this.ui.battleBanner(t.dungeon.endless ? `🗼 ${loc(t.dungeon)}` : `${loc(t.dungeon)}${t.dungeon.tier && t.dungeon.tier !== "normal" ? ` · ${loc(tierOf(t.dungeon.tier))}` : ""}`, 1800);
+    }), e.on("dungeonLobby", t => {
+      this.ui.battleBanner("ממתינים לחברי הקבוצה…", Math.max(1500, t.until - Date.now()));
+    }), e.on("towerChest", t => {
+      audio.sfx("loot"), this.ui.celebrate(`🎁 תיבת קומה ${t.floor}`, "quest");
+      let parts = [`+${t.chest.gold.toLocaleString("en-US")}⛁`];
+      for (let [id, q] of Object.entries(t.chest.items || {})) parts.push(`${ITEMS[id]?.icon || ""} ×${q}`);
+      this.ui.toast(`בסוף הטיפוס: ${parts.join(" · ")}`, "good");
     }), e.on("battleStart", () => {
       // "A wild Pebblin appeared!" says what this fight is; "the battle
       // begins" said nothing the screen did not.
@@ -659,7 +697,11 @@ var Game = class {
         // replaced by the forecast a third of a second before it could be read.
         setTimeout(() => this.ui.battleBanner(`${el.icon} ${w.he} · מהלכי ${el.he} מתחזקים`, 1600), 1550);
       }
-    }), e.on("floor", t => this.ui.battleBanner(t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400)), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
+    }), e.on("floor", t => {
+      // the tower turns through the elements: each floor its own ground
+      t.endless && t.element && this.battleView.setTheme(t.element, !0);
+      this.ui.battleBanner(t.endless ? t.boss ? `🗼 קומה ${t.floor} · שומר המגדל!` : `🗼 קומה ${t.floor} · Lv ${t.level}` : t.boss ? "⚔ בוס המבוך!" : `קומה ${t.floor}/${t.of}`, 1400);
+    }), e.on("floorCleared", () => this.ui.battleBanner("הקומה נוקתה!", 1100)), e.on("inventory", t => {
       this.battle.inventory = t;
     }), e.on("battleEvent", t => {
       // Say it when one of yours goes down. It gets benched in the same beat,
@@ -686,7 +728,14 @@ var Game = class {
             power: a
           }), t.eff > 1 ? audio.sfx("superEffective") : t.eff < 1 && audio.sfx("resisted"), this.punch(0.35 + a * 1.1, t.crit ? 90 : 0), n ? vibrate(t.crit ? [18, 30, 18] : 10) : (audio.sfx("hurt"), vibrate(t.crit ? [30, 40, 30] : 18));
         }, c), t.eff > 1 ? this.ui.battleBanner("פגיעה יעילה במיוחד!", 800) : t.eff < 1 && this.ui.battleBanner("לא יעיל במיוחד…", 700);
-      } else t.kind === "heal" ? (audio.sfx("heal"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `+${t.amount}`, "heal")) : t.kind === "miss" ? (audio.sfx("miss"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), "החטאה", "")) : t.kind === "capture" && this.ui.battleBanner(t.success ? "✨ נלכד!" : `הכדור נפתח… (${t.chance}%)`, 1400);
+      } else t.kind === "ability" ? (() => {
+        // the ability's name over the one it belongs to, the way the
+        // handhelds say "Sturdy!" — otherwise a creature left at 1 HP just
+        // looks like a bug
+        let c = this.battle.combatants?.find(r => r.id === t.target),
+          info = c && abilityInfo(t.ability, SPECIES[c.species]?.types || []);
+        info && (this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `${info.icon} ${info.he}`, "ability"), audio.sfx("buff"));
+      })() : t.kind === "heal" ? (audio.sfx("heal"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `+${t.amount}`, "heal")) : t.kind === "miss" ? (audio.sfx("miss"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), "החטאה", "")) : t.kind === "capture" && this.ui.battleBanner(t.success ? "✨ נלכד!" : `הכדור נפתח… (${t.chance}%)`, 1400);
       t.actor && this.battle.youId === t.actor && t.skill && MOVES[t.skill] && (this.cooldowns[t.skill] = Date.now() + MOVES[t.skill].cd);
     }), e.on("actionRejected", t => {
       let n = {
@@ -704,9 +753,13 @@ var Game = class {
       t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile));
       let n = [];
       t.captured && n.push(`נלכד ${loc(SPECIES[t.captured.species])}!`), t.xp && n.push(`+${t.xp} XP`), t.gold && (n.push(`${t.gold > 0 ? "+" : ""}${t.gold}⛁`), t.gold > 0 && setTimeout(() => audio.sfx("coin"), 620)), t.items?.length && setTimeout(() => audio.sfx("loot"), 820);
-      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "evolve" && n.push(`${loc(SPECIES[r.from])} התפתח ל${loc(SPECIES[r.into])}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`);
+      // An evolution gets its own scene (gfx/evolve.js) after the result, so
+      // it is not also a line in the summary.
+      let evo = (t.events || []).filter(r => r.kind === "evolve" && SPECIES[r.from] && SPECIES[r.into]);
+      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
-      for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level")), r.kind === "evolve" && (audio.sfx("evolve"), this.ui.celebrate(`${loc(SPECIES[r.into])}!`, "evolve"));
+      for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level"));
+      t.ranked && setTimeout(() => (this.ui.toast(`${arenaTierInfo(t.ranked.tier).icon} דירוג ${t.ranked.after} (${t.ranked.delta >= 0 ? "+" : ""}${t.ranked.delta})`, t.ranked.delta >= 0 ? "good" : "bad"), t.ranked.tierUp && this.ui.celebrate(`${arenaTierInfo(t.ranked.tier).icon} ${arenaTierInfo(t.ranked.tier).he}!`, "quest")), 900);
       this.ui.battleBanner(t.outcome === "cancelled" ? "הקרב בוטל — לא כולם הגיעו" : t.pvp ? t.won ? "ניצחתם! 🏆" : t.outcome === "draw" ? "תיקו" : t.forfeit ? "פרשת" : "הפסדתם — בפעם הבאה" : t.won ? t.coop ? "ניצחון משותף!" : "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא"), t.pvp && !t.won && t.outcome !== "cancelled" && n.push("בדו‑קרב לא מאבדים כלום");
       // A first catch of a species opens its card; a duplicate says what it
       // refined into. Catching the same thing twice should not feel identical.
@@ -715,17 +768,34 @@ var Game = class {
         n.push(`כפול — ${parts.join(" · ")}`);
       }
       let s = t.outcome === "captured" ? 4200 : 2e3;
-      n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), s - 1400), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
+      if (evo.length) {
+        await new Promise(r => setTimeout(r, 1700));
+        await this.playEvolutions(evo);
+        s = 1500;
+      }
+      n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), Math.max(0, s - 1400)), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
       if (t.captured && t.newSpecies && t.card) setTimeout(() => {
         audio.sfx("quest"), this.ui.celebrate(`${loc(SPECIES[t.captured.species])} — קלף חדש!`, "quest");
         this.ui.card = t.card;
         this.ui.openPanel("card");
       }, s + 700);
-    }), e.on("dungeonEnd", t => {
-      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile)), this.ui.battleBanner(t.success ? "המבוך נוקה!" : "הקבוצה הובסה", 1800);
+    }), e.on("dungeonEnd", async t => {
+      this._dungeonThemed = !1;
+      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile)), this.ui.battleBanner(t.endless ? `🗼 הגעת לקומה ${t.floors}${t.best === t.floors && t.floors > 0 ? " — שיא אישי!" : ""}` : t.success ? t.players > 1 ? "המבוך נוקה — ביחד!" : "המבוך נוקה!" : "הקבוצה הובסה", 1800);
       let n = [`+${t.xp} XP`, `+${t.gold}⛁`];
+      t.endless && n.push(`השבוע: קומה ${t.weekBest || 0}`);
       for (let s of t.items || []) n.push(loc(ITEMS[s]));
-      setTimeout(() => this.ui.toast(n.join(" · "), t.success ? "good" : ""), 400), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), 2200);
+      let evo = (t.events || []).filter(r => r.kind === "evolve" && SPECIES[r.from] && SPECIES[r.into]);
+      setTimeout(() => this.ui.toast(n.join(" · "), t.success ? "good" : ""), 400);
+      evo.length && (await new Promise(r => setTimeout(r, 2000)), await this.playEvolutions(evo));
+      setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), evo.length ? 900 : 2200);
+    }), e.on("dailyReward", t => {
+      t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile));
+      let parts = [];
+      t.reward?.gold && parts.push(`+${t.reward.gold.toLocaleString("en-US")}⛁`);
+      for (let [id, q] of Object.entries(t.reward?.items || {})) parts.push(`${ITEMS[id]?.icon || ""} ${loc(ITEMS[id])} ×${q}`);
+      audio.sfx("daily"), vibrate([20, 40, 20, 40, 60]), this.ui.celebrate(t.reward?.big ? "🎁 פרס השבוע!" : `🎁 יום ${t.day + 1}`, "quest"), this.ui.toast(parts.join(" · "), "good");
+      t.streak > 1 && setTimeout(() => this.ui.toast(`🔥 ${t.streak} ימים ברצף`, "good"), 1200);
     }), e.on("gm", t => this.onGm(t)), e.on("gmGift", t => {
       // Someone with the keys sent you something (or you sent it to yourself).
       audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
@@ -751,6 +821,34 @@ var Game = class {
       this.mode !== "boot" && this.reconnect();
     });
   }
+  /**
+   * The evolution scene, one creature after another; resolves when the last
+   * has finished (or been tapped through). A guard timer ends it regardless,
+   * so a fight is never left on a dark stage.
+   */
+  playEvolutions(list) {
+    return new Promise(res => {
+      let ov = $("#ceremony"), done = !1, guard = 0, c = null;
+      const end = () => {
+        done || (done = !0, clearInterval(guard), ov.classList.add("hidden"), ov.onpointerdown = null, document.body.classList.remove("ceremony"), this.ui.ceremonyLine(""), res());
+      };
+      document.body.classList.add("ceremony"), ov.classList.remove("hidden"), this.ui.ceremonyLine("");
+      c = this.battleView.evolve(list.map(r => ({ from: r.from, into: r.into, star: r.star || 1 })), {
+        charge: st => (audio.sfx("evolveCharge"), vibrate(16), this.ui.ceremonyLine(`מה? ${loc(SPECIES[st.from])} מתפתח!`)),
+        burst: st => (audio.sfx("evolveBurst"), vibrate([30, 40, 90]), this.ui.ceremonyLine(`${loc(SPECIES[st.from])} התפתח ל${loc(SPECIES[st.into])}!`, "big")),
+        done: end
+      });
+      ov.onpointerdown = () => c?.skip();
+      // Ends it if it stops moving (the stage is no longer being drawn), not
+      // after a fixed time: a slow phone runs the scene slower than the clock.
+      let lastT = -1, still = 0, began = Date.now();
+      guard = setInterval(() => {
+        let t = c?.over ? -2 : c?.t ?? -2;
+        t === lastT ? still++ : (still = 0, lastT = t);
+        (t === -2 || still >= 3 || Date.now() - began > 6e4) && (clearInterval(guard), c?.finish(), end());
+      }, 1e3);
+    });
+  }
   /** Replies to the GM panel. Only a GM's session is ever sent these. */
   onGm(t) {
     if (!t) return;
@@ -761,6 +859,7 @@ var Game = class {
     }
     if (t.kind === "players") return this.ui.gmPlayers = t.players || [], this.ui.gmRefresh("players");
     if (t.kind === "log") return this.ui.gmLog = t.rows || [], this.ui.gmRefresh("log");
+    if (t.kind === "economy") return this.ui.gmEconomy = t.report || null, this.ui.gmRefresh("economy");
     if (t.kind === "done") {
       audio.sfx("ui"), this.ui.toast(`✔ ${this.ui.gmSummary(t.op, t.detail, t.to)}`, "good");
       t.op !== "teleport" && this.net.send("gm", { op: "log" });
@@ -895,6 +994,14 @@ var Game = class {
           : "שתף ← הוסף למסך הבית, ואז המשחק ייפתח בלי הדפדפן", "good");
       },
       openSpecies: t => e("card", { species: t }),
+      dailyClaim: () => e("dailyClaim"),
+      arenaView: () => e("arenaView"),
+      arenaQueue: () => e("arenaQueue"),
+      arenaCancel: () => e("arenaCancel"),
+      arenaClaim: () => e("arenaClaim"),
+      guildKick: t => e("guildKick", { id: t }),
+      guildRank: (t, n) => e("guildRank", { id: t, rank: n }),
+      guildSettings: t => e("guildSettings", t),
       gm: (op, data = {}) => e("gm", { ...data, op }),
       gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" })),
       clinicHeal: () => e("clinicHeal"),
@@ -929,8 +1036,9 @@ var Game = class {
         zone: t,
         token: this.net.token
       }),
-      dungeon: t => e("dungeonEnter", {
-        dungeonId: t
+      dungeon: (t, n = "normal") => e("dungeonEnter", {
+        dungeonId: t,
+        tier: n
       }),
       useItem: t => e("useItem", {
         itemId: t
@@ -1006,7 +1114,7 @@ var Game = class {
           team: [t, ...s.filter(r => r !== t)].slice(0, 6)
         });
       },
-      leaderboard: () => this.net.leaderboard("level").catch(() => []),
+      leaderboard: (k = "level") => this.net.leaderboard(k).catch(() => []),
       logout: () => {
         this.net.logout(), location.reload();
       },
@@ -1111,9 +1219,7 @@ var Game = class {
         r.kind === "portal" ? this.net.send("travel", {
           zone: r.to,
           token: this.net.token
-        }) : r.kind === "dungeon" ? this.net.send("dungeonEnter", {
-          dungeonId: r.to
-        }) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
+        }) : r.kind === "dungeon" ? (this.ui.gate = r.to, this.ui.openPanel("gate")) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
           target: r.id || r.kind
         });
       }
@@ -1600,6 +1706,7 @@ function Oc(i) {
     invalid_name: "בחר שם של 2–16 תווים",
     name_taken: "שם הדמות תפוס",
     not_enough_gold: "אין מספיק זהב",
+    daily_taken: "כבר אספת את הפרס של היום — חזור מחר",
     already_in_guild: "אתה כבר בגילדה",
     level_too_low: "הרמה שלך נמוכה מדי",
     too_far: "רחוק מדי",

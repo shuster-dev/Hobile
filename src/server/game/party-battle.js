@@ -15,11 +15,14 @@
 // here follow its `resolve` line by line, so the two settle a wild the same way.
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
-  duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, makeCreature, publicProfile,
+  duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
   statsOf, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
 } from './combat.js';
-import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES } from '../../shared/gamedata.js';
+import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES, skillsFor, statsFor } from '../../shared/gamedata.js';
+import { ARENA } from '../../shared/endgame.js';
 import { weatherAt } from '../../shared/weather.js';
+import { earn, spend } from './economy.js';
+import { eventMul } from '../../shared/events.js';
 import { FIELD } from './field.js';
 
 export const PARTY_BATTLE = {
@@ -29,8 +32,12 @@ export const PARTY_BATTLE = {
 };
 
 export class PartyBattle {
-  constructor({ mode = 'pve', zoneId, wild = null, onEnd = null, broadcast = null } = {}) {
+  constructor({ mode = 'pve', zoneId, wild = null, onEnd = null, broadcast = null, ranked = false, rate = null } = {}) {
     this.mode = mode === 'pvp' ? 'pvp' : 'pve';
+    // a ranked fight (server/arena.js): everyone at the arena's level, and the
+    // result moves both ratings through `rate`
+    this.ranked = this.mode === 'pvp' && !!ranked;
+    this.rate = rate;
     this.zoneId = zoneId;
     this.onEnd = onEnd || (() => {});
     this.broadcast = broadcast || (() => {});
@@ -47,26 +54,32 @@ export class PartyBattle {
       const tier = WILD_TIERS[zoneId] || {};
       this.foe = this.sim.add(new Combatant({
         side: 'b', kind: 'wild', name: SPECIES[wild.species]?.name || wild.species,
-        creature: makeCreature(wild.species, wild.level), scale: tier.scale, ai: tier.ai,
+        creature: makeCreature(wild.species, wild.level, { shinyMul: eventMul('shiny') }), scale: tier.scale, ai: tier.ai,
       }));
       this.foeBaseHp = this.foe.maxHp;
     }
   }
 
   /** A player steps in: their team, and their trainer behind it. */
-  addPlayer(doc, side, emit) {
+  addPlayer(doc, side, emit, { guildBonus = null } = {}) {
     const was = this.parts.get(doc.id);
     if (was && !was.left) { was.emit = emit; return was; }
     const gear = sumStats(doc);
     // A duel is fought at full health and leaves the team as it was: it fights
     // with copies, so nothing it does is written back.
-    const team = teamCreatures(doc).map((c) => (this.mode === 'pvp' ? { ...c, hp: statsOf(c).hp } : c));
+    const team = teamCreatures(doc).map((c) => {
+      if (this.ranked) {
+        const lv = ARENA.level, st = statsFor(c.species, lv, c.iv, c.star || 1, c.nature);
+        return { ...c, level: lv, hp: st.hp, maxHp: st.hp, skills: skillsFor(c.species, lv) };
+      }
+      return this.mode === 'pvp' ? { ...c, hp: statsOf(c).hp } : c;
+    });
     const lead = team.find((c) => c.hp > 0) || team[0] || null;
     const roster = [];
     team.forEach((creature, i) => {
       const c = this.sim.add(new Combatant({
         side, kind: 'creature', name: SPECIES[creature.species]?.name || creature.species,
-        creature, ownerId: doc.id, slot: i, benched: creature !== lead, gearBonus: gear,
+        creature, ownerId: doc.id, slot: i, benched: creature !== lead, gearBonus: gear, guildBonus,
       }));
       roster.push({ id: c.id, uid: creature.uid });
     });
@@ -114,6 +127,7 @@ export class PartyBattle {
     return {
       mode: this.mode,
       duel: this.mode === 'pvp',
+      ranked: this.ranked,
       side: part.side,
       you: this.you(part).id,
       team: part.roster,
@@ -219,7 +233,7 @@ export class PartyBattle {
       const sphere = ITEMS[t.sphere] ? t.sphere : 'sphere_basic';
       if (!takeItem(doc, sphere, 1)) return part.emit('actionRejected', { reason: 'no_sphere' });
       const r = this.sim.trainerAction(you.id, 'sphere', { sphere });
-      if (r.ok) { part.capture = { species: this.foe.species, level: this.foe.level }; this.captureBy = id; }
+      if (r.ok) { part.capture = { species: this.foe.species, level: this.foe.level, traits: inherit(this.foe.creature) }; this.captureBy = id; }
       else { giveItem(doc, sphere, 1); part.emit('actionRejected', { reason: r.reason }); }
       part.emit('inventory', doc.inventory);
     } else if (t.action === 'potion') {
@@ -248,6 +262,11 @@ export class PartyBattle {
     this.resolved = true;
     this.phase = 'over';
     clearInterval(this.timer);
+    // ranked: both ratings move, the one who walked out included
+    if (this.ranked && this.rate) {
+      const a = [...this.parts.values()].find((p) => p.side === 'a'), b = [...this.parts.values()].find((p) => p.side === 'b');
+      if (a && b) this.ratings = this.rate(a.doc, b.doc, e.outcome === 'a' || e.outcome === 'b' ? e.outcome : 'draw');
+    }
     for (const part of this.parts.values()) {
       if (part.left) continue;
       part.emit('battleEnd', this.mode === 'pvp' ? this.settlePvp(part, e) : this.settleWild(part, e));
@@ -265,9 +284,10 @@ export class PartyBattle {
     const o = { outcome: captured && !mine ? 'a' : e.outcome, won: won || (captured && !mine), xp: 0, gold: 0, items: [], events: [], questsDone: [], coop: [...this.parts.values()].filter((p) => !p.left).length > 1 };
     if (n && you?.creature) n.hp = Math.max(0, Math.round(you.hp));
     if (won || captured) {
-      const a = creaturePower(this.foe, t.level), l = creatureScore(this.foe);
-      t.gold += l; o.xp = a; o.gold = l;
-      n && o.events.push(...grantXpTo(n, a));
+      // the season and the guild's fortune each pay their share
+      const a = Math.round(creaturePower(this.foe, t.level) * eventMul('xp') * (1 + (t.guildPerks?.xp || 0))), l = Math.round(creatureScore(this.foe) * eventMul('gold') * (1 + (t.guildPerks?.gold || 0)));
+      earn(t, l, captured ? 'capture' : 'battle'); o.xp = a; o.gold = l;
+      n && o.events.push(...grantXpTo(n, a, t));
       o.events.push(...grantXp(t, Math.floor(a * 0.6)));
       if (won || (captured && !mine)) {
         const sp = this.foe?.creature?.species;
@@ -278,7 +298,7 @@ export class PartyBattle {
         if (Math.random() < 0.2) { giveItem(t, 'potion_s', 1); o.items.push('potion_s'); }
       }
       if (mine) {
-        const c = makeCreature(part.capture.species, part.capture.level);
+        const c = makeCreature(part.capture.species, part.capture.level, part.capture.traits);
         addCreature(t, c); t.stats.captures += 1; o.captured = c;
         const dex = dexRecord(t, c.species, c);
         o.newSpecies = dex.isNew; o.dexCount = dex.caught; o.card = creatureCard(t, c.uid);
@@ -288,7 +308,7 @@ export class PartyBattle {
     } else if (e.outcome !== 'fled') {
       t.stats.deaths += 1;
       const lost = Math.floor(t.gold * 0.02);
-      t.gold = Math.max(0, t.gold - lost); o.gold = -lost; o.blackout = true; healTeam(t, 1); t.pos = null;
+      o.gold = -spend(t, lost, 'blackout'); o.blackout = true; healTeam(t, 1); t.pos = null;
     }
     o.profile = publicProfile(t);
     return o;
@@ -300,11 +320,11 @@ export class PartyBattle {
     const won = e.outcome === part.side, draw = e.outcome === 'draw';
     const foes = [...this.parts.values()].filter((p) => p.side !== part.side);
     const lvl = foes.length ? foes.reduce((s, p) => s + (p.doc.level || 1), 0) / foes.length : 1;
-    const o = { outcome: won ? 'a' : draw ? 'draw' : 'b', won, pvp: true, xp: 0, gold: 0, items: [], events: [], questsDone: [] };
+    const o = { outcome: won ? 'a' : draw ? 'draw' : 'b', won, pvp: true, xp: 0, gold: 0, items: [], events: [], questsDone: [], ranked: this.ratings?.[t.id] || null };
     t.stats.pvpWins = t.stats.pvpWins || 0; t.stats.pvpLosses = t.stats.pvpLosses || 0;
     if (won) {
       o.gold = Math.round(30 + 5 * lvl); o.xp = Math.round(20 + 4 * lvl);
-      t.gold += o.gold;
+      earn(t, o.gold, 'pvp');
       o.events.push(...grantXp(t, o.xp));
       t.stats.pvpWins += 1;
     } else if (!draw) t.stats.pvpLosses += 1;

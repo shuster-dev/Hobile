@@ -4,7 +4,23 @@
 // `mongo` is loaded dynamically, so the mongodb package is only required when
 // DB_DRIVER=mongo — the server starts fine without it installed.
 import fs from 'node:fs';
+import { seasonStamp, weekStamp } from '../shared/endgame.js';
 import path from 'node:path';
+
+// Boards that turn over: the arena by season, the tower and the world bosses
+// by week (shared/endgame.js). A document from last week counts for nothing.
+const LIVE = {
+  arena: { field: 'arena.rating', value: (d) => d.arena?.rating || 0, ok: (d) => d.arena?.season === seasonStamp() && (d.arena?.games || 0) > 0,
+    filter: () => ({ 'arena.season': seasonStamp(), 'arena.games': { $gt: 0 } }) },
+  tower: { field: 'weekly.tower', value: (d) => d.weekly?.tower || 0, ok: (d) => d.weekly?.week === weekStamp(),
+    filter: () => ({ 'weekly.week': weekStamp(), 'weekly.tower': { $gt: 0 } }) },
+  boss: { field: 'weekly.boss', value: (d) => d.weekly?.boss || 0, ok: (d) => d.weekly?.week === weekStamp(),
+    filter: () => ({ 'weekly.week': weekStamp(), 'weekly.boss': { $gt: 0 } }) },
+};
+const row = (d, i) => ({
+  rank: i + 1, id: d.id, name: d.name, level: d.level, gold: d.gold, stats: d.stats,
+  rating: d.arena?.rating || 0, tower: d.weekly?.tower || 0, boss: d.weekly?.boss || 0,
+});
 
 class MemoryStore {
   constructor({ file = process.env.DATA_FILE || '' } = {}) {
@@ -61,17 +77,18 @@ class MemoryStore {
     return null;
   }
   async leaderboard(kind = 'level', limit = 50, exclude = []) {
-    const key = kind === 'gold' ? 'gold' : kind === 'captures' ? null : 'level';
     const skip = new Set(exclude);
-    const rows = [...this.docs.values()].filter((d) => !skip.has(d.id));
-    rows.sort((a, b) => key ? (b[key] || 0) - (a[key] || 0)
-      : (b.stats?.captures || 0) - (a.stats?.captures || 0));
-    return rows.slice(0, limit).map((d, i) => ({
-      rank: i + 1, id: d.id, name: d.name, level: d.level, gold: d.gold, stats: d.stats,
-    }));
+    let rows = [...this.docs.values()].filter((d) => !skip.has(d.id));
+    // the seasonal and weekly boards count only this season's and this week's
+    const live = LIVE[kind];
+    if (live) rows = rows.filter((d) => live.ok(d) && live.value(d) > 0);
+    const value = live ? live.value : kind === 'gold' ? (d) => d.gold || 0 : kind === 'captures' ? (d) => d.stats?.captures || 0 : (d) => d.level || 0;
+    rows.sort((a, b) => value(b) - value(a));
+    return rows.slice(0, limit).map((d, i) => row(d, i));
   }
   async listGuilds() { return [...this.guilds.values()]; }
   async saveGuild(g) { this.guilds.set(g.id, g); this._flush(); return g; }
+  async deleteGuild(id) { this.guilds.delete(id); this._flush(); }
   async logAdmin(row) {
     this.gmLog.push(row);
     if (this.gmLog.length > GM_LOG_KEEP) this.gmLog.splice(0, this.gmLog.length - GM_LOG_KEEP);
@@ -125,6 +142,9 @@ class MongoStore {
     await this.docsC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ level: -1 });
     await this.docsC.createIndex({ gold: -1 });
+    await this.docsC.createIndex({ 'arena.season': 1, 'arena.rating': -1 });
+    await this.docsC.createIndex({ 'weekly.week': 1, 'weekly.tower': -1 });
+    await this.docsC.createIndex({ 'weekly.week': 1, 'weekly.boss': -1 });
     await this.docsC.createIndex({ name: 1 });
     await this.gmLogC.createIndex({ at: -1 });
     return this;
@@ -184,14 +204,16 @@ class MongoStore {
     return d?.id || null;
   }
   async leaderboard(kind = 'level', limit = 50, exclude = []) {
-    const sort = kind === 'gold' ? { gold: -1 } : kind === 'captures' ? { 'stats.captures': -1 } : { level: -1 };
-    const filter = exclude.length ? { id: { $nin: exclude } } : {};
-    const rows = await this.docsC.find(filter, { projection: { _id: 0, id: 1, name: 1, level: 1, gold: 1, stats: 1 } })
+    const live = LIVE[kind];
+    const sort = live ? { [live.field]: -1 } : kind === 'gold' ? { gold: -1 } : kind === 'captures' ? { 'stats.captures': -1 } : { level: -1 };
+    const filter = { ...(exclude.length ? { id: { $nin: exclude } } : {}), ...(live ? live.filter() : {}) };
+    const rows = await this.docsC.find(filter, { projection: { _id: 0, id: 1, name: 1, level: 1, gold: 1, stats: 1, arena: 1, weekly: 1, guildId: 1 } })
       .sort(sort).limit(limit).toArray();
-    return rows.map((d, i) => ({ rank: i + 1, ...d }));
+    return rows.map((d, i) => row(d, i));
   }
   async listGuilds() { return this.guildsC.find({}, { projection: { _id: 0 } }).toArray(); }
   async saveGuild(g) { await this.guildsC.replaceOne({ id: g.id }, g, { upsert: true }); return g; }
+  async deleteGuild(id) { await this.guildsC.deleteOne({ id }); }
   async logAdmin(row) { await this.gmLogC.insertOne({ ...row }); return row; }
   async adminLog(limit = 40) {
     return this.gmLogC.find({}, { projection: { _id: 0 } }).sort({ at: -1 }).limit(limit).toArray();

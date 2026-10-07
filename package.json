@@ -13,7 +13,7 @@
     "qa": "node tools/qa.mjs",
     "shot": "node tools/shot.mjs",
     "start": "node src/server/index.js",
-    "test": "npm run qa && npm run test:server && npm run test:social",
+    "test": "npm run qa && npm run test:server && npm run test:social && npm run test:endgame",
     "test:browser": "node tools/build.mjs --solo && node tools/smoke.mjs",
     "test:camera": "node tools/build.mjs --solo && node tools/camera-test.mjs",
     "test:live": "node tools/session-test.mjs",
@@ -22,6 +22,7 @@
     "test:session": "node tools/build.mjs && node tools/session-test.mjs",
     "test:store": "node tools/store-test.mjs",
     "test:social": "node tools/social-test.mjs",
+    "test:endgame": "node tools/endgame-test.mjs",
     "test:duo": "node tools/build.mjs && node tools/duo-test.mjs"
   },
   "dependencies": {
