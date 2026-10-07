@@ -1794,3 +1794,12 @@ export const FIGURINES = {
 };
 
 export const FIGURINE_IDS = Object.keys(FIGURINES);
+
+// The vocabulary and the body plans, for the second wave of designs
+// (figurine-designs-more.js), which merges its figurines into FIGURINES.
+export {
+  S, E, C, Bx, Tr, paint, carve, mir, horn, tube, plate, crystal, flame, ball, ring,
+  leafShape, boltShape, finShape, heartShape, clover, curl, flameRing, collar, spineSpikes,
+  quad, blob, biped, serpent, bird, featherWing, batWing, bugWing, gearShape, circle, crescent,
+  spineAt, make, add3, lerp3, norm3, FIRE, onPlate,
+};

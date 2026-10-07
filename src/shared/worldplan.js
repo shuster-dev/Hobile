@@ -235,6 +235,18 @@ class Plan {
     return !(this.inWater(x, z) || this.inChasm(x, z) || this.onCliff(x, z));
   }
 
+  /** Can a swimmer be here? Water is fine (not lava), a rock face and the
+   *  chasm are not. */
+  swimmable(x, z) {
+    if (Math.hypot(x, z) > this.half - 3) return false;
+    if (this.deckAt(x, z)) return true;
+    if (this.inChasm(x, z) || this.onCliff(x, z)) return false;
+    return !(this.water?.kind === 'lava' && this.inWater(x, z));
+  }
+
+  /** Can a flyer be here? Anywhere inside the zone. */
+  flyable(x, z) { return Math.hypot(x, z) <= this.half - 3; }
+
   roadAt(x, z) {
     let v = 0;
     for (const r of this.roads) {
@@ -480,15 +492,21 @@ export function planFor(zoneOrId) {
  * feet. A body that is somehow already off the ground (an old save, a GM
  * warp) is let walk out.
  */
-export function stepWithin(zone, colliders, fx, fz, tx, tz, r = 0.5) {
+export function stepWithin(zone, colliders, fx, fz, tx, tz, r = 0.5, mode = 'walk') {
   const P = zone && !zone.urban ? planFor(zone) : null;
+  // in the air nothing on the ground is in the way (shared/riding.js)
+  if (mode === 'fly') {
+    if (!P) return { x: tx, z: tz };
+    return P.flyable(tx, tz) ? { x: tx, z: tz } : { x: fx, z: fz };
+  }
+  const ok = !P ? () => true : mode === 'swim' ? (x, z) => P.swimmable(x, z) : (x, z) => P.walkable(x, z);
   const p = resolveCollision(colliders, tx, tz, r);
-  if (!P || P.walkable(p.x, p.z)) return p;
+  if (ok(p.x, p.z)) return p;
   for (const [x, z] of [[tx, fz], [fx, tz]]) {
     const q = resolveCollision(colliders, x, z, r);
-    if (P.walkable(q.x, q.z)) return q;
+    if (ok(q.x, q.z)) return q;
   }
-  return P.walkable(fx, fz) ? { x: fx, z: fz } : p;
+  return ok(fx, fz) ? { x: fx, z: fz } : p;
 }
 
 /** Can a wild (or a returning player) be put down here? */

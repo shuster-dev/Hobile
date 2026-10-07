@@ -1,7 +1,7 @@
 import { Room } from '@colyseus/core';
 import { earn } from '../game/economy.js';
 import { WorldState, PlayerState, WildState, BossContributor } from '../state.js';
-import { engageWild, handleWorldMessage, speakTo, visitCheck } from '../game/world-messages.js';
+import { engageWild, handleWorldMessage, restoreRide, speakTo, visitCheck } from '../game/world-messages.js';
 import { hpRatio } from '../game/player.js';
 import {
   HOME_ZONE, ZONES, SPECIES, WORLD_BOSSES, PROGRESSION,
@@ -176,6 +176,8 @@ export class WorldRoom extends Room {
     this.state.players.set(client.sessionId, p);
     this.docsBySession.set(client.sessionId, doc);
     this.ctxBySession.set(client.sessionId, this.makeContext(client, doc, user));
+    // back on whatever was carrying them (shared/riding.js)
+    restoreRide(this.ctxBySession.get(client.sessionId), p, doc);
     // online: friends see you here, your party sees where you are
     Social.attach(doc, `world:${this.roomId}:${client.sessionId}`, {
       send: (e, d) => client.send(e, d), where: 'world', zone: this.zoneId,

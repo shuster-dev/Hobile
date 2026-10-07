@@ -19,7 +19,7 @@ import { stepWithin } from '../../shared/worldplan.js';
 import {
   acceptQuest, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
   collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
-  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView, atFarm,
+  startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView, atFarm, assignWorker, unassignWorker, collectWork, isWorker,
 } from './combat.js';
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
@@ -27,7 +27,9 @@ import { handleGm } from './gm.js';
 import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
 import { TIER_IDS, TOWER, canEnter, weekly } from '../../shared/endgame.js';
+import { mountKind, moveMode } from '../../shared/riding.js';
 import * as Social from '../social.js';
+import { sceneSeen, storyFoe } from './saga.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
 // 20 a second and a sprint is about 7 m/s, so 3m leaves generous headroom for
@@ -134,6 +136,21 @@ function announce(ctx, done) {
 }
 const teamCreaturesOf = (doc) => (doc.team || []).map((u) => doc.creatures?.[u]).filter(Boolean);
 
+/** Put a rider up (or down): on the context the moves are judged by, the
+ *  state everyone sees, and the document, so it lasts past a fight. */
+export function setRide(ctx, self, doc, ride) {
+  ctx.ride = ride;
+  doc.riding = ride?.uid || null;
+  if (self) { self.mount = ride?.species || ''; self.mountKind = ride?.kind || ''; self.mountStar = ride?.star || 1; }
+}
+
+/** Back in the world: on the one they were riding, if it can still carry them. */
+export function restoreRide(ctx, self, doc) {
+  const c = doc.riding && doc.team?.includes(doc.riding) ? doc.creatures?.[doc.riding] : null;
+  const kind = c && c.hp > 0 && mountKind(c.species, c.star || 1);
+  setRide(ctx, self, doc, kind ? { uid: c.uid, species: c.species, star: c.star || 1, kind } : null);
+}
+
 export function handleWorldMessage(ctx, e, t = {}) {
       let n = ctx.doc,
         s = ctx.self(),
@@ -160,7 +177,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             tz = Math.max(-half, Math.min(half, tz));
             // ...and never into the river, up a cliff or over the chasm
             // (worldplan.js): the same step the client predicts with
-            let o = stepWithin(ctx.zone, ctx.colliders, s.x, s.z, tx, tz, 0.42);
+            let o = stepWithin(ctx.zone, ctx.colliders, s.x, s.z, tx, tz, 0.42, moveMode(ctx.ride?.kind));
             // The client reports ~12 times a second whether or not the stick
             // is held, so "stepped" is a real change of place, not a packet.
             (t.moving || Math.hypot(o.x - s.x, o.z - s.z) > 0.05) && (ctx.lastStepAt = r);
@@ -182,6 +199,25 @@ export function handleWorldMessage(ctx, e, t = {}) {
           break;
         case "gm":
           handleGm(ctx, t);
+          break;
+        case "ride":
+          {
+            // up on a creature of the team, or down off it (shared/riding.js)
+            let want = typeof t.uid === "string" ? t.uid : null;
+            if (!want) {
+              if (!ctx.ride) break;
+              // not out over the water, not in mid-air over a cliff
+              let ok = stepWithin(ctx.zone, ctx.colliders, s.x, s.z, s.x, s.z, 0.42, "walk");
+              if (Math.hypot(ok.x - s.x, ok.z - s.z) > 0.05) return ctx.net.emit("error", { code: "cannot_land" });
+              setRide(ctx, s, n, null), ctx.net.save(), ctx.net.emit("ride", null);
+              break;
+            }
+            if (ctx.inside) return ctx.net.emit("error", { code: "not_here" });
+            let c = n.team?.includes(want) ? n.creatures?.[want] : null, kind = c && mountKind(c.species, c.star || 1);
+            if (!c || !kind) return ctx.net.emit("error", { code: "cannot_ride" });
+            if (c.hp <= 0) return ctx.net.emit("error", { code: "fainted" });
+            setRide(ctx, s, n, { uid: c.uid, species: c.species, star: c.star || 1, kind }), ctx.net.save(), ctx.net.emit("ride", ctx.ride);
+          }
           break;
         case "dailyClaim":
           {
@@ -216,6 +252,21 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "engage":
           engageWild(ctx, typeof t.wildId == "string" ? t.wildId : "");
+          break;
+        case "storyFight":
+          {
+            // an anchor's guardian, or the rift's on the pier (shared/saga.js)
+            let a = activeCreature(n);
+            if (!a || a.hp <= 0) return ctx.net.emit("error", { code: "no_healthy_creature" });
+            if (r < (ctx.battlePending || 0)) return;
+            let f = storyFoe(n, typeof t?.id == "string" ? t.id : "", ctx.zoneId, s);
+            if (f.error) return ctx.net.emit("error", { code: f.error });
+            ctx.battlePending = r + FIELD.pendingMs;
+            ctx.startBattle({ zoneId: ctx.zoneId, wild: f.foe, story: f.foe.story, onEnd: () => { ctx.battlePending = 0; } });
+            break;
+          }
+        case "sceneSeen":
+          sceneSeen(n, t?.id) && ctx.net.save();
           break;
         case "duel":
         case "duelAccept":
@@ -366,6 +417,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // Park the player in the doorway so stepping back out is sensible.
             s.x = a.x, s.z = a.z, s.moving = !1, s.status = "inside", keepSpot(n, ctx.zoneId, s);
             ctx.inside = o.interior;
+            // nobody rides in through a door
+            ctx.ride && (setRide(ctx, s, n, null), ctx.net.emit("ride", null));
             ctx.net.emit("building", {
               id: o.interior,
               kind: o.kind,
@@ -410,8 +463,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
         case "baseCollect":
         case "baseCancel":
         case "baseCraft":
+        case "baseWork":
+        case "baseUnwork":
+        case "baseCollectWork":
           {
             let o = {
+              baseWork: () => assignWorker(n, String(t?.uid || ""), String(t?.job || "")),
+              baseUnwork: () => unassignWorker(n, String(t?.uid || "")),
+              baseCollectWork: () => collectWork(n),
               baseBuild: () => upgradeBuilding(n, t.id),
               baseTrain: () => startTraining(n, t.uid),
               baseCollect: () => collectTraining(n, t.slotId),
@@ -446,6 +505,10 @@ export function handleWorldMessage(ctx, e, t = {}) {
               started: o.slot
             } : e === "baseCraft" ? {
               craft: o.job
+            } : e === "baseWork" ? {
+              hired: o.worker, ...(Object.keys(o.got).length ? { worked: o.got } : {})
+            } : e === "baseUnwork" || e === "baseCollectWork" ? {
+              worked: o.got
             } : {};
             ctx.net.emit("base", {
               ...baseView(n),
@@ -498,6 +561,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
           {
             let o = (t.team || []).filter(l => typeof l == "string" && n.creatures[l] && !atFarm(n, l)).slice(0, 6);
             if (!o.length) return;
+            // a worker called into the team leaves its job (and is paid for it)
+            for (let l of o) isWorker(n, l) && unassignWorker(n, l);
             let a = new Set([...n.team, ...n.box]);
             n.team = o, n.box = [...a].filter(l => !o.includes(l)), petOf(s, n), s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
             break;

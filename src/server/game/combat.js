@@ -2,6 +2,7 @@ import { heldProgress, questState } from '../../shared/story.js';
 import { ABILITIES, NATURES, rollAbility, rollNature } from '../../shared/traits.js';
 import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
+import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwork.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
@@ -1045,6 +1046,12 @@ function dexView(doc) {
 
 function normalizeDoc(i) {
   ensureQuests(i);
+  // The main story grew (shared/saga.js): one who finished what there was
+  // picks it up again at the next step.
+  if (i.quests.done.length && !MAIN_QUEST_IDS.some(k => i.quests.active[k])) {
+    let next = MAIN_QUEST_IDS.find((k, n) => !i.quests.done.includes(k) && (n === 0 || i.quests.done.includes(MAIN_QUEST_IDS[n - 1])));
+    next && i.quests.done.includes(MAIN_QUEST_IDS[0]) && (i.quests.active[next] = { progress: 0 });
+  }
   // Training used to leave a creature in the team. Now it is at the farm:
   // move any that are in a pod out of the team and the box — keeping one
   // in the team to walk with you — and put back any that belong nowhere.
@@ -1171,7 +1178,13 @@ function claimQuest(i, e) {
   if (!s || !s.done || s.claimed) return null;
   s.claimed = !0, earn(i, questGold(t, i.level), "quest");
   for (let [o, a] of t.reward.items || []) giveItem(i, o, a);
-  let r = grantXp(i, t.reward.xp || 0);
+  let r = grantXp(i, t.reward.xp || 0),
+    gift = null;
+  // a story step may end with someone joining you (shared/saga.js)
+  if (t.reward.creature && SPECIES[t.reward.creature.species]) {
+    let c = makeCreature(t.reward.creature.species, t.reward.creature.level || 5);
+    addCreature(i, c), dexRecord(i, c.species, c), gift = creatureCard(i, c.uid);
+  }
   if (t.chain === "main") {
     delete i.quests.active[e], i.quests.done.includes(e) || i.quests.done.push(e);
     let o = MAIN_QUEST_IDS.indexOf(e),
@@ -1184,7 +1197,8 @@ function claimQuest(i, e) {
   t.chain === "zone" && (delete i.quests.active[e], i.quests.done.includes(e) || i.quests.done.push(e), activateZoneQuests(i, t.goal.zone));
   return {
     reward: t.reward,
-    events: r
+    events: r,
+    creature: gift
   };
 }
 
@@ -1201,7 +1215,10 @@ function publicProfile(i) {
     trainerHp: i.trainerHp ?? trainerMaxHp(i),
     trainerMaxHp: trainerMaxHp(i),
     team: teamCreatures(i),
-    box: (i.box || []).map(e => creatureOf(i, e)).filter(Boolean),
+    box: (i.box || []).map(e => {
+      let c = creatureOf(i, e), w = i.base?.workers?.find(x => x.uid === e);
+      return c && (w ? { ...c, job: w.job } : c);
+    }).filter(Boolean),
     // in a pod at the farm: not in the team or the box until they come back
     away: (i.base?.training || []).map(e => {
       let t = creatureOf(i, e.uid);
@@ -1221,7 +1238,9 @@ function publicProfile(i) {
     // endgame (shared/endgame.js): ranked season, this week's numbers, bests
     arena: arenaView(i),
     weekly: { ...weekly(i) },
-    records: i.records || {}
+    records: i.records || {},
+    // the end of the story (shared/saga.js): scenes watched, anchors broken
+    story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] }
   };
 }
 
@@ -1254,6 +1273,12 @@ function baseOf(i) {
   for (let n of Object.keys(BUILDINGS)) (t = e.buildings)[n] ?? (t[n] = 0);
   e.training || (e.training = []), e.crafts || (e.crafts = []), e.gardenAt || (e.gardenAt = Date.now());
   for (let n of Object.values(i.creatures || {})) n.star ?? (n.star = 1);
+  // workers are in the box: one that left it (traded, in the team, in a pod) stops
+  if (!Array.isArray(e.workers)) e.workers = [];
+  if (e.workers.length) {
+    let seen = new Set();
+    e.workers = e.workers.filter(w => w && JOBS[w.job] && i.creatures?.[w.uid] && (i.box || []).includes(w.uid) && !seen.has(w.uid) && seen.add(w.uid));
+  }
   return e;
 }
 
@@ -1372,6 +1397,8 @@ function startTraining(i, e, t = Date.now()) {
     ok: !1,
     reason: "cannot_afford"
   };
+  // off its job and into a pod: what it made so far is paid
+  isWorker(i, e) && unassignWorker(i, e, t);
   let o = {
     id: uid().slice(0, 8),
     uid: e,
@@ -1383,8 +1410,13 @@ function startTraining(i, e, t = Date.now()) {
   };
   if (from === "team") {
     team.splice(pos, 1);
-    // someone has to walk beside you: the first in the box steps up
-    if (!team.length && box.length) team.push(box.shift());
+    // someone has to walk beside you: the first in the box steps up (one
+    // that is not at work if there is one; a worker leaves its job, paid)
+    if (!team.length && box.length) {
+      let k = Math.max(0, box.findIndex(a => !isWorker(i, a)));
+      isWorker(i, box[k]) && unassignWorker(i, box[k], t);
+      team.push(box.splice(k, 1)[0]);
+    }
   } else if (from === "box") box.splice(pos, 1);
   return n.training.push(o), {
     ok: !0,
@@ -1457,7 +1489,7 @@ function recipesAt(i, e) {
       gold: n.gold,
       items: n.inputs
     }),
-    mins: Math.round(n.mins / (buildingEffect(i, e)?.speed || 1))
+    mins: Math.round(n.mins / ((buildingEffect(i, e)?.speed || 1) * workBoost(i, "forge")))
   }));
 }
 
@@ -1492,7 +1524,7 @@ function startCraft(i, e, t = Date.now()) {
     ok: !1,
     reason: "cannot_afford"
   };
-  let o = buildingEffect(i, n.at)?.speed || 1,
+  let o = (buildingEffect(i, n.at)?.speed || 1) * workBoost(i, "forge"),
     a = Math.round(n.mins * 60 * 1e3 / o),
     l = {
       id: uid().slice(0, 8),
@@ -1524,12 +1556,122 @@ function gardenYield(i, e = Date.now()) {
   let t = buildingEffect(i, "garden");
   if (!t) return 0;
   let n = Math.min(t.capHours, (e - (baseOf(i).gardenAt || e)) / HOUR_MS);
-  return Math.floor(n * t.perHour);
+  return Math.floor(n * t.perHour * workBoost(i, "garden"));
 }
 
 function collectGarden(i, e = Date.now()) {
   let t = gardenYield(i, e);
   return baseOf(i).gardenAt = e, t > 0 && giveItem(i, "fiber", t), t;
+}
+
+/* ---- Work at the farm (shared/farmwork.js) ----
+ * A creature from the box put to a job keeps doing it while you are away:
+ * base.workers = [{uid, job, since, carry}]. What it turned out since `since`
+ * (up to WORK.capHours) waits to be collected; the part of an item not yet
+ * whole is carried to the next time, so a slow trickle is never lost. */
+function workersOf(i) {
+  return baseOf(i).workers;
+}
+
+function isWorker(i, e) {
+  return !!i?.base?.workers?.some(w => w.uid === e);
+}
+
+/** The garden's yield and the forge's speed, with their workers. */
+function workBoost(i, job) {
+  let n = (i?.base?.workers || []).filter(w => w.job === job).length;
+  return job === "garden" ? 1 + WORK.gardenBoost * n : job === "forge" ? 1 + WORK.forgeBoost * n : 1;
+}
+
+function workerYield(i, w, e = Date.now()) {
+  let c = creatureOf(i, w.uid);
+  if (!c) return { hours: 0, out: {} };
+  let h = Math.min(WORK.capHours, Math.max(0, (e - (w.since ?? e)) / HOUR_MS)),
+    rate = workRate(w.job, c, SPECIES[c.species]?.types || []),
+    out = {};
+  for (let [k, v] of Object.entries(rate)) out[k] = v * h + (w.carry?.[k] || 0);
+  return { hours: h, out, rate };
+}
+
+/** What a worker made goes into `got`; it starts over from `e`. */
+function settleWorker(i, w, e, got) {
+  let { out } = workerYield(i, w, e);
+  w.carry = {};
+  for (let [k, v] of Object.entries(out)) {
+    let n = Math.floor(v + 1e-9);
+    n > 0 && (got[k] = (got[k] || 0) + n);
+    let r = v - n;
+    r > 1e-3 && (w.carry[k] = Math.round(r * 1e3) / 1e3);
+  }
+  w.since = e;
+}
+
+function payWork(i, got) {
+  for (let [k, n] of Object.entries(got)) k === "gold" ? earn(i, n, "farm") : giveItem(i, k, n);
+  return got;
+}
+
+function assignWorker(i, e, job, t = Date.now()) {
+  let b = baseOf(i),
+    c = creatureOf(i, e);
+  if (!c) return { ok: !1, reason: "no_creature" };
+  if (!(i.box || []).includes(e)) return { ok: !1, reason: "not_in_box" };
+  job = JOBS[job] ? job : bestJob(SPECIES[c.species]?.types || []);
+  let w = b.workers.find(x => x.uid === e);
+  if (w) {
+    // a new job: what it did at the old one is paid first
+    let got = {};
+    return settleWorker(i, w, t, got), w.job = job, w.carry = {}, { ok: !0, worker: w, got: payWork(i, got) };
+  }
+  if (b.workers.length >= workerSlots(b.buildings)) return { ok: !1, reason: "no_work_slot" };
+  w = { uid: e, job, since: t, carry: {} };
+  return b.workers.push(w), { ok: !0, worker: w, got: {} };
+}
+
+function unassignWorker(i, e, t = Date.now()) {
+  let b = baseOf(i),
+    n = b.workers.findIndex(x => x.uid === e);
+  if (n < 0) return { ok: !1, reason: "not_working" };
+  let got = {};
+  return settleWorker(i, b.workers[n], t, got), b.workers.splice(n, 1), { ok: !0, got: payWork(i, got) };
+}
+
+function collectWork(i, e = Date.now()) {
+  let got = {};
+  for (let w of baseOf(i).workers) settleWorker(i, w, e, got);
+  return { ok: !0, got: payWork(i, got) };
+}
+
+function workView(i, e = Date.now()) {
+  let b = baseOf(i);
+  return {
+    slots: workerSlots(b.buildings),
+    capHours: WORK.capHours,
+    garden: workBoost(i, "garden"),
+    forge: workBoost(i, "forge"),
+    workers: b.workers.map(w => {
+      let c = creatureOf(i, w.uid),
+        y = workerYield(i, w, e),
+        ready = {};
+      for (let [k, v] of Object.entries(y.out)) {
+        let n = Math.floor(v + 1e-9);
+        n > 0 && (ready[k] = n);
+      }
+      return {
+        uid: w.uid,
+        job: w.job,
+        species: c?.species,
+        level: c?.level,
+        star: c?.star || 1,
+        shiny: !!c?.shiny,
+        name: c?.nickname || null,
+        hours: Math.round(y.hours * 10) / 10,
+        full: y.hours >= WORK.capHours,
+        perHour: Object.fromEntries(Object.entries(y.rate || {}).map(([k, v]) => [k, Math.round(v * 10) / 10])),
+        ready
+      };
+    })
+  };
 }
 
 function baseView(i, e = Date.now()) {
@@ -1582,8 +1724,9 @@ function baseView(i, e = Date.now()) {
     freeSlots: freeTrainingSlots(i),
     garden: {
       ready: gardenYield(i, e),
-      perHour: buildingEffect(i, "garden")?.perHour || 0
+      perHour: Math.round((buildingEffect(i, "garden")?.perHour || 0) * workBoost(i, "garden") * 10) / 10
     },
+    work: workView(i, e),
     recipes: {
       refinery: recipesAt(i, "refinery"),
       workshop: recipesAt(i, "workshop")
@@ -1681,4 +1824,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { WEATHER_BOOST, inherit, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

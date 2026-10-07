@@ -1,14 +1,17 @@
-import { AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
+import { Box3, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
 import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { setStarLook } from './starlook.js';
 import { Incubators } from './incubator.js';
-import { FIGURINES } from './figurine-designs.js';
+import { FarmWorkers } from './farmworkers.js';
+import { SagaStage } from './saga-fx.js';
+import { FIGURINES } from './figurine-designs-more.js';
 import { template as figurineTemplate } from './figurine.js';
 import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { NPCS, npcList } from '../../shared/npcs.js';
 import { planFor } from '../../shared/worldplan.js';
+import { RIDE } from '../../shared/riding.js';
 import { buildPlanArt } from './zoneart.js';
 import { buildWater, splitByChunks } from './zonekit.js';
 import { BLOCK, CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, PLAZA, SIDEWALK, STREET_Y, TAU_G, blockGrid, curbHeight, fbm, gridOffset, hash, heightAt, mixHex, plazaHeight, plazaOf, propsFor, resolveCollision, rng, smoothBand } from '../../shared/props.js';
@@ -3469,6 +3472,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
   $_ = new Vector3(),
   X_ = new Vector3(),
   LOOK_ = new Vector3(),
+  CINE_LOOK = new Vector3(),
   eo = new Vector3(),
   WorldView = class {
     constructor(e) {
@@ -3537,7 +3541,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.farmWorkers = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3554,14 +3558,19 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     /** Your farm's training pods (incubator.js): drawn from your own base,
      *  which `setBase` hands over whenever the server sends it. */
     buildIncubators() {
-      this.incubators = null;
+      this.incubators = null, this.farmWorkers = null;
       if (!this.zone?.landmarks?.some((l) => l.kind === "base")) return;
       this.incubators = new Incubators(this);
       this.zoneGroup.add(this.incubators.group);
       this._base && this.incubators.sync(this._base);
+      // and the ones from the box at work in the yard (farmworkers.js)
+      this.farmWorkers = new FarmWorkers(this);
+      this.zoneGroup.add(this.farmWorkers.group);
+      this._base && this.farmWorkers.sync(this._base.work);
     }
     setBase(base, starUp) {
       this._base = base;
+      this.farmWorkers?.sync(base?.work);
       if (!this.incubators) return !1;
       // only if you are there to see it come out
       let me = this.selfPosition?.(), out = !!starUp && !!me && !this._inside && this.incubators.near(me.x, me.z, 22) !== null && this.incubators.emerge(starUp);
@@ -5199,6 +5208,38 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         lag: new Vector3()
       };
     }
+    /**
+     * Up on a creature (shared/riding.js): the creature under the trainer at
+     * a size that can carry one, the trainer sat on its back, the pet that
+     * walks behind put away. In the air the two of them ride above their
+     * shadow; on the water, at the surface.
+     */
+    setMount(e, species, kind, star = 1) {
+      species ||= "";
+      if ((e.mount?.species || "") === species && (e.mount?.star || 1) === star && (e.mount?.kind || "") === (kind || "")) return;
+      e.mount && (e.holder.remove(e.mount.holder), disposeTree(e.mount.holder), e.mount = null);
+      e.group.userData.riding = !1, e.group.userData.baseY = 0;
+      if (!species || !SPECIES[species] || !RIDE[kind]) return;
+      let g = setStarLook(buildCreature(species, { outline: !0 }), star),
+        box = new Box3().setFromObject(g),
+        h = Math.max(0.3, box.max.y), len = Math.max(box.max.z - box.min.z, box.max.x - box.min.x, 0.4),
+        // big enough to carry a person: about a metre and a half at the back
+        want = kind === "fly" ? 1.9 : kind === "swim" ? 2.1 : 2.2,
+        k = Math.min(3, Math.max(0.6, want / len));
+      g.scale.multiplyScalar(k);
+      let holder = new Group();
+      holder.add(g), e.holder.add(holder);
+      // the saddle: the top of its back, a little behind the middle
+      let saddle = h * k * (kind === "fly" ? 0.62 : 0.78);
+      e.mount = { species, kind, star, holder, group: g, saddle, lift: RIDE[kind].lift || 0 };
+      e.group.userData.riding = !0;
+    }
+    /** The height a body stands at here, for how it is travelling. */
+    rideY(a, x, z) {
+      let y = this.heightAt(x, z);
+      if (a?.mount?.kind === "swim" && this.plan?.water && this.plan.water.kind !== "lava") y = Math.max(y, this.plan.level - 0.35);
+      return y;
+    }
     removeActor(e) {
       let t = this.actors.get(e);
       t && (this.scene.remove(t.holder), disposeTree(t.holder), this.actors.delete(e));
@@ -5208,7 +5249,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     }
     setActorTarget(e, t, n, s, r) {
       let o = this.actors.get(e);
-      o && (o.target.set(t, this.heightAt(t, n), n), o.rotTarget = s, o.moving = r);
+      o && (o.target.set(t, this.rideY(o, t, n), n), o.rotTarget = s, o.moving = r);
     }
     setSelf(e) {
       this.self = e;
@@ -5231,7 +5272,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let t = this.selfActor();
       if (!t || this._inside) return this.camYaw = prefer;
       let n = t.holder.position,
-        s = V_.set(n.x, n.y + 1.35, n.z),
+        // a rider sits higher, a flyer much higher: the camera goes with them
+        s = V_.set(n.x, n.y + 1.35 + (t.mount ? t.mount.lift + t.mount.saddle * 0.6 : 0), n.z),
         clear = (yaw, h) => {
           let o = q_.set(-Math.sin(yaw) * this.camDist, h, -Math.cos(yaw) * this.camDist),
             a = o.length(),
@@ -5259,7 +5301,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     }
     snapSelf(e, t) {
       let n = this.selfActor();
-      n && (n.holder.position.set(e, this.heightAt(e, t), t), n.target.copy(n.holder.position));
+      n && (n.holder.position.set(e, this.rideY(n, e, t), t), n.target.copy(n.holder.position));
     }
     moveSelf(e, t, n) {
       let s = this.selfActor();
@@ -5267,10 +5309,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let r = (this.zone?.size || 100) / 2 - 1,
         o = s.holder.position.x + e * n,
         a = s.holder.position.z + t * n;
-      return ({
+      // in the air nothing on the ground is in the way
+      return s.mount?.kind !== "fly" && ({
         x: o,
         z: a
-      } = resolveCollision(this.colliders, o, a, SUN_STRENGTH)), this._inside || (o = MathUtils.clamp(o, -r, r), a = MathUtils.clamp(a, -r, r)), s.holder.position.set(o, this.heightAt(o, a), a), s.target.copy(s.holder.position), e || t ? (s.rotTarget = Math.atan2(e, t), s.moving = !0) : s.moving = !1, {
+      } = resolveCollision(this.colliders, o, a, SUN_STRENGTH)), this._inside || (o = MathUtils.clamp(o, -r, r), a = MathUtils.clamp(a, -r, r)), s.holder.position.set(o, this.rideY(s, o, a), a), s.target.copy(s.holder.position), e || t ? (s.rotTarget = Math.atan2(e, t), s.moving = !0) : s.moving = !1, {
         x: o,
         z: a,
         rot: s.rotTarget,
@@ -5291,7 +5334,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         return;
       }
       let r = Math.min(0.25, s * 0.05);
-      n.holder.position.x += (e - n.holder.position.x) * r, n.holder.position.z += (t - n.holder.position.z) * r, n.holder.position.y = this.heightAt(n.holder.position.x, n.holder.position.z), n.target.copy(n.holder.position);
+      n.holder.position.x += (e - n.holder.position.x) * r, n.holder.position.z += (t - n.holder.position.z) * r, n.holder.position.y = this.rideY(n, n.holder.position.x, n.holder.position.z), n.target.copy(n.holder.position);
     }
     ring(e, t = 16777215, n = 1) {
       let s = new Mesh(new RingGeometry(0.45, 0.62, 28), glowMat(t, 0.95));
@@ -5321,7 +5364,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         n && (n.group.rotation.y = Math.atan2(this.camera.position.x - n.group.position.x, this.camera.position.z - n.group.position.z));
       }
       for (let n of this.portalRings || []) n.arch.rotation.z += e * 0.5, n.veil && (n.veil.material.opacity = 0.22 + Math.sin(this.time * 2) * 0.08);
-      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1), this.incubators && !this._inside && this.incubators.update(e, t, this.camera);
+      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1), this.incubators && !this._inside && this.incubators.update(e, t, this.camera), this.farmWorkers && !this._inside && this.farmWorkers.update(e, t, this.camera), this._saga && (this._saga.group.visible = !this._inside, this._saga.update(e, t));
       {
         // the one coming out of its pod is not at your heel yet
         let em = this.incubators?.emerging(), me = this.selfActor();
@@ -5340,9 +5383,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           gv = n._lp ? Math.hypot(gp.x - n._lp.x, gp.z - n._lp.z) / Math.max(e, 1e-3) : 0;
         n._gs = (n._gs || 0) + (Math.min(12, gv) - (n._gs || 0)) * Math.min(1, e * 8), (n._lp ||= gp.clone()).copy(gp), n.group.userData.groundSpeed = n._gs;
         let dc = n.holder.position.distanceTo(this.camera.position), seen = n.key === this.self || dc < figureFar();
-        n.group.visible = seen, n.pet && (n.pet.group.visible = seen);
+        n.group.visible = seen, n.pet && (n.pet.group.visible = seen), n.mount && (n.mount.holder.visible = seen);
         if (!seen) continue;
-        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet) {
+        if (n.mount) {
+          // the creature under them walks (or swims, or beats its wings) and
+          // they sit on it; in the air the pair rides above the shadow
+          let M = n.mount, bob = M.kind === "fly" ? Math.sin(this.time * 1.6 + (n.key?.length || 0)) * 0.18 : M.kind === "swim" ? Math.sin(this.time * 2.2) * 0.05 : 0;
+          M.holder.position.y = M.lift + bob, M.group.userData.groundSpeed = n._gs, M.group.userData.baseY = 0;
+          animateCreature(M.group, t + 300, n.moving || M.kind === "fly", M.kind === "fly" ? 1.4 : 1);
+          n.group.userData.ridingMoving = n.moving;
+        }
+        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = n.mount ? n.mount.lift + n.mount.saddle - (n.group.userData.height || 1.4) * 0.36 + (n.mount.holder.position.y - n.mount.lift) : 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet && (n.pet.holder.visible = !n.mount), n.pet && !n.mount) {
           let o = new Vector3(-1.35, 0, -1.45);
           n.pet._lp ||= n.pet.lag.clone();
           let pv;
@@ -5437,9 +5488,24 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       let t = this.selfActor();
       if (!t) return;
       let n = t.holder.position;
+      // A scene of the story (client/cutscene.js): the camera on a path of
+      // its own, from one place to another, looking from one thing to the next.
+      if (this.cinema) {
+        let c = this.cinema;
+        c.t = Math.min(c.dur, c.t + e), t.holder.visible = !0;
+        let k = c.t / c.dur, w = k * k * (3 - 2 * k);
+        this.camera.position.lerpVectors(c.from, c.to, w), CINE_LOOK.lerpVectors(c.look, c.lookTo || c.look, w);
+        if (this._shake > 0) {
+          this._shake = Math.max(0, this._shake - e);
+          let a = Math.min(1, this._shake) * (c.shakeAmp || 0.25);
+          this.camera.position.x += (Math.random() - 0.5) * a, this.camera.position.y += (Math.random() - 0.5) * a, CINE_LOOK.x += (Math.random() - 0.5) * a * 0.6;
+        }
+        this.camera.lookAt(CINE_LOOK);
+        return;
+      }
       if (this.viewMode === "first") {
         t.holder.visible = !1;
-        let f = new Vector3(n.x, n.y + 1.62, n.z);
+        let f = new Vector3(n.x, n.y + 1.62 + (t.mount ? t.mount.lift + t.mount.saddle * 0.8 : 0), n.z);
         f.x -= Math.sin(this.camYaw) * 0.16, f.z -= Math.cos(this.camYaw) * 0.16, this.camera.position.lerp(f, Math.min(1, e * 22));
         // Look the way the stick walks: forward is (sin yaw, cos yaw) in both
         // views. This used to look back along the third-person camera's arm,
@@ -5519,6 +5585,49 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       u.y = Math.max(u.y, this.heightAt(u.x, u.z) + 1.1), this._inside && (u.y = Math.min(u.y, this._inside.floorY + this._inside.room.dims.h - 0.35));
       let ahead = this._inside ? 0 : CAM_LEAD;
       this.camera.lookAt(LOOK_.set(n.x + fx * ahead, n.y + 1.1, n.z + fz * ahead));
+    }
+    /**
+     * One shot of a story scene (shared/saga.js SCENES `shot`). Framed on the
+     * player as they stood when the scene began: `basis` is that spot and the
+     * way they faced. In the port the rift is up over the harbour; anywhere
+     * else a shot of it looks up at the sky instead.
+     */
+    cinemaShot(kind, basis, dur = 6) {
+      let p = basis.p, f = basis.f, r = { x: f.z, z: -f.x }, V = (x, y, z) => new Vector3(x, y, z),
+        rift = this.city?.rift ? this.city.rift.group.position : null,
+        prev = this.cinema ? this.camera.position.clone() : null,
+        shot;
+      if (kind === "self") {
+        shot = { from: V(p.x + f.x * 3.8 + r.x * 0.6, p.y + 1.75, p.z + f.z * 3.8 + r.z * 0.6), to: V(p.x + f.x * 3.0 + r.x * 0.4, p.y + 1.65, p.z + f.z * 3.0 + r.z * 0.4), look: V(p.x, p.y + 1.45, p.z) };
+      } else if (kind === "holo") {
+        let h = basis.holo || { x: p.x + f.x * 4.2, z: p.z + f.z * 4.2 }, hy = this.heightAt(h.x, h.z);
+        shot = { from: V(p.x - f.x * 2.4 + r.x * 1.1, p.y + 2.1, p.z - f.z * 2.4 + r.z * 1.1), to: V(p.x - f.x * 1.8 + r.x * 0.9, p.y + 1.9, p.z - f.z * 1.8 + r.z * 0.9), look: V(h.x, hy + 1.5, h.z) };
+      } else if ((kind === "rift" || kind === "sky") && rift) {
+        let d = Math.hypot(rift.x - p.x, rift.z - p.z) || 1, ux = (rift.x - p.x) / d, uz = (rift.z - p.z) / d;
+        shot = kind === "rift"
+          ? { from: V(p.x - ux * 3, p.y + 2.2, p.z - uz * 3), to: V(p.x - ux * 1.5, p.y + 2.6, p.z - uz * 1.5), look: V(rift.x, rift.y * 0.85, rift.z), lookTo: V(rift.x, rift.y, rift.z) }
+          : { from: V(p.x - ux * 6 + uz * 2, p.y + 1.4, p.z - uz * 6 - ux * 2), to: V(p.x - ux * 5 + uz * 1, p.y + 2.4, p.z - uz * 5 - ux * 1), look: V(p.x, p.y + 1.6, p.z), lookTo: V(rift.x, rift.y * 0.7, rift.z) };
+      } else if (kind === "rift" || kind === "sky") {
+        shot = { from: V(p.x - f.x * 6, p.y + 1.3, p.z - f.z * 6), to: V(p.x - f.x * 5, p.y + 2.2, p.z - f.z * 5), look: V(p.x, p.y + 1.6, p.z), lookTo: V(p.x + f.x * 40, p.y + 26, p.z + f.z * 40) };
+      } else {
+        // 'orbit': slowly round the player
+        let a0 = Math.atan2(f.x, f.z) + 0.9, a1 = a0 + 0.7, R = 6.5, H = 3.1;
+        shot = { from: V(p.x + Math.sin(a0) * R, p.y + H, p.z + Math.cos(a0) * R), to: V(p.x + Math.sin(a1) * R, p.y + H - 0.4, p.z + Math.cos(a1) * R), look: V(p.x, p.y + 1.3, p.z) };
+      }
+      // the camera stays where it is if the shot is the one already running
+      prev && this.cinema.kind === kind && (shot.from = prev);
+      for (let q of [shot.from, shot.to]) q.y = Math.max(q.y, this.heightAt(q.x, q.z) + 0.8);
+      this.cinema = { ...shot, kind, t: 0, dur, shakeAmp: 0.28 };
+    }
+    cinemaEnd() {
+      this.cinema = null, this._shake = 0;
+    }
+    shakeCamera(secs = 0.8) {
+      this._shake = Math.max(this._shake || 0, secs);
+    }
+    /** The story's own things in the world (gfx/saga-fx.js). */
+    get saga() {
+      return this._saga || (this._saga = new SagaStage(this));
     }
     /** Pin the clock. The day cycle is 12 minutes, so without this a QA
      *  screenshot lands wherever the wall clock happens to be. */

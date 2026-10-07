@@ -63,6 +63,14 @@ var sb = 1.0594630943592953,
       bpm: 144,
       warmth: 0.26,
       pad: 0.18
+    },
+    // the story's scenes (client/cutscene.js): slow, wide, a long pad under it
+    saga: {
+      root: 50,
+      scale: "dorian",
+      bpm: 66,
+      warmth: 0.78,
+      pad: 0.6
     }
   },
   SFX = {

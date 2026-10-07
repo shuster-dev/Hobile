@@ -16,6 +16,10 @@ import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '
 import { HOURS, howOf, rowFor } from '../shared/habitats.js';
 import { abilityInfo } from '../shared/traits.js';
 import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
+import { RIDE, mountsOf } from '../shared/riding.js';
+import { JOBS } from '../shared/farmwork.js';
+import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
+import { Cutscene } from './cutscene.js';
 const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -29,7 +33,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = new Cutscene(this), this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       if (this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
         return;
@@ -515,9 +519,9 @@ var Game = class {
   bindNet() {
     let e = this.net;
     e.on("profile", t => {
-      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)]));
+      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
     }), e.on("zone", t => {
-      this.zone = t, this.ui.setZone(t), this.world.loadZone(t);
+      this.zone = t, this.ui.setZone(t), this.world.loadZone(t), this.storyWorld();
       // the town has your farm: ask for what is in its pods
       (ZONES[t.id] || t).landmarks?.some(l => l.kind === "base") && this.net.send("baseLook");
     }), e.on("chat", t => {
@@ -566,6 +570,10 @@ var Game = class {
         yes: "הצטרף לקרב", no: "לא",
         onYes: () => this.mode === "world" && this.net.send("coopJoin", { roomId: t.roomId })
       }), vibrate([20, 30, 20]);
+    }), e.on("ride", t => {
+      // up on a creature, or down (shared/riding.js)
+      this.riding = t || null, this.ui.renderRide(this.riding), audio.sfx(t ? "portal" : "uiBack"), t && vibrate(20);
+      t && this.ui.toast(`${RIDE[t.kind]?.icon || ""} ${RIDE[t.kind]?.he || ""} על ${loc(SPECIES[t.species])}`, "good");
     }), e.on("dungeonOffer", t => {
       this.ui.offer({
         key: `dungeon:${t.roomId}`, icon: t.endless ? "🗼" : "🕳", title: `${t.fromName} נכנס/ת ל${t.he} — הצטרף!`, sub: t.endless ? "טיפוס במגדל ביחד" : `דרגה: ${loc(tierOf(t.tier))} · ניסיון ושלל לכולם`, until: t.until,
@@ -602,7 +610,12 @@ var Game = class {
       let out = this.world.setBase?.(t, t.starUp);
       for (let n of t.collected || []) audio.sfx("loot"), this.ui.toast(`הושלם: ${loc(ITEMS[n.id])} ×${n.n}`, "good");
       t.starUp && (out ? (audio.sfx("sphereOpen"), setTimeout(() => (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve")), 850)) : (audio.sfx("evolve"), this.ui.celebrate("★".repeat(t.starUp.star), "evolve")), this.ui.toast(`${loc(SPECIES[t.starUp.species])} יצא מהתא עם ${t.starUp.star} כוכבים — חזק יותר ונראה אחרת!`, "good")),
-      t.started && this.ui.toast(`${loc(SPECIES[(t.training || []).find(c => c.id === t.started.id)?.species] || {}) || "היצור"} עבר לחווה שלך — הוא מתאמן בתא אימון`, "good"), t.built && (audio.sfx("quest"), this.ui.toast(`נבנה — רמה ${t.built.level}`, "good")), t.craft && audio.sfx("ui"), this.ui.openPanelId === "base" && this.ui.renderPanel("base");
+      t.started && this.ui.toast(`${loc(SPECIES[(t.training || []).find(c => c.id === t.started.id)?.species] || {}) || "היצור"} עבר לחווה שלך — הוא מתאמן בתא אימון`, "good"), t.built && (audio.sfx("quest"), this.ui.toast(`נבנה — רמה ${t.built.level}`, "good")), t.craft && audio.sfx("ui"), t.hired && (audio.sfx("ui"), this.ui.toast(`${loc(SPECIES[(t.work?.workers || []).find(c => c.uid === t.hired.uid)?.species] || {}) || "היצור"} יצא לעבוד — ${JOBS[t.hired.job]?.icon || ""} ${JOBS[t.hired.job]?.he || ""}`, "good"));
+      if (t.worked) {
+        let got = Object.entries(t.worked).filter(([, n]) => n > 0);
+        got.length ? (audio.sfx("loot"), this.ui.toast(`החווה הניבה: ${got.map(([k, n]) => k === "gold" ? `🪙 ${n}` : `${ITEMS[k]?.icon || "📦"} ${loc(ITEMS[k] || {}) || k} ×${n}`).join(" · ")}`, "good")) : this.ui.toast("עוד אין מה לאסוף — תן להם לעבוד קצת", "info");
+      }
+      this.ui.openPanelId === "base" && this.ui.renderPanel("base");
     }), e.on("card", t => {
       this.ui.card = t, this.ui.openPanelId === "card" && this.ui.renderPanel("card");
     }), e.on("dex", t => {
@@ -644,7 +657,7 @@ var Game = class {
       let q = QUESTS[t?.questId];
       q && this.ui.toast(`משימה חדשה: ${loc(q)}`, "good");
     }), e.on("error", t => {
-      this.engagePending = 0, this.ui.toast(Oc(t.code), "bad");
+      this.engagePending = 0, this._storyFight = null, this.ui.toast(Oc(t.code), "bad");
     }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
       if (!this.transitioning) {
         this.transitioning = !0, this.engagePending = 0, this.ambush = t.kind === "battle" && t.ambush ? { wildId: t.wildId } : null;
@@ -687,7 +700,10 @@ var Game = class {
         sp = foe && SPECIES[foe.species];
       let wild = sp && foe.kind !== "boss" && !this.battle.combatants.some(c => c.side === foe.side && c.kind === "trainer");
       // It came for you: say so, rather than as if you had walked up to it.
-      this.ui.battleBanner(wild && this.ambush ? `❗ ${loc(sp)} תקף אותך!` : wild ? `${loc(sp)} פראי הופיע!` : "הקרב מתחיל!", 1400), this.ambush && vibrate([40, 30, 40]), this.ambush = null;
+      // a fight of the story (shared/saga.js) says whose it is
+      let story = this._storyFight && sp ? this._storyFight === FINALE.id ? `🌀 ${loc(sp)} — שומר הקרע` : `🌀 ${loc(sp)} שומר על העוגן` : null;
+      story && (audio.playMusic("boss"), audio.sfx("bossRoar"));
+      this.ui.battleBanner(story || (wild && this.ambush ? `❗ ${loc(sp)} תקף אותך!` : wild ? `${loc(sp)} פראי הופיע!` : "הקרב מתחיל!"), story ? 2200 : 1400), this.ambush && vibrate([40, 30, 40]), this.ambush = null;
       // The sky is doing something to the numbers, so say so once. Without this
       // the only way to find out rain helps a water move is to notice it.
       let w = this.battle.weather;
@@ -759,6 +775,9 @@ var Game = class {
       for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
       for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level"));
+      // the story moved: an anchor broken, the rift's guardian down
+      t.story && t.won && setTimeout(() => t.story === FINALE.id ? this.ui.celebrate("תהומון הובס", "quest") : (this.ui.celebrate("העוגן התנפץ!", "quest"), this.ui.toast(`🌀 ${(this.profile?.story?.anchors || []).length}/3 עוגנים נופצו`, "good")), 1200);
+      this._storyFight = null;
       t.ranked && setTimeout(() => (this.ui.toast(`${arenaTierInfo(t.ranked.tier).icon} דירוג ${t.ranked.after} (${t.ranked.delta >= 0 ? "+" : ""}${t.ranked.delta})`, t.ranked.delta >= 0 ? "good" : "bad"), t.ranked.tierUp && this.ui.celebrate(`${arenaTierInfo(t.ranked.tier).icon} ${arenaTierInfo(t.ranked.tier).he}!`, "quest")), 900);
       this.ui.battleBanner(t.outcome === "cancelled" ? "הקרב בוטל — לא כולם הגיעו" : t.pvp ? t.won ? "ניצחתם! 🏆" : t.outcome === "draw" ? "תיקו" : t.forfeit ? "פרשת" : "הפסדתם — בפעם הבאה" : t.won ? t.coop ? "ניצחון משותף!" : "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא"), t.pvp && !t.won && t.outcome !== "cancelled" && n.push("בדו‑קרב לא מאבדים כלום");
       // A first catch of a species opens its card; a duplicate says what it
@@ -995,6 +1014,14 @@ var Game = class {
       },
       openSpecies: t => e("card", { species: t }),
       dailyClaim: () => e("dailyClaim"),
+      ride: (uid = null) => e("ride", uid ? { uid } : {}),
+      rideToggle: () => {
+        // down if up; else up on the one ridden last, or the best there is
+        if (this.riding) return e("ride", {});
+        let ms = mountsOf(this.profile?.team || []), last = ms.find(m => m.uid === this._lastRide);
+        let m = last || ms[0];
+        m ? (this._lastRide = m.uid, e("ride", { uid: m.uid })) : this.ui.toast("אין ביצוות יצור שיכול לשאת אותך — יצור מפותח או בעל ★3", "bad");
+      },
       arenaView: () => e("arenaView"),
       arenaQueue: () => e("arenaQueue"),
       arenaCancel: () => e("arenaCancel"),
@@ -1029,6 +1056,19 @@ var Game = class {
       baseCraft: t => e("baseCraft", {
         recipe: t
       }),
+      // work at the farm (shared/farmwork.js)
+      baseWork: (t, n) => e("baseWork", {
+        uid: t,
+        job: n
+      }),
+      baseUnwork: t => e("baseUnwork", {
+        uid: t
+      }),
+      baseCollectWork: () => e("baseCollectWork"),
+      // a scene of the story, again (client/cutscene.js)
+      replayScene: t => {
+        this.ui.closePanel(), setTimeout(() => this.storyScene(t), 350);
+      },
       viewMode: () => this.world.viewMode,
       toggleView: () => this.setView(this.world.viewMode === "first" ? "third" : "first"),
       chat: t => e("chat", t),
@@ -1338,7 +1378,7 @@ var Game = class {
         petSpecies: d.petSpecies,
         petStar: d.petStar || 1
       });
-      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1);
+      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1), this.world.setMount(f, d.mount, d.mountKind, d.mountStar || 1);
     }), s.wilds.forEach((d, u) => {
       r.add(u), this.world.ensureActor(u, {
         kind: "wild",
@@ -1352,11 +1392,19 @@ var Game = class {
     }), this.world.setActorTarget("boss", s.boss.x, s.boss.z, 0, !1)), this.world.pruneActors(r), this.world.setSelf(n.sessionId);
     let o = this.stick.value.magnitude > 0.05 ? this.stick.value : this.keys.value,
       a = null;
+    // a scene of the story is playing (client/cutscene.js): nobody walks off
+    this.cutscene.active && (o = { x: 0, y: 0, magnitude: 0 });
+    // and one waiting to play starts when the way is clear
+    l0: {
+      let now = Date.now();
+      if (now - (this._storyAt || 0) < 700) break l0;
+      this._storyAt = now, this.storyScene();
+    }
     if (o.magnitude > 0.05) {
       let d = this.world.camYaw,
         u = Math.cos(d),
         f = Math.sin(d),
-        p = kb * Math.min(1, o.magnitude),
+        p = kb * Math.min(1, o.magnitude) * (RIDE[this.world.selfActor()?.mount?.kind]?.speed || 1),
         x = (-o.x * u - o.y * f) * p,
         g = (o.x * f - o.y * u) * p;
       a = this.world.moveSelf(x, g, e), this.walkPhase += p * e, this.walkPhase > 1.55 && (this.walkPhase = 0, audio.sfx("step"));
@@ -1415,6 +1463,80 @@ var Game = class {
       t.style.left = `${u + p * v}px`, t.style.top = `${f + x * v}px`, d.style.transform = `rotate(${Math.atan2(x, p) * 180 / Math.PI + 90}deg)`, t.classList.add("edge");
     }
   }
+  /** The story's things in this zone, for this player (shared/saga.js):
+   *  the anchors still standing, and the sky over the port. */
+  storyWorld() {
+    let q = this.profile?.quests, st = this.profile?.story || {}, zid = this.zone?.id;
+    if (!q || !zid) return;
+    let open = !!q.active?.q_main_13 && !q.active.q_main_13.done;
+    this.world.saga.setAnchors(open ? anchorsIn(zid).filter(a => !(st.anchors || []).includes(a.id)) : []);
+    // a scene that is about to change the sky shows it change, not changed
+    let pending = this.pendingScene(), fx = pending ? SCENES[pending].flatMap(l => l.fx || []) : [];
+    this.cutscene.active || this.world.saga.setRift(fx.includes("seal") ? "torn" : fx.includes("tear") ? "calm" : riftState(q), 0);
+  }
+  /** The scene this player has not seen yet, if any: the open step's, or the credits. */
+  pendingScene() {
+    let q = this.profile?.quests, seen = this.profile?.story?.seen || [];
+    if (!q) return null;
+    for (let [id, a] of Object.entries(q.active || {})) {
+      let d = QUESTS[id];
+      if (d?.chain === "main" && d.scene && !a.claimed && !seen.includes(d.scene)) return d.scene;
+    }
+    for (let id of q.done || []) {
+      let d = QUESTS[id];
+      if (d?.chain === "main" && d.outro && !seen.includes(d.outro)) return d.outro;
+    }
+    return null;
+  }
+  /** Play it, once the player is standing in the world with nothing open. */
+  storyScene(force) {
+    let id = force || this.pendingScene();
+    if (!id || this.cutscene.active || this.mode !== "world" || this.transitioning || !this.spawned || this.world._inside) return;
+    if (!force && (this.ui.openPanelId || this.ui._dialogue || document.querySelector("#ceremony:not(.hidden)") || document.body.classList.contains("talking"))) return;
+    this.ui.closePanel?.();
+    let credits = id === "credits" ? this.creditsFor() : null;
+    this.cutscene.play(id, {
+      credits,
+      onDone: () => {
+        force || this.net.send("sceneSeen", { id });
+        // the server's copy will say so too; until it does, do not play it again
+        this.profile?.story && (this.profile.story.seen = [...(this.profile.story.seen || []), id]);
+        this.storyWorld();
+      }
+    });
+  }
+  /** The last thing on screen: who made the world, and what you did in it. */
+  creditsFor() {
+    let p = this.profile || {}, dex = Object.values(p.dex || {}).filter(r => r.caught > 0).length;
+    return [
+      { h: "Hobile Online" },
+      { big: "הקרע נסגר." },
+      { t: `המאמן: ${p.name || ""}` },
+      { t: `רמה ${p.level || 1} · ${dex} מינים באוסף · ${p.stats?.captures || 0} לכידות · ${p.stats?.battlesWon || 0} ניצחונות` },
+      { h: "הסיפור" },
+      { t: `${VILLAIN.he}, ${VILLAIN.title}` },
+      { t: "הזקן מארו, שכתב הכול" },
+      { t: "תהומון, שחזר הביתה" },
+      { h: "העולם" },
+      { t: "נמל האתר · האחו הירוק · קניון האש · מישורי האבן" },
+      { t: "מפרץ הגאות · רמות הסופה · רכס הכפור · חורש האופל" },
+      { h: "תודה ששיחקת" },
+      { t: "הספר שלך עוד פתוח: המגדל האינסופי, הזירה, והגילדות מחכים." },
+    ];
+  }
+  /** A story spot near the player: an anchor still standing, or the pier. */
+  storySpot(t) {
+    let q = this.profile?.quests?.active || {}, zid = this.zone?.id;
+    if (q.q_main_13 && !q.q_main_13.done) {
+      let broken = this.profile?.story?.anchors || [];
+      for (let a of anchorsIn(zid)) if (!broken.includes(a.id) && Math.hypot(a.x - t.x, a.z - t.z) < ANCHOR_REACH - 0.5) return { id: a.id, label: `🌀 ${a.he} — השומר שלו מחכה`, button: "נפץ" };
+    }
+    if (q.q_main_15 && !q.q_main_15.done && zid === FINALE.zone && Math.hypot(FINALE.x - t.x, FINALE.z - t.z) < FINALE.reach - 1) return { id: FINALE.id, label: "🌀 לב הקרע — תהומון מחכה", button: "התעמת" };
+    return null;
+  }
+  storyFight(id) {
+    this.engagePending || (this.engagePending = Date.now(), this._storyFight = id, this.net.send("storyFight", { id }));
+  }
   currentObjective() {
     let e = this.profile?.quests?.active || {};
     for (let t of Object.values(QUESTS)) {
@@ -1465,6 +1587,17 @@ var Game = class {
         z: l.z,
         y: this.world.heightAt(l.x, l.z)
       } : null;
+    }
+    if (s.kind === "anchor") {
+      let broken = this.profile?.story?.anchors || [], here = anchorsIn(this.zone?.id).find(a => !broken.includes(a.id));
+      if (here) return o(here.x, here.z);
+      let away = r.find(c => c.kind === "portal" && anchorsIn(c.to).some(a => !broken.includes(a.id)));
+      return away ? o(away.x, away.z) : null;
+    }
+    if (s.kind === "story") {
+      if (this.zone?.id === FINALE.zone) return o(FINALE.x, FINALE.z);
+      let l = r.find(c => c.kind === "portal" && c.to === FINALE.zone);
+      return l ? o(l.x, l.z) : null;
     }
     if (s.kind === "boss") return t?.boss?.active ? {
       x: t.boss.x,
@@ -1565,6 +1698,11 @@ var Game = class {
     }
     if (n && n.d < 4.2) {
       this.ui.setPrompt(`${n.npc.icon} דבר עם ${n.npc.he}`), $("#btn-action").textContent = "דבר", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
+    let story = this.storySpot(t);
+    if (story) {
+      this.ui.setPrompt(story.label), $("#btn-action").textContent = story.button, $("#btn-action").onclick = () => this.storyFight(story.id);
       return;
     }
     let pod = this.world.incubators?.near(t.x, t.z);
@@ -1707,6 +1845,14 @@ function Oc(i) {
     name_taken: "שם הדמות תפוס",
     not_enough_gold: "אין מספיק זהב",
     daily_taken: "כבר אספת את הפרס של היום — חזור מחר",
+    cannot_land: "אי אפשר לרדת כאן — רק על קרקע מוצקה",
+    cannot_ride: "היצור הזה לא יכול לשאת אותך",
+    not_here: "לא כאן",
+    not_now: "עוד לא — הסיפור עוד לא הגיע לכאן",
+    anchor_broken: "העוגן הזה כבר נופץ",
+    no_work_slot: "אין מקום לעוד עובד — שדרג מבנים בחווה",
+    not_in_box: "רק יצור מהקופסה (לא מהצוות) יכול לעבוד בחווה",
+    not_working: "היצור הזה לא עובד בחווה",
     already_in_guild: "אתה כבר בגילדה",
     level_too_low: "הרמה שלך נמוכה מדי",
     too_far: "רחוק מדי",

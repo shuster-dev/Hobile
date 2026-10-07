@@ -11,7 +11,7 @@
 // reward and price tables, hour by hour, to see income against costs.
 
 /** Where gold comes from. */
-export const SOURCES = ['battle', 'capture', 'quest', 'daily', 'boss', 'dungeon', 'pvp', 'gm'];
+export const SOURCES = ['battle', 'capture', 'quest', 'daily', 'boss', 'dungeon', 'pvp', 'farm', 'gm'];
 /** Where it goes. */
 export const SINKS = ['shop', 'clinic', 'building', 'training', 'craft', 'guild', 'blackout', 'cosmetic', 'gm'];
 

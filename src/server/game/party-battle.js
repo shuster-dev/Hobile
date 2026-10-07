@@ -24,6 +24,7 @@ import { weatherAt } from '../../shared/weather.js';
 import { earn, spend } from './economy.js';
 import { eventMul } from '../../shared/events.js';
 import { FIELD } from './field.js';
+import { storyWin } from './saga.js';
 
 export const PARTY_BATTLE = {
   tickMs: 100,
@@ -52,7 +53,12 @@ export class PartyBattle {
     this.foe = null;
     if (this.mode === 'pve' && wild) {
       const tier = WILD_TIERS[zoneId] || {};
-      this.foe = this.sim.add(new Combatant({
+      // a story foe (shared/saga.js): a boss of its level, no sphere takes it
+      this.story = wild.story || null;
+      this.foe = this.sim.add(new Combatant(this.story ? {
+        side: 'b', kind: 'boss', name: SPECIES[wild.species]?.name || wild.species,
+        creature: makeCreature(wild.species, wild.level), hpScale: wild.hpScale, scale: wild.scale,
+      } : {
         side: 'b', kind: 'wild', name: SPECIES[wild.species]?.name || wild.species,
         creature: makeCreature(wild.species, wild.level, { shinyMul: eventMul('shiny') }), scale: tier.scale, ai: tier.ai,
       }));
@@ -293,6 +299,8 @@ export class PartyBattle {
         const sp = this.foe?.creature?.species;
         t.stats.battlesWon += 1;
         o.questsDone = syncQuests(t, { kind: 'defeat', zone: this.zoneId, species: sp, elements: SPECIES[sp]?.types || [] });
+        // an anchor broken, or the rift's guardian down (server/game/saga.js)
+        if (this.story) { o.story = this.story; o.questsDone.push(...storyWin(t, this.story)); }
         const el = SPECIES[sp]?.types?.[0] || 'metal';
         for (const d of grantItems(t, DROPS.roll(el, t.level, 'wild'))) o.items.push(d.id);
         if (Math.random() < 0.2) { giveItem(t, 'potion_s', 1); o.items.push('potion_s'); }

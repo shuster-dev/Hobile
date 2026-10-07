@@ -7,7 +7,10 @@ import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
 import { ARENA, ARENA_TIERS, DUNGEON_TIERS, TOWER, arenaTier, canEnter, seasonEnds, weekEnds } from '../shared/endgame.js';
+import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
 import { CELL, planFor } from '../shared/worldplan.js';
+import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
+import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -293,7 +296,19 @@ var UI = class {
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
     }
-    this.renderTracker(), this.renderDailyChip(), this.openPanelId && this.renderPanel(this.openPanelId);
+    this.renderTracker(), this.renderDailyChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
+  }
+  /** The ride button: shown when the team has something that can carry
+   *  you, its icon how (shared/riding.js), lit while riding. */
+  renderRide(riding = this._riding) {
+    this._riding = riding;
+    let b = $("#btn-ride");
+    if (!b) return;
+    let ms = mountsOf(this.profile?.team || []);
+    b.classList.toggle("hidden", !ms.length && !riding), b.classList.toggle("on", !!riding);
+    let k = riding?.kind || ms[0]?.kind;
+    b.textContent = riding ? "⬇" : RIDE[k]?.icon || "🐎", b.setAttribute("aria-label", riding ? "לרדת" : RIDE[k]?.he || "רכיבה");
+    b.onclick = () => this.hooks.rideToggle?.();
   }
   /** Under the vitals: a gift waiting today, or else the season that is on. */
   renderDailyChip() {
@@ -763,6 +778,7 @@ var UI = class {
       let prev = Object.values(SPECIES).find((s) => s.evolve?.into === id);
       let it = el("div", "empty plain");
       it.textContent = prev ? `לא חי בטבע — מתפתח מ${prev.evolve && this.dex?.rows.find((r) => r.id === prev.id)?.caught ? loc(prev) : "יצור אחר"} ברמה ${prev.evolve.level}.`
+        : SAGA_FOUND[id] ? `${SAGA_FOUND[id]}.`
         : sp.rarity === "starter" ? "אחד משלושת יצורי הפתיחה."
         : sp.rarity === "legendary" ? "מגיע למי שמשלים את יומן המינים של מארו."
         : "לא נראה בטבע.";
@@ -1120,13 +1136,21 @@ var UI = class {
           <span>${c} · HP ${rangeLabel(s.hp, s.maxHp, "/")}</span>
           <div class="bar hp" style="margin-top:4px"><i style="width:${s.hp / Math.max(1, s.maxHp) * 100}%"></i></div>
         </div>
-        ${a ? "<span class=\"pill good\">בצוות</span>" : ""}`;
+        ${a ? "<span class=\"pill good\">בצוות</span>" : s.job && JOBS[s.job] ? `<span class="pill">${JOBS[s.job].icon} עובד</span>` : ""}`;
       let h = zoneMinimap(s.species);
       h && (l.querySelector(".thumb").innerHTML = `<img src="${h}" alt="" />`);
       let d = () => this.hooks.openCard?.(s.uid);
       l.onclick = d, l.onkeydown = f => {
         (f.key === "Enter" || f.key === " ") && (f.preventDefault(), d());
       };
+      // one that can carry you: a button to get on it (shared/riding.js)
+      let mk = a && this.social !== void 0 && mountKind(s.species, s.star || 1);
+      if (mk) {
+        let rb = el("button", `btn small icon-only ${this._riding?.uid === s.uid ? "primary" : ""}`, RIDE[mk].icon);
+        rb.title = RIDE[mk].he, rb.setAttribute("aria-label", RIDE[mk].he), rb.onclick = f => {
+          f.stopPropagation(), this.hooks.ride?.(this._riding?.uid === s.uid ? null : s.uid), this.closePanel();
+        }, l.appendChild(rb);
+      }
       let u = el("button", "btn small icon-only", "⬆");
       u.title = "הצב בראש הצוות", u.setAttribute("aria-label", "הצב בראש הצוות"), u.disabled = r === 0, u.onclick = f => {
         f.stopPropagation(), this.hooks.setLead?.(s.uid);
@@ -1169,6 +1193,7 @@ var UI = class {
       let s = el("button", "btn small primary", "אסוף");
       s.onclick = () => this.hooks.baseOpen?.(), n.appendChild(s), e.appendChild(n);
     }
+    this.workSection(e, t);
     e.appendChild(section("תאי אימון", `${ltr(t.freeSlots)} פנויים`));
     for (let n of t.training) {
       let s = SPECIES[n.species],
@@ -1232,6 +1257,71 @@ var UI = class {
       e.appendChild(s);
     }
     this.startCountdowns();
+  }
+  /** Creatures from the box at work on the farm (shared/farmwork.js). */
+  workSection(e, t) {
+    let w = t.work;
+    if (!w) return;
+    let fmt = o => Object.entries(o || {}).map(([k, n]) => k === "gold" ? `🪙 ${ltr(n)}` : `${ITEMS[k]?.icon || "📦"} ${ltr(`×${n}`)}`).join(" · ");
+    e.appendChild(section("👷 עובדים בחווה", rangeLabel(w.workers.length, w.slots, "/")));
+    let any = w.workers.some(x => Object.keys(x.ready).length);
+    if (any) {
+      let c = el("button", "btn primary", "אסוף את מה שהעובדים הכינו");
+      c.style.width = "100%", c.onclick = () => this.hooks.baseCollectWork?.(), e.appendChild(c);
+    }
+    for (let x of w.workers) {
+      let sp = SPECIES[x.species],
+        J = JOBS[x.job],
+        r = el("div", `list-item ${x.full ? "ready" : ""}`),
+        img = zoneMinimap(x.species);
+      r.innerHTML = `
+        <div class="thumb" style="background:${oo(sp?.model.a ?? 8947848)}">${img ? `<img src="${img}" alt="" />` : ""}</div>
+        <div class="grow">
+          <b>${Ze(x.name || loc(sp))} <span class="pill">${J.icon} ${Ze(J.he)}</span></b>
+          <span>${fmt(x.perHour)} לשעה${x.full ? " · <b>הסל מלא</b>" : ""}</span>
+          ${Object.keys(x.ready).length ? `<span class="work-yield">מוכן: ${fmt(x.ready)}</span>` : ""}
+        </div>`;
+      let b = el("div", "job-btns");
+      for (let id of JOB_IDS) {
+        if (id === x.job) continue;
+        let k = el("button", `btn small ghost ${bestJob(sp?.types || []) === id ? "best" : ""}`, JOBS[id].icon);
+        k.title = JOBS[id].he, k.setAttribute("aria-label", `העבר ל${JOBS[id].he}`), k.onclick = () => this.hooks.baseWork?.(x.uid, id), b.appendChild(k);
+      }
+      let stop = el("button", "btn small danger", "הפסק");
+      stop.onclick = () => this.hooks.baseUnwork?.(x.uid), b.appendChild(stop);
+      r.querySelector(".grow").appendChild(b), e.appendChild(r);
+    }
+    let free = w.slots - w.workers.length,
+      idle = (this.profile?.box || []).filter(c => !c.job && SPECIES[c.species] && !w.workers.some(x => x.uid === c.uid));
+    if (free > 0 && idle.length) {
+      let open = !!this._hire,
+        h = el("button", `btn ${open ? "" : "ghost"}`, open ? "סגור" : `➕ הוצא יצור מהקופסה לעבודה (${free} מקומות)`);
+      h.style.width = "100%", h.onclick = () => {
+        this._hire = !open, this.renderPanel("base");
+      }, e.appendChild(h);
+      if (open) for (let c of idle.slice(0, 24)) {
+        let sp = SPECIES[c.species],
+          best = bestJob(sp.types),
+          r = el("div", "list-item"),
+          img = zoneMinimap(c.species);
+        r.innerHTML = `
+          <div class="thumb" style="background:${oo(sp.model.a)}">${img ? `<img src="${img}" alt="" />` : ""}</div>
+          <div class="grow"><b>${Ze(c.nickname || loc(sp))} <span class="pill">${lvlLabel(c.level)}</span></b>
+          <span>הכי טוב ב${Ze(JOBS[best].he)}: ${fmt(Object.fromEntries(Object.entries(workRate(best, c, sp.types)).map(([k, v]) => [k, Math.round(v * 10) / 10])))} לשעה</span></div>`;
+        let b = el("div", "job-btns");
+        for (let id of JOB_IDS) {
+          let k = el("button", `btn small ${id === best ? "primary best" : "ghost"}`, `${JOBS[id].icon}${id === best ? ` ${JOBS[id].he}` : ""}`);
+          k.title = `${JOBS[id].he} — ${JOBS[id].text}`, k.setAttribute("aria-label", JOBS[id].he), k.onclick = () => {
+            this._hire = !1, this.hooks.baseWork?.(c.uid, id);
+          }, b.appendChild(k);
+        }
+        r.querySelector(".grow").appendChild(b), e.appendChild(r);
+      }
+    } else if (!w.workers.length) e.appendChild(emptyState("👷", "אין עובדים", idle.length ? "" : "יצורים בקופסה (מעבר לשישה בצוות) יכולים לעבוד כאן בזמן שאתה בדרכים"));
+    if (w.garden > 1 || w.forge > 1) {
+      let n = el("div", "hint");
+      n.textContent = [w.garden > 1 ? `🌱 הגינה מניבה ×${(Math.round(w.garden * 100) / 100)}` : "", w.forge > 1 ? `🔥 הייצור מהיר ×${(Math.round(w.forge * 100) / 100)}` : ""].filter(Boolean).join(" · "), e.appendChild(n);
+    }
   }
   panelCard(e) {
     let t = this.card;
@@ -1362,6 +1452,17 @@ var UI = class {
       }
     };
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
+    // the story's scenes already seen, to watch again (client/cutscene.js)
+    let seen = SCENE_ORDER.filter(id => (t.story?.seen || []).includes(id));
+    if (seen.length) {
+      e.appendChild(section("📽 סצנות הסיפור", `${ltr(seen.length)}`));
+      let row = el("div", "scene-list");
+      for (let id of seen) {
+        let b = el("button", "btn small ghost", `▶ ${SCENE_TITLES[id] || id}`);
+        b.onclick = () => this.hooks.replayScene?.(id), row.appendChild(b);
+      }
+      e.appendChild(row);
+    }
   }
   /** Friends: add by name, answer requests, see who is on and where, and from
    *  each row whisper, call into your party, or open them for more. */

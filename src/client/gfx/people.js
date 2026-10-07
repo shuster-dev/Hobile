@@ -624,6 +624,22 @@ function animatePerson(group, m, timeMs, moving, speed = 1) {
     b.position.copy(r.p); b.quaternion.copy(r.q); b.scale.copy(r.s);
   }
   const H = m.height || 1.4;
+  // Riding (world.js setMount): sitting astride, knees out, hands forward on
+  // the reins, rocking a little with the creature under them.
+  if (group.userData.riding) {
+    const t = timeMs * 0.001 + m.phase, mv = group.userData.ridingMoving ? 1 : 0;
+    rot(B.legL, -1.35, 0, 0.5); rot(B.legR, -1.35, 0, -0.5);
+    rot(B.shinL, 1.3, 0, 0); rot(B.shinR, 1.3, 0, 0);
+    rot(B.armL, -0.7 + Math.sin(t * 9) * 0.05 * mv, 0, 0.2); rot(B.armR, -0.7 - Math.sin(t * 9) * 0.05 * mv, 0, -0.2);
+    rot(B.foreL, -0.55, 0, 0); rot(B.foreR, -0.55, 0, 0);
+    if (B.body) rot(B.body, 0.08 + 0.06 * mv + Math.sin(t * 9) * 0.03 * mv, 0, Math.sin(t * 0.8) * 0.02);
+    if (B.head) rot(B.head, -0.06 * mv, Math.sin(t * 0.37) * 0.25 * (1 - mv), 0);
+    if (B.cape) rot(B.cape, 0.3 + 0.4 * mv + Math.sin(t * 8) * 0.05 * mv, 0, 0);
+    group.position.y = group.userData.baseY || 0;
+    m.u.uBlink.value = 0;
+    m.u.uTime.value = t;
+    return true;
+  }
   const gs = group.userData.groundSpeed;
   const run = gs != null ? gs > 2.1 * H : speed > 1.6;
   m.blend += Math.max(-1, Math.min(1, (moving ? 1 : 0) - m.blend)) * Math.min(1, dt * 7);
