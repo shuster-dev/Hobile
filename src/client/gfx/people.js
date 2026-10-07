@@ -17,6 +17,7 @@
 import { Color, Euler, Group, Matrix4, Quaternion, Vector3 } from 'three';
 import { BOX, CONE, ELLIPSOID, PAINT, SPHERE, TORUS, CARVE, instance, setFigurineLod } from './figurine.js';
 import { AVATAR } from '../../shared/gamedata.js';
+import { DYES, HATS } from '../../shared/cosmetics.js';
 
 // -- the vocabulary (as in figurine-designs.js) ---------------------------------
 const S = (bone, c, p, r, k = 0.03, o) => ({ t: SPHERE, bone, c, p, r, k, ...o });
@@ -27,6 +28,8 @@ const Tr = (bone, c, p, R, r, k = 0.02, o) => ({ t: TORUS, bone, c, p, R, r, k, 
 const paint = (c, part, soft = 0.006, o) => ({ ...part, op: PAINT, c, soft, ...o });
 const carve = (part, k = 0.01, c) => ({ ...part, op: CARVE, k, ...(c != null ? { c } : {}) });
 const mir = (x) => ({ ...x, mirror: true });
+/** Headwear a kind is drawn with: taken off when a hat from the tailor is worn. */
+const hw = (x) => ({ ...x, hw: true });
 
 const tube = (bone, c, a, b, r, o) => ({ kind: 'tube', bone, c, a, b, r, ...o });
 const horn = (bone, c, a, b, r, o) => ({ kind: 'horn', bone, c, a, b, r, ...o });
@@ -179,7 +182,7 @@ function body(o) {
   if (long) details.push(...[1, -1].map((s) => tube('head', 0x1c1216, [s * 0.082, hy + 0.03, 0.124], [s * 0.106, hy + 0.04, 0.104], 0.0055, { taper: 0.35, sides: 5, rings: 4 })));
   const eyes = { at: [0.053, hy + 0.004, 0.138], r: 0.036, iris: o.iris ?? 0x4a3322, tall: 1.24, sink: 0.24, splay: 0.08, depth: 0.5 };
   return {
-    bones, parts, details, eyes, skin, hair,
+    bones, parts, details, eyes, skin, hair, o,
     at: { hy, sh, elbow, wrist, palm, hipX },
   };
 }
@@ -215,8 +218,103 @@ function shrinkHead(d, f = HEAD_K) {
   return d;
 }
 
+/**
+ * The tailor's hats (shared/cosmetics.js), each built over the head at its
+ * height `hy` in its colour `c`: parts blend into the head and hair like a
+ * kind's own cap does; brims, gems and petals are details.
+ */
+const HAT_SHAPES = {
+  cap: (hy, c) => ({
+    parts: [E('head', c, [0, hy + 0.084, -0.016], [0.16, 0.128, 0.164], 0.012), paint(0xf4f3ee, E('head', 0, [0, hy + 0.13, 0.13], [0.05, 0.04, 0.05]), 0.006)],
+    details: [plate('head', c, ellipseShape(0.11, 0.108, 0, Math.PI), 0.018, flat([0, hy + 0.07, 0.1], -0.34), { c1: shade(c, 0.75) }), ball('head', shade(c, 0.8), [0, hy + 0.214, -0.016], 0.014)],
+  }),
+  bandana: (hy, c) => ({
+    parts: [E('head', c, [0, hy + 0.066, -0.014], [0.162, 0.13, 0.166], 0.012), E('head', c, [0, hy + 0.03, -0.172], [0.034, 0.03, 0.028], 0.012)],
+    details: [plate('head', c, [[0, 0], [0.03, -0.01], [0.04, -0.09], [0.012, -0.11], [-0.006, -0.08]], 0.008, { o: [0.0, hy + 0.03, -0.17], x: [1, 0, 0.1], y: [0, 1, 0], z: [0, 0, -1] }, { c1: shade(c, 0.75) }),
+      ...[0, 1, 2].map((i) => ball('head', 0xffffff, [-0.08 + i * 0.08, hy + 0.15 - Math.abs(i - 1) * 0.015, 0.12 - Math.abs(i - 1) * 0.025], 0.011, { sy: 0.5 }))],
+  }),
+  beanie: (hy, c) => ({
+    parts: [E('head', c, [0, hy + 0.088, -0.012], [0.16, 0.13, 0.164], 0.012), Tr('head', shade(c, 0.8), [0, hy + 0.035, -0.012], 0.152, 0.026, 0.012, { rot: [-0.08, 0, 0] }),
+      S('head', 0xf4f3ee, [0, hy + 0.23, -0.02], 0.045, 0.01)],
+  }),
+  flowers: (hy, c) => ({
+    parts: [Tr('head', c, [0, hy + 0.095, -0.012], 0.15, 0.014, 0.01, { rot: [-0.12, 0, 0] })],
+    details: Array.from({ length: 7 }, (_, i) => {
+      const a = (i - 3) * 0.45, p = [Math.sin(a) * 0.152, hy + 0.095 + Math.cos(a) * 0.018, -0.012 + Math.cos(a) * 0.152];
+      const col = [0xff8ab4, 0xffffff, 0xffd23d, 0xc89aff][i % 4];
+      return [ball('head', col, p, 0.026, { sy: 0.55 }), ball('head', 0xffc43a, [p[0], p[1] + 0.008, p[2] + 0.004], 0.01)];
+    }).flat(),
+  }),
+  cowboy: (hy, c) => ({
+    parts: [E('head', c, [0, hy + 0.13, -0.012], [0.128, 0.09, 0.13], 0.014), carve(E('head', 0, [0, hy + 0.21, -0.012], [0.03, 0.03, 0.09]), 0.01),
+      paint(shade(c, 0.55), Bx('head', 0, [0, hy + 0.095, -0.012], [0.2, 0.014, 0.2], 0), 0.004)],
+    details: [plate('head', c, ellipseShape(0.29, 0.27), 0.012, flat([0, hy + 0.078, -0.012], -0.06), { c1: shade(c, 0.8) })],
+  }),
+  catears: (hy, c) => ({
+    parts: [...[1, -1].flatMap((sx) => [C('head', c, [sx * 0.085, hy + 0.11, -0.02], [sx * 0.125, hy + 0.27, -0.035], 0.055, 0.008, 0.02),
+      paint(0xff9ab8, C('head', 0, [sx * 0.088, hy + 0.13, 0.0], [sx * 0.118, hy + 0.24, -0.005], 0.03, 0.006), 0.006)])],
+  }),
+  wizard: (hy, c) => ({
+    parts: [C('head', c, [0, hy + 0.09, -0.012], [0.012, hy + 0.32, -0.05], 0.14, 0.05, 0.03), C('head', c, [0.012, hy + 0.32, -0.05], [0.08, hy + 0.38, -0.11], 0.05, 0.013, 0.025),
+      paint(0xe8c05a, Bx('head', 0, [0, hy + 0.125, -0.012], [0.2, 0.014, 0.2], 0), 0.004)],
+    details: [plate('head', shade(c, 0.75), ellipseShape(0.27, 0.25), 0.012, flat([0, hy + 0.092, -0.012], -0.08), { c1: shade(c, 0.6) }),
+      plate('head', 0xfbe38c, starShape(0.03, 0.013), 0.006, { o: [-0.05, hy + 0.21, 0.09], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, { glow: 0.5 })],
+  }),
+  tophat: (hy, c) => ({
+    parts: [C('head', c, [0, hy + 0.09, -0.012], [0, hy + 0.34, -0.012], 0.118, 0.128, 0.012), paint(0xb8283c, Bx('head', 0, [0, hy + 0.135, -0.012], [0.2, 0.022, 0.2], 0), 0.004)],
+    details: [plate('head', c, ellipseShape(0.2, 0.19), 0.012, flat([0, hy + 0.094, -0.012], -0.04), { c1: shade(c, 1.4) })],
+  }),
+  crown: (hy, c) => ({
+    parts: [Tr('head', c, [0, hy + 0.135, -0.012], 0.13, 0.022, 0.012, { rot: [-0.08, 0, 0] })],
+    details: Array.from({ length: 6 }, (_, i) => {
+      const a = i / 6 * Math.PI * 2, p = [Math.sin(a) * 0.13, hy + 0.15 + Math.cos(a) * 0.01, -0.012 + Math.cos(a) * 0.13];
+      return [crystal('head', c, p, [Math.sin(a) * 0.15, 1, Math.cos(a) * 0.15], 0.075, 0.024, { c1: mixC(c, 0xffffff, 0.45), glow: 0.25 }),
+        ball('head', [0xe8303a, 0x2f6ad8, 0x3ac85a][i % 3], [p[0] * 1.08, p[1] - 0.004, -0.012 + (p[2] + 0.012) * 1.08], 0.012, { glow: 0.3 })];
+    }).flat(),
+  }),
+  halo: (hy, c) => ({ details: [ring('head', c, [0, hy + 0.27, -0.03], 0.11, 0.012, [-0.25, 0, 0], { glow: 1 })] }),
+  horns: (hy, c) => ({
+    details: [1, -1].map((sx) => horn('head', c, [sx * 0.1, hy + 0.11, 0.03], [sx * 0.19, hy + 0.27, -0.05], 0.03, { bend: [sx * 0.02, 0.04, 0.03], c1: 0xff6a2a })),
+  }),
+};
+
+/**
+ * A dye (shared/cosmetics.js) on a kind's main cloth: every colour of the
+ * same hue and saturation as one of the kind's `main` colours — the cloth and
+ * its shades, a lining, a brim — takes the dye's hue, keeping how much lighter
+ * or darker it was. Skin, hair and trim are other hues and stay as they were.
+ */
+function dyeDesign(d, main, dye) {
+  const D = new Color(dye).getHSL({}), M = main.map((m) => new Color(m).getHSL({})), x = new Color();
+  const map = (c) => {
+    if (typeof c !== 'number' || !c) return c;
+    const h = x.set(c).getHSL({});
+    for (const m of M) {
+      const dh = Math.min(Math.abs(h.h - m.h), 1 - Math.abs(h.h - m.h));
+      if (dh < 0.012 && Math.abs(h.s - m.s) < 0.16) {
+        const l = Math.min(0.95, Math.max(0.04, h.l * (D.l / Math.max(0.04, m.l))));
+        const sat = Math.min(1, D.s * Math.min(1.5, Math.max(0.5, h.s / Math.max(0.02, m.s))));
+        return x.setHSL(D.h, sat, l).getHex();
+      }
+    }
+    return c;
+  };
+  for (const q of [...d.parts, ...d.details]) { q.c = map(q.c); if (q.c1 != null) q.c1 = map(q.c1); }
+  return d;
+}
+
 /** A design from the body and what a kind adds to it. */
 function dress(b, extra = {}) {
+  // a hat from the tailor (shared/cosmetics.js): the kind's own headwear off, this one on
+  const hat = b.o?.hat && HATS[b.o.hat];
+  if (hat && HAT_SHAPES[hat.shape]) {
+    const worn = HAT_SHAPES[hat.shape](Y.head, hat.color);
+    extra = {
+      ...extra,
+      parts: [...(extra.parts || []).filter((q) => !q.hw), ...(worn.parts || [])],
+      details: [...(extra.details || []).filter((q) => !q.hw), ...(worn.details || [])],
+    };
+  }
   return shrinkHead({
     plan: 'person', animate: animatePerson, lid: mixC(b.skin, 0x000000, 0.12), eyeStyle: 1, spec: 0.16, rim: 0.18, rough: 0.46,
     cells: 64, cellsLo: 28, cellsClose: 120, ink: 0.55, reach: 0.028, outline: 0.006, ao: 0.8,
@@ -238,7 +336,7 @@ function dress(b, extra = {}) {
 export const KINDS = {
   rogue: {
     he: 'שודד', en: 'Rogue', accent: '#b07cff', line: 'זריז, שקט, ותמיד צעד אחד לפני כולם.', pose: 'flourish',
-    hair: ['#2c2226', '#6b3a2a'], iris: 0x7a5aa8,
+    hair: ['#2c2226', '#6b3a2a'], iris: 0x7a5aa8, main: [0x55506e, 0x46425a],
     build(o) {
       const cloak = 0x55506e, lining = 0x2a2838, leather = 0x6b4630, scarf = 0xb8283c, dark = 0x2a2834, steel = 0xd4dbe6;
       const b = body({ ...o, shirt: 0x46425a, sleeve: 0x46425a, fore: leather, glove: dark, pants: 0x4a4658, boots: dark, belt: 0x5a3a28, bootTop: 0.24 });
@@ -248,10 +346,10 @@ export const KINDS = {
         parts: [
           // the hood, up: a cowl over the head with its face cut out, a point
           // at the back, and a mask over the nose and mouth
-          E('head', cloak, [0, hy + 0.028, -0.012], [0.172, 0.176, 0.172], 0.02),
-          C('head', cloak, [0, hy + 0.1, -0.06], [0, hy + 0.02, -0.24], 0.07, 0.012, 0.05),
-          carve(E('head', 0, [0, hy - 0.02, 0.19], [0.132, 0.15, 0.1]), 0.02, lining),
-          Tr('head', shade(cloak, 1.12), [0, hy - 0.02, 0.118], 0.122, 0.016, 0.012, { rot: [Math.PI / 2 - 0.12, 0, 0] }),
+          hw(E('head', cloak, [0, hy + 0.028, -0.012], [0.172, 0.176, 0.172], 0.02)),
+          hw(C('head', cloak, [0, hy + 0.1, -0.06], [0, hy + 0.02, -0.24], 0.07, 0.012, 0.05)),
+          hw(carve(E('head', 0, [0, hy - 0.02, 0.19], [0.132, 0.15, 0.1]), 0.02, lining)),
+          hw(Tr('head', shade(cloak, 1.12), [0, hy - 0.02, 0.118], 0.122, 0.016, 0.012, { rot: [Math.PI / 2 - 0.12, 0, 0] })),
           ...face.map((p) => ({ ...p, k: Math.max(0.012, p.k * 0.6) })),
           ...(o.look === 'b' ? [
             mir(C('head', b.hair, [0.1, hy + 0.06, 0.1], [0.11, hy - 0.08, 0.1], 0.024, 0.018, 0.015)),
@@ -283,7 +381,7 @@ export const KINDS = {
 
   pirate: {
     he: 'פיראט', en: 'Pirate', accent: '#2fb6d0', line: 'הים הוא הבית, והאוצר תמיד מעבר לגל הבא.', pose: 'draw',
-    hair: ['#3a2418', '#5a2a1a'], iris: 0x2f6a8a,
+    hair: ['#3a2418', '#5a2a1a'], iris: 0x2f6a8a, main: [0x8e1f2e],
     build(o) {
       const coat = 0x8e1f2e, trim = 0xe0b84e, shirt = 0xf3ead8, black = 0x221c20, sash = 0xc9302c;
       const b = body({ ...o, shirt: coat, sleeve: coat, fore: coat, pants: 0x3f2e24, boots: black, bootTop: 0.28, waist: shirt, face: o.look === 'b' });
@@ -309,11 +407,13 @@ export const KINDS = {
           // stubble
           ...(o.look === 'b' ? [] : [paint(mixC(o.skin, 0x3a2418, 0.3), E('head', 0, [0, hy - 0.09, 0.07], [0.105, 0.052, 0.095]), 0.02)]),
           // the hat: a bandana under a tricorn
-          E('head', sash, [0, hy + 0.058, -0.012], [0.15, 0.1, 0.152], 0.012),
-          E('head', black, [0, hy + 0.118, -0.012], [0.128, 0.066, 0.126], 0.02),
-          E('head', black, [0, hy + 0.096, -0.012], [0.19, 0.022, 0.19], 0.02),
-          wall(Math.PI / 6, 0.14), wall(Math.PI * 5 / 6, 0.14), wall(Math.PI * 1.5, 0.15),
-          paint(trim, Tr('head', 0, [0, hy + 0.2, -0.012], 0.2, 0.045), 0.006),
+          ...[
+            E('head', sash, [0, hy + 0.058, -0.012], [0.15, 0.1, 0.152], 0.012),
+            E('head', black, [0, hy + 0.118, -0.012], [0.128, 0.066, 0.126], 0.02),
+            E('head', black, [0, hy + 0.096, -0.012], [0.19, 0.022, 0.19], 0.02),
+            wall(Math.PI / 6, 0.14), wall(Math.PI * 5 / 6, 0.14), wall(Math.PI * 1.5, 0.15),
+            paint(trim, Tr('head', 0, [0, hy + 0.2, -0.012], 0.2, 0.045), 0.006),
+          ].map(hw),
         ],
         details: [
           // brass buttons, a gold earring, an eye patch, a cutlass
@@ -331,7 +431,7 @@ export const KINDS = {
 
   fire: {
     he: 'שומר האש', en: 'Fire Keeper', accent: '#ff7a36', line: 'נושא להבה שלא כבתה מאות שנים.', pose: 'ignite',
-    hair: ['#c2381a', '#e0601e'], iris: 0xf0a030,
+    hair: ['#c2381a', '#e0601e'], iris: 0xf0a030, main: [0x7d1e1e],
     build(o) {
       const tunic = 0x7d1e1e, ember = 0xff7a1f, gold = 0xe6b44c, dark = 0x2e1f1f, ash = 0x4a3a3a;
       const b = body({ ...o, shirt: tunic, sleeve: tunic, fore: dark, glove: dark, pants: ash, boots: dark, belt: gold, hairCut: o.look === 'b' });
@@ -357,11 +457,11 @@ export const KINDS = {
         details: [
           ...(o.look === 'b'
             // a circlet of small flames over long red hair
-            ? [-2, -1, 0, 1, 2].map((i) => flame('head', [i * 0.045, hy + 0.15 - Math.abs(i) * 0.012, 0.04 - Math.abs(i) * 0.03], [i * 0.2, 1, -0.15], 0.075 - Math.abs(i) * 0.01, 0.02, { glow: 0.9, c: 0xffd35a, c1: 0xff5a14 }))
+            ? [-2, -1, 0, 1, 2].map((i) => hw(flame('head', [i * 0.045, hy + 0.15 - Math.abs(i) * 0.012, 0.04 - Math.abs(i) * 0.03], [i * 0.2, 1, -0.15], 0.075 - Math.abs(i) * 0.01, 0.02, { glow: 0.9, c: 0xffd35a, c1: 0xff5a14 })))
             // a crest of flame from brow to nape
             : [
-              ...[-3, -2, -1, 0, 1, 2, 3].map((i) => flame('head', [i * 0.038, hy + 0.125 - i * i * 0.004, 0.07 - Math.abs(i) * 0.032], [i * 0.2, 1, -0.55], 0.22 - Math.abs(i) * 0.02, 0.042, { glow: 0.9, c: 0xffd35a, c1: 0xff4a12, lean: 0.45, side: [0, 0, -1] })),
-              ...[-1, 0, 1].map((i) => flame('head', [i * 0.06, hy + 0.08, -0.1], [i * 0.25, 0.7, -1], 0.17, 0.04, { glow: 0.85, c: 0xffc03a, c1: 0xff4a12, side: [0, -1, 0] })),
+              ...[-3, -2, -1, 0, 1, 2, 3].map((i) => hw(flame('head', [i * 0.038, hy + 0.125 - i * i * 0.004, 0.07 - Math.abs(i) * 0.032], [i * 0.2, 1, -0.55], 0.22 - Math.abs(i) * 0.02, 0.042, { glow: 0.9, c: 0xffd35a, c1: 0xff4a12, lean: 0.45, side: [0, 0, -1] }))),
+              ...[-1, 0, 1].map((i) => hw(flame('head', [i * 0.06, hy + 0.08, -0.1], [i * 0.25, 0.7, -1], 0.17, 0.04, { glow: 0.85, c: 0xffc03a, c1: 0xff4a12, side: [0, -1, 0] }))),
             ]),
           // fire in the left palm
           flame('foreL', [palm[0] + 0.004, palm[1] - 0.01, palm[2] + 0.04], [0.1, 1, 0.3], 0.1, 0.034, { glow: 1, c: 0xffe27a, c1: 0xff5a14 }),
@@ -373,7 +473,7 @@ export const KINDS = {
 
   catcher: {
     he: 'לוכד', en: 'Catcher', accent: '#ff5467', line: 'כל יצור הוא חבר שעוד לא פגשת.', pose: 'throw',
-    hair: ['#2a1c14', '#7a4a22'], iris: 0x3a7a4a,
+    hair: ['#2a1c14', '#7a4a22'], iris: 0x3a7a4a, main: [0x238f8c],
     build(o) {
       const jacket = 0x238f8c, white = 0xf4f3ee, cap = 0xdc4436, pants = 0x2e3d5e, shoe = 0x3a3434;
       const b = body({ ...o, shirt: jacket, sleeve: jacket, fore: jacket, pants, boots: shoe, belt: 0x2a2a2a, bootTop: 0.1, waist: white });
@@ -400,13 +500,13 @@ export const KINDS = {
           Bx('pack', 0xc68a28, [0, 0.52, -0.172], [0.07, 0.036, 0.018], 0.02, 0.01, { rigid: true }),
           mir(paint(0x6a4a24, Bx('chest', 0, [0.068, 0.6, 0.075], [0.012, 0.08, 0.03], 0.004, 0, { rot: [0, 0, -0.08] }), 0.002)),
           // the cap
-          E('head', cap, [0, hy + 0.074, -0.012], [0.152, 0.098, 0.156], 0.012),
-          paint(white, E('head', 0, [0, hy + 0.11, 0.12], [0.056, 0.046, 0.05]), 0.006),
+          hw(E('head', cap, [0, hy + 0.074, -0.012], [0.152, 0.098, 0.156], 0.012)),
+          hw(paint(white, E('head', 0, [0, hy + 0.11, 0.12], [0.056, 0.046, 0.05]), 0.006)),
         ],
         details: [
           // the peak, the badge on the cap, spheres on the belt and one in hand
-          plate('head', cap, ellipseShape(0.108, 0.105, 0, Math.PI), 0.018, flat([0, hy + 0.068, 0.095], -0.34), { c1: shade(cap, 0.75) }),
-          ball('head', 0x238f8c, [0, hy + 0.11, 0.165], 0.016, { sy: 0.45 }),
+          hw(plate('head', cap, ellipseShape(0.108, 0.105, 0, Math.PI), 0.018, flat([0, hy + 0.068, 0.095], -0.34), { c1: shade(cap, 0.75) })),
+          hw(ball('head', 0x238f8c, [0, hy + 0.11, 0.165], 0.016, { sy: 0.45 })),
           ...sphere('body', [0.072, Y.waist - 0.01, 0.076]),
           ...sphere('body', [-0.072, Y.waist - 0.01, 0.076]),
           ...sphere('body', [0.108, Y.waist - 0.01, 0.02]),
@@ -418,7 +518,7 @@ export const KINDS = {
 
   ranger: {
     he: 'סייר', en: 'Ranger', accent: '#62cf6c', line: 'שומר השבילים. רואה הכל, נשמע רק כשצריך.', pose: 'aim',
-    hair: ['#5a3a1e', '#b0702c'], iris: 0x3f7a3a,
+    hair: ['#5a3a1e', '#b0702c'], iris: 0x3f7a3a, main: [0x3f6b3c, 0x2d5334],
     build(o) {
       const green = 0x3f6b3c, cloak = 0x2d5334, leather = 0x7c5433, cream = 0xe8dcc0, dark = 0x3a2a1c, gold = 0xc9a24a;
       const b = body({ ...o, shirt: green, sleeve: green, fore: leather, glove: 0x5a3a24, pants: 0x564433, boots: dark, belt: dark, bootTop: 0.26, waist: leather });
@@ -452,7 +552,7 @@ export const KINDS = {
 
   mage: {
     he: 'קוסם', en: 'Mage', accent: '#5b9dff', line: 'לומד את השפה הישנה שהעולם נכתב בה.', pose: 'cast',
-    hair: ['#dcd4c8', '#2e2350'], iris: 0x4a6ad8,
+    hair: ['#dcd4c8', '#2e2350'], iris: 0x4a6ad8, main: [0x2f3d92, 0x1f2764],
     build(o) {
       const robe = 0x2f3d92, deep = 0x1f2764, gold = 0xe8c05a, star = 0xfbe38c;
       const b = body({ ...o, shirt: robe, sleeve: robe, fore: robe, pants: deep, boots: 0x2a2030, bootTop: 0.1, belt: gold, face: o.look === 'b' });
@@ -473,9 +573,9 @@ export const KINDS = {
           mir(C('foreL', robe, [elbow[0] + 0.004, 0.47, 0.008], [wrist[0] + 0.012, 0.39, 0.022], 0.038, 0.054, 0.02)),
           mir(paint(gold, Bx('foreL', 0, [wrist[0] + 0.012, 0.395, 0.022], [0.07, 0.008, 0.07], 0), 0.003)),
           // the hat's crown, bending over at the tip, with a gold band
-          C('head', robe, [0, hy + 0.09, -0.012], [0.012, hy + 0.3, -0.05], 0.14, 0.05, 0.03),
-          C('head', robe, [0.012, hy + 0.3, -0.05], [0.075, hy + 0.36, -0.105], 0.05, 0.013, 0.025),
-          paint(gold, Bx('head', 0, [0, hy + 0.125, -0.012], [0.2, 0.014, 0.2], 0), 0.004),
+          hw(C('head', robe, [0, hy + 0.09, -0.012], [0.012, hy + 0.3, -0.05], 0.14, 0.05, 0.03)),
+          hw(C('head', robe, [0.012, hy + 0.3, -0.05], [0.075, hy + 0.36, -0.105], 0.05, 0.013, 0.025)),
+          hw(paint(gold, Bx('head', 0, [0, hy + 0.125, -0.012], [0.2, 0.014, 0.2], 0), 0.004)),
           // a beard for the first look
           ...(o.look === 'b' ? [] : [
             E('head', o.hair, [0, hy - 0.092, 0.098], [0.088, 0.078, 0.06], 0.014),
@@ -485,12 +585,12 @@ export const KINDS = {
         ],
         details: [
           // the brim; a staff with a crystal held in a claw of wood; a star on the hat
-          plate('head', deep, ellipseShape(0.27, 0.25), 0.012, flat([0, hy + 0.092, -0.012], -0.08), { c1: shade(deep, 0.8) }),
+          hw(plate('head', deep, ellipseShape(0.27, 0.25), 0.012, flat([0, hy + 0.092, -0.012], -0.08), { c1: shade(deep, 0.8) })),
           tube('foreR', 0x6a4a2a, [-palm[0], 0.1, palm[2] + 0.004], [-palm[0], 0.8, palm[2] + 0.004], 0.011, { bend: [-0.02, 0, 0.01], sides: 7, taper: 0.85 }),
           ...[0, 1, 2].map((i) => horn('foreR', 0x6a4a2a, [-palm[0], 0.79, palm[2] + 0.004], [-palm[0] + Math.cos(i * 2.1) * 0.036, 0.86, palm[2] + 0.004 + Math.sin(i * 2.1) * 0.036], 0.008, { bend: [0, 0.01, 0] })),
           crystal('foreR', 0x7ae0ff, [-palm[0], 0.805, palm[2] + 0.004], [0, 1, 0], 0.085, 0.021, { c1: 0xe8faff, glow: 0.9 }),
           ball('foreR', 0xbef2ff, [-palm[0], 0.835, palm[2] + 0.004], 0.03, { glow: 0.55 }),
-          plate('head', star, starShape(0.032, 0.014), 0.006, { o: [0.052, hy + 0.2, 0.09], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, { glow: 0.5 }),
+          hw(plate('head', star, starShape(0.032, 0.014), 0.006, { o: [0.052, hy + 0.2, 0.09], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, { glow: 0.5 })),
         ],
       });
     },
@@ -498,7 +598,7 @@ export const KINDS = {
 
   explorer: {
     he: 'חוקר', en: 'Explorer', accent: '#e9b24a', line: 'מפה ריקה היא הזמנה. הוא ממלא אותה.', pose: 'look',
-    hair: ['#6a4428', '#c8923e'], iris: 0x5a7a3a,
+    hair: ['#6a4428', '#c8923e'], iris: 0x5a7a3a, main: [0xd2bb8c],
     build(o) {
       const khaki = 0xd2bb8c, olive = 0x6c7046, leather = 0x7a4f2e, brass = 0xc9a24a, helmet = 0xeadcb4, scarf = 0xcf5430;
       const b = body({ ...o, shirt: khaki, sleeve: khaki, fore: o.skin, pants: olive, boots: leather, belt: leather, bootTop: 0.2, cuff: 0.004 });
@@ -514,12 +614,12 @@ export const KINDS = {
           Bx('body', leather, [-0.12, 0.43, 0.02], [0.028, 0.046, 0.05], 0.012, 0.012, { rigid: true }),
           mir(Tr('shinL', 0xeee6d6, [b.at.hipX + 0.005, 0.2, 0.008], 0.041, 0.012, 0.012, { rot: [Math.PI / 2, 0, 0] })),
           // the pith helmet
-          E('head', helmet, [0, hy + 0.082, -0.012], [0.158, 0.114, 0.162], 0.012),
-          paint(0x8a6a3a, Bx('head', 0, [0, hy + 0.085, -0.012], [0.2, 0.012, 0.2], 0), 0.003),
+          hw(E('head', helmet, [0, hy + 0.082, -0.012], [0.158, 0.114, 0.162], 0.012)),
+          hw(paint(0x8a6a3a, Bx('head', 0, [0, hy + 0.085, -0.012], [0.2, 0.012, 0.2], 0), 0.003)),
         ],
         details: [
           // the brim, the satchel strap, a magnifying glass, a compass
-          plate('head', helmet, ellipseShape(0.22, 0.23), 0.012, flat([0, hy + 0.064, -0.012], -0.06), { c1: shade(helmet, 0.86) }),
+          hw(plate('head', helmet, ellipseShape(0.22, 0.23), 0.012, flat([0, hy + 0.064, -0.012], -0.06), { c1: shade(helmet, 0.86) })),
           tube('chest', leather, [0.1, 0.672, 0.03], [-0.118, 0.46, 0.05], 0.007, { bend: [0, 0, 0.065], sides: 5 }),
           ring('foreL', brass, [palm[0] + 0.012, palm[1] - 0.012, palm[2] + 0.055], 0.03, 0.0065, [0.3, 0, 0]),
           plate('foreL', 0xbfe6ff, ellipseShape(0.027, 0.027), 0.003, { o: [palm[0] + 0.012, palm[1] - 0.012, palm[2] + 0.055], x: [1, 0, 0], y: [0, 0.95, 0.3], z: [0, -0.3, 0.95] }, { glow: 0.15 }),
@@ -538,7 +638,7 @@ export function personLook(a = {}) {
   const kind = KINDS[a.kind] ? a.kind : kindFromLegacy(a);
   const look = a.look === 'b' ? 'b' : a.look === 'a' ? 'a' : a.body === 'slim' ? 'b' : 'a';
   const skin = SKINS.includes(a.skin) ? a.skin : nearestSkin(a.skin);
-  return { kind, look, skin, hair: a.hairC || null, scale: a.scale || 1 };
+  return { kind, look, skin, hair: a.hairC || null, scale: a.scale || 1, hat: HATS[a.hat] ? a.hat : null, dye: DYES[a.dye] ? a.dye : null };
 }
 
 /** A character made before there were kinds: dressed as the one closest to its outfit. */
@@ -561,11 +661,12 @@ const DESIGNS = new Map();
 /** The design for a look, made once. */
 export function personDesign(look) {
   const L = personLook(look);
-  const key = `person:${L.kind}:${L.look}:${L.skin}:${L.hair || ''}`;
+  const key = `person:${L.kind}:${L.look}:${L.skin}:${L.hair || ''}:${L.hat || ''}:${L.dye || ''}`;
   let d = DESIGNS.get(key);
   if (!d) {
     const K = KINDS[L.kind];
-    d = K.build({ skin: L.skin, look: L.look, hair: L.hair || K.hair[L.look === 'b' ? 1 : 0], iris: K.iris });
+    d = K.build({ skin: L.skin, look: L.look, hair: L.hair || K.hair[L.look === 'b' ? 1 : 0], iris: K.iris, hat: L.hat });
+    L.dye && K.main && dyeDesign(d, K.main, DYES[L.dye].color);
     d.key = key;
     DESIGNS.set(key, d);
   }

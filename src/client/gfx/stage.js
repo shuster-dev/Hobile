@@ -214,7 +214,7 @@ export class CreatorStage {
 
   /** Show this adventurer. Only a new kind, look or skin is rebuilt. */
   setHero(appearance) {
-    const key = `${appearance.kind}:${appearance.look}:${appearance.skin}`;
+    const key = `${appearance.kind}:${appearance.look}:${appearance.skin}:${appearance.hat || ''}:${appearance.dye || ''}`;
     if (key === this.heroKey) return;
     const kindChanged = !this.heroKey || this.heroKey.split(':')[0] !== appearance.kind;
     this.heroKey = key;

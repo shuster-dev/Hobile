@@ -30,6 +30,8 @@ import { TIER_IDS, TOWER, canEnter, weekly } from '../../shared/endgame.js';
 import { mountKind, moveMode } from '../../shared/riding.js';
 import * as Social from '../social.js';
 import { sceneSeen, storyFoe } from './saga.js';
+import { buyCosmetic, wearCosmetic } from './cosmetics.js';
+import { wardrobeOf } from '../../shared/cosmetics.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
 // 20 a second and a sprint is about 7 m/s, so 3m leaves generous headroom for
@@ -268,6 +270,18 @@ export function handleWorldMessage(ctx, e, t = {}) {
         case "sceneSeen":
           sceneSeen(n, t?.id) && ctx.net.save();
           break;
+        case "cosmeticBuy":
+        case "cosmeticWear":
+          {
+            // the tailor (shared/cosmetics.js): what is worn shows on you for everyone
+            let o = e === "cosmeticBuy" ? buyCosmetic(n, String(t?.id || "")) : wearCosmetic(n, String(t?.slot || ""), t?.id == null ? null : String(t.id));
+            if (!o.ok) return ctx.net.emit("error", { code: o.reason });
+            e === "cosmeticBuy" && t?.wear && wearCosmetic(n, o.slot, o.id);
+            let w = wardrobeOf(n);
+            s && (s.hat = w.hat || "", s.dye = w.dye || "");
+            ctx.net.save(), ctx.net.emit("wardrobe", { ...w, bought: e === "cosmeticBuy" ? o.id : null }), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
         case "duel":
         case "duelAccept":
         case "duelDecline":
@@ -491,6 +505,15 @@ export function handleWorldMessage(ctx, e, t = {}) {
               kind: "star",
               star: o.star
             }) : [];
+            // the phone: when the pod opens, when the baskets fill (server/push.js)
+            if (ctx.push) {
+              e === "baseTrain" && ctx.push.schedule(o.slot.readyAt, "train", `train:${o.slot.id}`, "✨ האימון הסתיים", `${SPECIES[n.creatures[o.slot.uid]?.species]?.he || "היצור"} מוכן לצאת מהתא עם ${o.slot.star} כוכבים`);
+              (e === "baseCancel" || e === "baseCollect") && ctx.push.cancel(`train:${t.slotId}`);
+              if (e === "baseWork" || e === "baseUnwork" || e === "baseCollectWork") {
+                let full = Math.min(...(n.base?.workers || []).map(w => (w.since || Date.now()) + 12 * 3600e3));
+                Number.isFinite(full) ? ctx.push.schedule(full, "farm", "farm", "🧺 הסלים בחווה מלאים", "העובדים בחווה סיימו — בוא לאסוף לפני שהם עוצרים") : ctx.push.cancel("farm");
+              }
+            }
             // who walks beside you may have changed (gone to the farm, back)
             petOf(s, n), s.hpRatio = hpRatio(n);
             ctx.net.save();

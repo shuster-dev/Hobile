@@ -13,6 +13,7 @@
 // their own sphere and potions, what each takes home, and someone leaving
 // halfway. The single-player build keeps BattleSim (base.js); the reward rules
 // here follow its `resolve` line by line, so the two settle a wild the same way.
+import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
   duplicateReward, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
@@ -125,7 +126,7 @@ export class PartyBattle {
 
   players() {
     return [...this.parts.values()].filter((p) => !p.left).map((p) => ({
-      id: p.id, name: p.doc.name, level: p.doc.level, side: p.side, appearance: p.doc.appearance,
+      id: p.id, name: p.doc.name, level: p.doc.level, side: p.side, appearance: wornLook(p.doc),
     }));
   }
 

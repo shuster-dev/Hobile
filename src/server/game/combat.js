@@ -3,6 +3,7 @@ import { ABILITIES, NATURES, rollAbility, rollNature } from '../../shared/traits
 import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
 import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwork.js';
+import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
@@ -1211,7 +1212,9 @@ function publicProfile(i) {
     nextXp: PROGRESSION.xpToLevel(i.level + 1),
     gold: i.gold,
     zone: i.zone,
-    appearance: i.appearance,
+    // with what they wear from the tailor (shared/cosmetics.js)
+    appearance: wornLook(i),
+    wardrobe: wardrobeOf(i),
     trainerHp: i.trainerHp ?? trainerMaxHp(i),
     trainerMaxHp: trainerMaxHp(i),
     team: teamCreatures(i),

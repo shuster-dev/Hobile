@@ -11,6 +11,8 @@ import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
 import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
+import { DYES, HATS, wardrobeOf } from '../shared/cosmetics.js';
+import { itemIcon } from './icons.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -251,7 +253,7 @@ var UI = class {
     // left to the bidi algorithm the numbers wander into each other's places.
     let parts = [];
     r.gold && parts.push(`${r.gold.toLocaleString("en-US")}⛁`), r.xp && parts.push(`${r.xp} XP`);
-    for (let [id, n] of r.items || []) ITEMS[id] && parts.push(`${Ze(loc(ITEMS[id]))}${n > 1 ? ` ×${n}` : ""}`);
+    for (let [id, n] of r.items || []) ITEMS[id] && parts.push(`${itemIcon(id, "sm")}${Ze(loc(ITEMS[id]))}${n > 1 ? ` ×${n}` : ""}`);
     r.creature && SPECIES[r.creature.species] && parts.push(`🐾 ${Ze(loc(SPECIES[r.creature.species]))} · רמה ${r.creature.level}`);
     return parts.map(p => `<bdi>${p}</bdi>`).join(" · ");
   }
@@ -338,7 +340,7 @@ var UI = class {
         t = el("div", `daily-tile ${taken ? "taken" : ""} ${today ? "today" : ""} ${d.big ? "big" : ""}`),
         bits = [];
       d.gold && bits.push(`<span>⛁ ${ltr(d.gold.toLocaleString("en-US"))}</span>`);
-      for (let [id, q] of Object.entries(d.items || {})) bits.push(`<span>${ITEMS[id]?.icon || "📦"} ×${ltr(String(q))}</span>`);
+      for (let [id, q] of Object.entries(d.items || {})) bits.push(`<span>${itemIcon(id, "sm")} ×${ltr(String(q))}</span>`);
       for (let [kind, q] of Object.entries(d.lead || {})) {
         let it = ITEMS[`${kind}_${lead}`];
         it && bits.push(`<span>${kind === "crystal" ? "💎" : ELEMENTS[lead]?.icon || "◆"} ×${ltr(String(q))}</span>`);
@@ -654,7 +656,9 @@ var UI = class {
         clinic: "מרפאת הגאות",
         account: "החשבון שלי",
         map: "מפת האזור",
-        gm: "🛡 כלי GM"
+        gm: "🛡 כלי GM",
+        tailor: "👒 החייט",
+        notify: "🔔 התראות לטלפון"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -685,6 +689,8 @@ var UI = class {
       dex: () => this.panelDex(o),
       species: () => this.panelSpecies(o),
       clinic: () => this.panelClinic(o),
+      tailor: () => this.panelTailor(o),
+      notify: () => this.panelNotify(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
@@ -1002,7 +1008,9 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+    // the phone's bell needs the server (server/push.js)
+    this.social && n.push(["🔔 התראות", "notify"]);
     n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
@@ -1100,7 +1108,7 @@ var UI = class {
       let c = ITEMS[a];
       if (!c) continue;
       let h = el("div", "list-item");
-      if (h.innerHTML = `<div class="ico-lg">${c.icon || "📦"}</div>
+      if (h.innerHTML = `<div class="ico-lg">${itemIcon(a)}</div>
         <div class="grow"><b>${Ze(loc(c))}</b><span>${itemEffect(c)}</span></div>
         <div class="mono pill">${ltr(`×${l}`)}</div>`, c.kind === "heal" || c.kind === "revive" || c.kind === "gear") {
         let d = el("button", "btn small", c.kind === "gear" ? "צייד" : "השתמש");
@@ -1262,7 +1270,7 @@ var UI = class {
   workSection(e, t) {
     let w = t.work;
     if (!w) return;
-    let fmt = o => Object.entries(o || {}).map(([k, n]) => k === "gold" ? `🪙 ${ltr(n)}` : `${ITEMS[k]?.icon || "📦"} ${ltr(`×${n}`)}`).join(" · ");
+    let fmt = o => Object.entries(o || {}).map(([k, n]) => k === "gold" ? `🪙 ${ltr(n)}` : `${itemIcon(k, "sm")} ${ltr(`×${n}`)}`).join(" · ");
     e.appendChild(section("👷 עובדים בחווה", rangeLabel(w.workers.length, w.slots, "/")));
     let any = w.workers.some(x => Object.keys(x.ready).length);
     if (any) {
@@ -1391,7 +1399,7 @@ var UI = class {
     e.appendChild(section("לשדרוג הכוכב הבא"));
     for (let [x, g] of Object.entries(t.next.items)) {
       let m = el("div", `list-item ${g.have >= g.need ? "" : "lacking"}`);
-      m.innerHTML = `<div class="ico-lg">${ITEMS[x]?.icon || "📦"}</div>
+      m.innerHTML = `<div class="ico-lg">${itemIcon(x)}</div>
         <div class="grow"><b>${Ze(loc(ITEMS[x]))}</b>
         <span class="mono">${ltr(`${g.have} / ${g.need}`)}</span></div>
         ${g.have >= g.need ? "<span class=\"pill good\">✓</span>" : ""}`, e.appendChild(m);
@@ -1786,9 +1794,98 @@ var UI = class {
       m.disabled = n < p.price, m.setAttribute("aria-label", `קנה ${loc(p)}`), m.onclick = () => this.hooks.buy?.(p.id, 1), x.appendChild(m), e.appendChild(x);
     }
   }
+  /** The bell (client/push.js): notifications to this phone, and which. */
+  panelNotify(e) {
+    let box = el("div", "list-item");
+    box.innerHTML = `<div class="ico-lg">🔔</div><div class="grow"><b>בודק…</b><span></span></div>`, e.appendChild(box);
+    let prefs = this.hooks.pushPrefs?.() || { train: !0, boss: !0, farm: !0 },
+      labels = { train: "✨ האימון בחווה הסתיים", boss: "⚠ בוס עולמי הופיע", farm: "🧺 הסלים של העובדים מלאים" };
+    let paint = state => {
+      let b = box.querySelector("b"), sp = box.querySelector("span");
+      b.textContent = state === "on" ? "דלוק בטלפון הזה" : state === "off" ? "כבוי" : state === "denied" ? "חסום בהגדרות הדפדפן" : state === "install" ? "קודם להוסיף למסך הבית" : "הדפדפן הזה לא תומך";
+      sp.textContent = state === "install" ? "באייפון: שיתוף ← הוסף למסך הבית, ואז לפתוח את המשחק משם." : state === "denied" ? "צריך לאפשר התראות לאתר בהגדרות, ואז לחזור לכאן." : state === "on" ? "נשלח רק כשאתה לא במשחק." : "";
+      box.querySelector("button")?.remove();
+      if (state === "on" || state === "off") {
+        let btn = el("button", `btn small ${state === "on" ? "" : "primary"}`, state === "on" ? "כבה" : "הדלק");
+        btn.onclick = async () => {
+          btn.disabled = !0;
+          try {
+            state === "on" ? await this.hooks.pushDisable?.() : await this.hooks.pushEnable?.(prefs);
+            this.toast(state === "on" ? "ההתראות כבויות" : "ההתראות דלוקות 🔔", "good");
+          } catch (x) {
+            this.toast(x?.message === "denied" ? "לא אישרת התראות" : "לא הצלחנו להדליק התראות", "bad");
+          }
+          this.hooks.pushState?.().then(paint);
+        }, box.appendChild(btn);
+      }
+      test.classList.toggle("hidden", state !== "on");
+    };
+    e.appendChild(section("על מה להודיע"));
+    for (let [k, he] of Object.entries(labels)) {
+      let r = el("label", "list-item tappable"), cb = el("input");
+      cb.type = "checkbox", cb.checked = prefs[k] !== !1, cb.onchange = () => {
+        prefs = { ...prefs, [k]: cb.checked }, this.hooks.pushSave?.(prefs);
+      };
+      r.appendChild(cb), r.appendChild(el("div", "grow", he)), e.appendChild(r);
+    }
+    let test = el("button", "btn ghost hidden", "שלח התראת ניסיון");
+    test.style.width = "100%", test.onclick = () => this.hooks.pushTest?.().then(r => this.toast(r?.ok ? "נשלחה — תבדוק את הטלפון" : "לא נשלחה", r?.ok ? "good" : "bad")), e.appendChild(test);
+    this.hooks.pushState?.().then(paint).catch(() => paint("unsupported"));
+  }
+  /**
+   * The tailor (shared/cosmetics.js): hats and dyes for gold, and the ones
+   * from the season's track. Tapping one tries it on in the picture at the
+   * top; buying puts it on.
+   */
+  panelTailor(e) {
+    let p = this.profile;
+    if (!p) return;
+    let w = p.wardrobe || { owned: [], hat: null, dye: null },
+      gold = p.gold || 0,
+      tryOn = this._tryOn || {},
+      look = { ...(p.appearance || {}), hat: "hat" in tryOn ? tryOn.hat : w.hat, dye: "dye" in tryOn ? tryOn.dye : w.dye },
+      top = el("div", "tailor-top"),
+      pic = el("div", "tailor-pic");
+    pic.innerHTML = `<div class="spin" aria-hidden="true"></div>`;
+    top.appendChild(pic);
+    let info = el("div", "grow");
+    info.innerHTML = `<b>${Ze(p.name || "")}</b><span>${look.hat ? `👒 ${Ze(HATS[look.hat]?.he || "")}` : "בלי כובע"} · ${look.dye ? `🎨 ${Ze(DYES[look.dye]?.he || "")}` : "הצבע של הדמות"}</span><span class="mono">${ltr(`${gold.toLocaleString("en-US")}⛁`)}</span>`;
+    if (this._tryOn && (tryOn.hat !== void 0 || tryOn.dye !== void 0)) {
+      let back = el("button", "btn small ghost", "בטל מדידה");
+      back.onclick = () => (this._tryOn = null, this.renderPanel("tailor")), info.appendChild(back);
+    }
+    top.appendChild(info), e.appendChild(top);
+    this.hooks.lookPortrait?.(look, url => {
+      pic.isConnected && (pic.innerHTML = `<img src="${url}" alt="איך זה נראה עליך" />`);
+    });
+    let row = (slot, id, d) => {
+      let own = w.owned.includes(id), worn = w[slot] === id, trying = tryOn[slot] === id,
+        r = el("div", `list-item tappable ${trying ? "ready" : ""} ${!own && !d.pass && gold < d.price ? "lacking" : ""}`),
+        sw = slot === "dye" ? `<div class="swatch" style="background:${oo(d.color)}"></div>` : `<div class="ico-lg">${HAT_ICON[d.shape] || "👒"}</div>`;
+      r.innerHTML = `${sw}<div class="grow"><b>${Ze(d.he)}</b><span>${worn ? "לבוש עכשיו" : own ? "שלך" : d.pass ? "🎟 ממסלול העונה" : ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span></div>`;
+      r.onclick = () => (this._tryOn = { ...(this._tryOn || {}), [slot]: id }, this.renderPanel("tailor"));
+      let b;
+      if (worn) b = el("button", "btn small", "הסר"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, null));
+      else if (own) b = el("button", "btn small primary", "לבש"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, id));
+      else if (!d.pass) b = el("button", `btn small ${gold >= d.price ? "primary" : ""}`, "קנה"), b.disabled = gold < d.price, b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticBuy?.(id));
+      else b = el("span", "pill", "🔒");
+      r.appendChild(b), e.appendChild(r);
+    };
+    e.appendChild(section("👒 כובעים", `${ltr(Object.keys(HATS).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(HATS).length)}`));
+    for (let [id, d] of Object.entries(HATS)) row("hat", id, d);
+    e.appendChild(section("🎨 צבע לבגד", `${ltr(Object.keys(DYES).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(DYES).length)}`));
+    for (let [id, d] of Object.entries(DYES)) row("dye", id, d);
+    let n = el("div", "hint");
+    n.textContent = "רק מראה — שום דבר כאן לא משנה כוח בקרב.", e.appendChild(n);
+  }
   panelShop(e) {
     let t = this.profile?.gold || 0,
       n = Object.values(ITEMS).filter(s => s.price);
+    {
+      // the tailor is next door
+      let tl = el("button", "btn", "👒 לחייט — כובעים וצבעים");
+      tl.style.width = "100%", tl.onclick = () => this.openPanel("tailor"), e.appendChild(tl);
+    }
     if (!n.length) {
       e.appendChild(emptyState("🏪", "החנות ריקה"));
       return;
@@ -1796,7 +1893,7 @@ var UI = class {
     e.appendChild(section("למכירה", ltr(`${t.toLocaleString("en-US")}⛁`)));
     for (let s of n) {
       let r = el("div", `list-item ${t >= s.price ? "" : "lacking"}`);
-      r.innerHTML = `<div class="ico-lg">${s.icon}</div>
+      r.innerHTML = `<div class="ico-lg">${itemIcon(s.id)}</div>
         <div class="grow"><b>${Ze(loc(s))}</b><span>${itemEffect(s)}</span></div>
         <div class="mono pill">${ltr(`${s.price}⛁`)}</div>`;
       let o = el("button", "btn small primary", "קנה");
@@ -2179,8 +2276,10 @@ function textInput(i) {
   return e.className = "field-input", e.placeholder = i, e.autocomplete = "off", e.spellcheck = !1, e;
 }
 
+var HAT_ICON = { cap: "🧢", bandana: "🎀", beanie: "🧶", flowers: "🌸", cowboy: "🤠", catears: "🐱", wizard: "🧙", tophat: "🎩", crown: "👑", halo: "😇", horns: "😈" };
+
 function itemList(i) {
-  return Object.entries(i || {}).map(([e, t]) => `${ITEMS[e]?.icon || "📦"} ${Ze(loc(ITEMS[e]))} ${ltr(`×${t}`)}`).join(", ");
+  return Object.entries(i || {}).map(([e, t]) => `${itemIcon(e, "sm")} ${Ze(loc(ITEMS[e]))} ${ltr(`×${t}`)}`).join(", ");
 }
 
 function costRow(i, e) {
@@ -2194,7 +2293,7 @@ function costRow(i, e) {
     let o = e?.inventory?.[s] || 0,
       a = o < r,
       l = el("span", `c ${a ? "short" : ""}`);
-    l.innerHTML = `${ITEMS[s]?.icon || "📦"} ${a ? `${o}/${r}` : r}`, l.title = loc(ITEMS[s]), t.appendChild(l);
+    l.innerHTML = `${itemIcon(s, "sm")} ${a ? `${o}/${r}` : r}`, l.title = loc(ITEMS[s]), t.appendChild(l);
   }
   return t.childElementCount || t.appendChild(el("span", "c", "חינם")), t;
 }

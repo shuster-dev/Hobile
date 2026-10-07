@@ -12,6 +12,7 @@ import { earn, spend } from './economy.js';
 import { PartyDungeon } from './party-dungeon.js';
 import { eventMul } from '../../shared/events.js';
 import { storyWin } from './saga.js';
+import { wardrobeOf } from '../../shared/cosmetics.js';
 
 var StoreBase = class {
     constructor() {
@@ -196,6 +197,8 @@ var StoreBase = class {
         outfit: e.appearance.outfit,
         kind: e.appearance.kind,
         look: e.appearance.look,
+        hat: wardrobeOf(e).hat || "",
+        dye: wardrobeOf(e).dye || "",
         mount: "",
         mountKind: "",
         mountStar: 1

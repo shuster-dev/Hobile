@@ -1,3 +1,5 @@
+import { wardrobeOf } from '../../shared/cosmetics.js';
+import * as Push from '../push.js';
 import { Room } from '@colyseus/core';
 import { earn } from '../game/economy.js';
 import { WorldState, PlayerState, WildState, BossContributor } from '../state.js';
@@ -172,6 +174,7 @@ export class WorldRoom extends Room {
       body: doc.appearance.body, skin: doc.appearance.skin,
       hair: doc.appearance.hair, outfit: doc.appearance.outfit,
       kind: doc.appearance.kind, look: doc.appearance.look,
+      hat: wardrobeOf(doc).hat || '', dye: wardrobeOf(doc).dye || '',
     });
     this.state.players.set(client.sessionId, p);
     this.docsBySession.set(client.sessionId, doc);
@@ -261,6 +264,11 @@ export class WorldRoom extends Room {
       checkVisits: (d, pos) => visitCheck(ctx, d, pos, seen),
       startBattle: (opts) => room.startBattle(client, doc, opts),
       startDungeon: (opts) => room.startDungeon(client, doc, opts),
+      // the phone, for when they are not looking (server/push.js)
+      push: {
+        schedule: (at, pref, tag, title, body) => Push.schedule(doc.id, at, pref, tag, title, body).catch(() => {}),
+        cancel: (tag) => Push.cancel(doc.id, tag).catch(() => {}),
+      },
     };
     return ctx;
   }
@@ -379,6 +387,8 @@ export class WorldRoom extends Room {
       species: def.species, level: def.level, x: def.x, z: def.z,
       name: SPECIES[def.species]?.he || def.species, endsAt: b.endsAt,
     });
+    // and to the phones of whoever wants to know (server/push.js)
+    Push.bossAlert(SPECIES[def.species]?.he || def.species, this.zone.he).catch(() => {});
   }
 
   refreshBossBoard() {

@@ -56,6 +56,14 @@ ok('a duplicate username is refused', (await api('/api/register', { username: 'a
 ok('a wrong password is refused', (await api('/api/login', { username: 'alice', password: 'nope' })).status === 401);
 ok('the right password logs in', (await api('/api/login', { username: 'alice', password: 'hunter2' })).status === 200);
 ok('an unauthenticated /me is refused', (await api('/api/me')).status === 401);
+{
+  // phone notifications (server/push.js): a key to subscribe with, and no subscribing without an account
+  const k = await (await fetch(`${BASE}/api/push/key`)).json();
+  ok('the server hands out its push key', typeof k.key === 'string' && k.key.length > 40 && k.prefs?.train, JSON.stringify(k));
+  ok('nobody subscribes without an account', (await api('/api/push/subscribe', { subscription: {} })).status === 401);
+  const tok = (await api('/api/login', { username: 'alice', password: 'hunter2' })).json.token;
+  ok('a broken subscription is refused', (await api('/api/push/subscribe', { subscription: { endpoint: 'http://x' } }, tok)).status === 400);
+}
 
 await api('/api/character', { name: 'Alice', starter: 'cindcub' }, a.json.token);
 await api('/api/character', { name: 'Bob', starter: 'puddlet' }, b.json.token);

@@ -15,6 +15,8 @@ import { createPlayerDoc, normalizeDoc, publicProfile, uid } from './game/combat
 import { economyReport } from './game/economy.js';
 import * as Guilds from './guilds.js';
 import * as Arena from './arena.js';
+import * as Push from './push.js';
+import * as Social from './social.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
 // A log pipe that closes (a supervisor restarting, a test harness that died)
@@ -32,6 +34,8 @@ await reportAdmins(store);
 await Guilds.useStore(store);
 // the arena opens its fights as any duel is opened (server/arena.js)
 Arena.useRooms((opts) => matchMaker.createRoom('battle', { store, ...opts }));
+// the phone notifications (server/push.js): keys, the queue sweep
+await Push.usePush(store, process.env, { isOnline: (id) => Social.isOnline(id) }).catch((e) => console.warn('[push] off:', e.message));
 const app = express();
 app.use(express.json({ limit: '64kb' }));
 app.use((req, res, next) => {
@@ -54,6 +58,18 @@ const requireAuth = (req, res, next) => {
 };
 
 app.get('/api/health', (req, res) => res.json({ ok: true, zones: Object.keys(ZONES).length }));
+
+// --- phone notifications (server/push.js) -------------------------------------
+app.get('/api/push/key', (req, res) => res.json({ key: Push.publicKey(), prefs: Push.PREFS }));
+app.post('/api/push/subscribe', requireAuth, async (req, res) => {
+  const r = await Push.subscribe(req.userId, req.body?.subscription, req.body?.prefs || {});
+  r.ok ? res.json(r) : res.status(400).json({ error: r.error });
+});
+app.post('/api/push/unsubscribe', requireAuth, async (req, res) => res.json(await Push.unsubscribe(req.userId, req.body?.endpoint || null)));
+app.post('/api/push/test', requireAuth, async (req, res) => {
+  const n = await Push.notify(req.userId, null, { title: 'Hobile', body: 'ההתראות עובדות — נשלח לך כשהאימון נגמר או כשבוס מופיע.', tag: 'test' });
+  res.json({ ok: n > 0, sent: n });
+});
 
 app.post('/api/register', async (req, res) => {
   const name = validateUsername(req.body?.username);

@@ -14,6 +14,8 @@ defineTypes(PlayerState, {
   petSpecies: 'string', petStar: 'number', hpRatio: 'number',
   body: 'string', skin: 'string', hair: 'string', outfit: 'string',
   kind: 'string', look: 'string',
+  // what they wear from the tailor (shared/cosmetics.js)
+  hat: 'string', dye: 'string',
   // riding (shared/riding.js): the creature carrying them, and how
   mount: 'string', mountKind: 'string', mountStar: 'number',
 });

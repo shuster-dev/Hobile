@@ -20,6 +20,8 @@ import { RIDE, mountsOf } from '../shared/riding.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
 import { Cutscene } from './cutscene.js';
+import { cosmeticById } from '../shared/cosmetics.js';
+import { disablePush, enablePush, pushState, savedPrefs, testPush } from './push.js';
 const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -33,7 +35,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = new Cutscene(this), this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = new Cutscene(this), this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       if (this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
         return;
@@ -645,6 +647,8 @@ var Game = class {
           q && t.errand.mode !== "active" && this.ui.errandCard(q, t.errand.mode, t.he || t.name);
         }
       });
+    }), e.on("wardrobe", t => {
+      t.bought && (audio.sfx("coin"), this.ui.toast(`נקנה: ${loc(cosmeticById(t.bought) || {})}`, "good")), this.ui.openPanelId === "tailor" && this.ui.renderPanel("tailor");
     }), e.on("questDone", t => {
       audio.sfx("quest"), vibrate([18, 40, 26]);
       let n = QUESTS[t?.id];
@@ -742,7 +746,7 @@ var Game = class {
         setTimeout(() => {
           audio.sfx(t.crit ? "crit" : "hit", {
             power: a
-          }), t.eff > 1 ? audio.sfx("superEffective") : t.eff < 1 && audio.sfx("resisted"), this.punch(0.35 + a * 1.1, t.crit ? 90 : 0), n ? vibrate(t.crit ? [18, 30, 18] : 10) : (audio.sfx("hurt"), vibrate(t.crit ? [30, 40, 30] : 18));
+          }), l?.type && audio.sfx("land", { element: l.type, power: a }), t.eff > 1 ? audio.sfx("superEffective") : t.eff < 1 && audio.sfx("resisted"), this.punch(0.35 + a * 1.1, t.crit ? 90 : 0), n ? vibrate(t.crit ? [18, 30, 18] : 10) : (audio.sfx("hurt"), vibrate(t.crit ? [30, 40, 30] : 18));
         }, c), t.eff > 1 ? this.ui.battleBanner("פגיעה יעילה במיוחד!", 800) : t.eff < 1 && this.ui.battleBanner("לא יעיל במיוחד…", 700);
       } else t.kind === "ability" ? (() => {
         // the ability's name over the one it belongs to, the way the
@@ -1065,6 +1069,17 @@ var Game = class {
         uid: t
       }),
       baseCollectWork: () => e("baseCollectWork"),
+      // the tailor (shared/cosmetics.js): buy, wear, take off — and how it looks on you
+      cosmeticBuy: (t, wear = !0) => e("cosmeticBuy", { id: t, wear }),
+      cosmeticWear: (t, n) => e("cosmeticWear", { slot: t, id: n }),
+      lookPortrait: (t, n) => (this.lookPainter || (this.lookPainter = new PortraitPainter(180, 220))).want(t, n),
+      // the bell: notifications to this phone (client/push.js)
+      pushState: () => this.solo ? Promise.resolve("unsupported") : pushState(),
+      pushPrefs: () => savedPrefs(),
+      pushEnable: t => enablePush(this.net, t),
+      pushDisable: () => disablePush(this.net),
+      pushSave: t => pushState().then(s => s === "on" ? enablePush(this.net, t) : (localStorage.setItem("hobile.push.prefs", JSON.stringify(t)), !0)).catch(() => {}),
+      pushTest: () => testPush(this.net).catch(() => ({ ok: !1 })),
       // a scene of the story, again (client/cutscene.js)
       replayScene: t => {
         this.ui.closePanel(), setTimeout(() => this.storyScene(t), 350);
@@ -1366,14 +1381,16 @@ var Game = class {
       r.add(u);
       let f = this.world.ensureActor(u, {
         kind: "player",
-        signature: `p:${d.kind}:${d.look}:${d.skin}:${d.outfit}`,
+        signature: `p:${d.kind}:${d.look}:${d.skin}:${d.outfit}:${d.hat || ""}:${d.dye || ""}`,
         appearance: {
           kind: d.kind,
           look: d.look,
           body: d.body,
           skin: d.skin,
           hair: d.hair,
-          outfit: d.outfit
+          outfit: d.outfit,
+          hat: d.hat || null,
+          dye: d.dye || null
         },
         petSpecies: d.petSpecies,
         petStar: d.petStar || 1
@@ -1849,6 +1866,10 @@ function Oc(i) {
     cannot_ride: "היצור הזה לא יכול לשאת אותך",
     not_here: "לא כאן",
     not_now: "עוד לא — הסיפור עוד לא הגיע לכאן",
+    already_owned: "כבר יש לך את זה",
+    not_for_sale: "זה לא נמכר — מרוויחים את זה במסלול העונה",
+    not_owned: "קודם צריך לקנות את זה",
+    bad_slot: "זה לא נלבש ככה",
     anchor_broken: "העוגן הזה כבר נופץ",
     no_work_slot: "אין מקום לעוד עובד — שדרג מבנים בחווה",
     not_in_box: "רק יצור מהקופסה (לא מהצוות) יכול לעבוד בחווה",

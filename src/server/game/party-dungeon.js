@@ -10,6 +10,7 @@
 //
 // The online DungeonRoom and the single-player build (base.js DungeonSim) both
 // drive this, so the two play the same dungeon.
+import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, creaturePower, creatureScore, giveItem, grantXp, grantXpTo, healTeam,
   makeCreature, publicProfile, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
@@ -86,7 +87,7 @@ export class PartyDungeon {
   }
 
   players() {
-    return this.live().map((p) => ({ id: p.id, name: p.doc.name, level: p.doc.level, side: 'a', appearance: p.doc.appearance }));
+    return this.live().map((p) => ({ id: p.id, name: p.doc.name, level: p.doc.level, side: 'a', appearance: wornLook(p.doc) }));
   }
 
   info() {

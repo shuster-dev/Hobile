@@ -519,6 +519,15 @@ button.list-item.tier-row{width:100%;text-align:start;font:inherit;color:inherit
 @keyframes csroll{to{transform:translateY(-100%);top:0}}
 body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:none!important;transition:opacity .4s}
 .scene-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.tailor-top{display:flex;gap:var(--s3);align-items:center;margin-bottom:var(--s3)}
+.tailor-top .grow{display:flex;flex-direction:column;gap:2px}
+.tailor-pic{width:120px;height:146px;border-radius:var(--r3);background:radial-gradient(circle at 50% 35%,var(--raise-2),var(--sunken));display:grid;place-items:center;flex:0 0 auto;overflow:hidden}
+.tailor-pic img{width:100%;height:100%;object-fit:contain}
+.swatch{width:36px;height:36px;border-radius:50%;border:2px solid var(--stroke-strong);flex:0 0 auto;box-shadow:var(--inset-hair)}
+.iicon{display:inline-block;vertical-align:middle;width:1.35em;height:1.35em;object-fit:contain;pointer-events:none}
+.iicon.sm{width:1.25em;height:1.25em;margin-inline:1px}
+.ico-lg:has(.iicon){width:40px}
+.ico-lg .iicon{width:40px;height:40px}
 .job-btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
 .job-btns .btn{min-width:38px;padding:4px 8px}
 .job-btns .btn.best{outline:2px solid var(--aether);outline-offset:1px}

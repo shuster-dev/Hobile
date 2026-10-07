@@ -4,6 +4,7 @@ import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, m
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
 import { setStarLook } from './starlook.js';
 import { EvolveCeremony } from './evolve.js';
+import { hitStop, signature } from './movefx.js';
 import { KINDS, personAct } from './people.js';
 import { ELEMENTS, MOVES, SPECIES } from '../../shared/gamedata.js';
 import { MEADOW, flowerBase, flowerHead, meadowTuft, thinMaterial } from './world.js';
@@ -714,7 +715,14 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           t: 0,
           at: c,
           fn: () => {
-            this.impact(t, o, a, e.crit, e.eff), this.shake = Math.max(this.shake, Math.min(0.55, 0.14 + (e.crit ? 0.22 : 0) + (e.eff > 1 ? 0.1 : 0))), this.rally(t.side, e.crit ? 1 : 0.6);
+            this.impact(t, o, a, e.crit, e.eff), this.shake = Math.max(this.shake, Math.min(0.62, 0.14 + (e.crit ? 0.26 : 0) + (e.eff > 1 ? 0.12 : 0) + (s?.power >= 80 ? 0.1 : 0))), this.rally(t.side, e.crit ? 1 : 0.6);
+            // the element's own way of landing it (movefx.js), and a beat of
+            // stillness as it lands — longer for a critical or a super-effective
+            r && signature(this, r, t, o, {
+              power: s?.power || 40,
+              crit: !!e.crit,
+              onShatter: () => this.shardBurst(t.holder.position.clone().add(nt.set(0, 1, 0)), o, fxFor("frost"), 1.3)
+            }), this.stopFor = Math.max(this.stopFor || 0, hitStop({ crit: !!e.crit, eff: e.eff || 1, power: s?.power || 40 })), (e.crit || s?.power >= 80) && this.camPunch(t, e.crit ? 0.7 : 0.45);
           }
         });
       } else e.kind === "heal" && t ? (this.column(t, 7334042, 1), this.sparkle(t, 10223561, 1.2)) : e.kind === "buff" && t ? (this.column(t, 10147839, 1.2), this.rally(t.side, 0.5)) : e.kind === "miss" && t ? this.puff(nt.copy(t.holder.position).setY(1.2), 12568532, 10) : e.kind === "faint" && t && this.fall(t);
@@ -1141,12 +1149,15 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       return this.ceremony = new EvolveCeremony(this, steps, hooks, { speciesColor, fxFor });
     }
     update(e, t) {
-      this.adapt(e), e = Math.min(0.06, Math.max(0, e || 0)), this.time += e;
+      this.adapt(e), e = Math.min(0.06, Math.max(0, e || 0));
+      // a hit landing holds the arena still for a beat (movefx.js hitStop)
+      let held = this.stopFor > 0;
+      held && (this.stopFor -= e, e *= 0.05), this.time += e;
       if (this.ceremony) {
         this.stepEffects(e), this.ceremony?.step(e, t), this.stepGlow(), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera);
         return;
       }
-      let n = !!this.sphereFx || Date.now() < this.frozenUntil;
+      let n = !!this.sphereFx || Date.now() < this.frozenUntil || held;
       this.stepStage(e, t, n), this.stepEffects(e), this.stepCamera(e), this.stepGlow(), this.sky && this.sky.position.copy(this.camera.position), this.renderer.render(this.scene, this.camera), this.pinPrograms();
     }
     stepStage(e, t, n) {
@@ -1205,6 +1216,9 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       {
         let n = !1;
         switch (e.kind) {
+          case "custom":
+            n = e.step(t);
+            break;
           case "delayed":
             e.t >= e.at && (e.fn(), n = !0);
             break;

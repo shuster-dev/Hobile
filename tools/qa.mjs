@@ -1950,5 +1950,80 @@ section('the story\'s end');
   ok('from the world: a fight with the guardian, and one at a time', started?.wild?.story === A2.id && started.wild.species === A2.guardian.species && (WM.handleWorldMessage(sctx, 'storyFight', { id: A2.id }), true));
 }
 
+// ---------------------------------------------------------------- look and sound
+// Each element lands its own way (gfx/movefx.js), every zone has its own tune
+// (client/music.js), and the tailor sells hats and dyes (shared/cosmetics.js).
+section('look and sound');
+{
+  const MF = await import('../src/client/gfx/movefx.js');
+  ok('every element has its own way of landing a hit', Object.keys(G.ELEMENTS).every((e) => MF.SIGNATURE_TYPES.includes(e)));
+  ok('a critical holds the arena longest, a plain hit barely', MF.hitStop({ crit: true }) > MF.hitStop({ eff: 2 }) && MF.hitStop({ eff: 2 }) > MF.hitStop({}) && MF.hitStop({}) < 0.05);
+  const MU = await import('../src/client/music.js');
+  ok('every zone, the fights, the dungeons and the story have a tune', Object.keys(G.ZONES).every((z) => MU.SONGS[z]) && ['battle', 'dungeon', 'boss', 'saga'].every((k) => MU.SONGS[k]));
+  const tunes = MU.SONG_IDS.map((id) => MU.compose(MU.SONGS[id]));
+  ok('each is sixteen bars, in range, and the same every time', tunes.every((t, i) => t.length === 16 && t.every((b) => b.notes.length && b.notes.every((n) => n.step >= 3 && n.step <= 15 && n.at >= 0 && n.at < 16)) && JSON.stringify(t) === JSON.stringify(MU.compose(MU.SONGS[MU.SONG_IDS[i]]))));
+  ok('and no two zones share a tune', new Set(tunes.map((t) => JSON.stringify(t.slice(0, 4).map((b) => b.notes.map((n) => n.step))))).size === tunes.length);
+  // the tailor
+  const CO = await import('../src/shared/cosmetics.js');
+  const CS = await import('../src/server/game/cosmetics.js');
+  const td = C.createPlayerDoc('qa-tailor', 'QA', {}, 'cindcub');
+  C.normalizeDoc(td);
+  td.gold = 1000;
+  ok('too dear, not bought', CS.buyCosmetic(td, 'wizard').reason === 'not_enough_gold' && td.gold === 1000);
+  ok('one from the season\'s track is not for sale', CS.buyCosmetic(td, 'halo').reason === 'not_for_sale');
+  ok('bought: paid for and yours', CS.buyCosmetic(td, 'bandana').ok && td.gold === 1000 - CO.HATS.bandana.price && CO.wardrobeOf(td).owned.includes('bandana'));
+  ok('not twice', CS.buyCosmetic(td, 'bandana').reason === 'already_owned');
+  ok('what is not yours cannot be worn', CS.wearCosmetic(td, 'hat', 'crown').reason === 'not_owned' && CS.wearCosmetic(td, 'dye', 'bandana').reason === 'bad_slot');
+  ok('worn, everyone is sent it with how you look', CS.wearCosmetic(td, 'hat', 'bandana').ok && C.publicProfile(td).appearance.hat === 'bandana');
+  td.appearance.hat = 'crown';
+  C.normalizeDoc(td);
+  ok('a hat written into the appearance by hand is not worn', C.publicProfile(td).appearance.hat === 'bandana' && !td.appearance.hat);
+  ok('taken off, it is still yours', CS.wearCosmetic(td, 'hat', null).ok && !C.publicProfile(td).appearance.hat && CO.wardrobeOf(td).owned.includes('bandana'));
+  const self = { hat: '', dye: '' }, out = [];
+  td.gold = 5000;
+  WM.handleWorldMessage({ doc: td, self: () => self, net: { save() {}, emit: (k, v) => out.push([k, v]) } }, 'cosmeticBuy', { id: 'ocean', wear: true });
+  ok('bought at the counter and put on: the room shows it', self.dye === 'ocean' && out.some(([k, v]) => k === 'wardrobe' && v.bought === 'ocean'));
+  // and it is drawn: the kind's own hat off, the dye on its cloth
+  const PE = await import('../src/client/gfx/people.js');
+  const plain = PE.personDesign({ kind: 'mage', look: 'a' }), hatted = PE.personDesign({ kind: 'mage', look: 'a', hat: 'cap_red' }), dyed = PE.personDesign({ kind: 'mage', look: 'a', dye: 'crimson' });
+  ok('a hat from the tailor takes the kind\'s own off', plain.parts.some((q) => q.hw) && !hatted.parts.some((q) => q.hw) && hatted.parts.length !== plain.parts.length);
+  ok('a dye changes the cloth and not the skin', !dyed.parts.some((q) => q.c === 0x2f3d92) && plain.parts.some((q) => q.c === 0x2f3d92) && dyed.parts.filter((q) => q.c === plain.parts.find((p) => p.bone === 'head')?.c).length > 0);
+  ok('every kind says which cloth a dye is for, every hat has a shape', PE.KIND_IDS.every((k) => PE.KINDS[k].main?.length) && Object.values(CO.HATS).every((h) => PE.personDesign({ kind: 'rogue', look: 'b', hat: Object.keys(CO.HATS).find((id) => CO.HATS[id] === h) }).parts.length));
+}
+
+// ---------------------------------------------------------------- the bell
+// Notifications to the phone (server/push.js), against a memory store and a
+// web-push that records instead of sending.
+section('phone notifications');
+{
+  const WP = (await import('web-push')).default;
+  const sentTo = [];
+  WP.sendNotification = async (sub, payload) => { sentTo.push({ endpoint: sub.endpoint, ...JSON.parse(payload) }); return { statusCode: 201 }; };
+  const ST = await import('../src/server/store.js');
+  const PU = await import('../src/server/push.js');
+  const st = await ST.openStore({ DB_DRIVER: 'memory' });
+  let here = new Set();
+  const key = await PU.usePush(st, {}, { isOnline: (id) => here.has(id) });
+  ok('keys are made once and kept', key && (await st.getConfig('vapid'))?.publicKey === key && await PU.usePush(st, {}, { isOnline: (id) => here.has(id) }) === key);
+  const sub = (n) => ({ endpoint: `https://push.example/${n}`, keys: { p256dh: 'BOr8mH0Yp3S0tmP1T4D3vK3GJ8iZ0hG0b1Xq3q2w3e4r5t6y7u8i9o0p1a2s3d4f5g6h7j8k9l0zXcVbNm', auth: 'abcdefghijklmnop' } });
+  ok('a broken subscription is refused', !(await PU.subscribe('u1', { endpoint: 'http://nope' })).ok);
+  ok('a device subscribes, with what it wants', (await PU.subscribe('u1', sub(1), { boss: false })).ok && (await st.pushSubsFor('u1'))[0].prefs.boss === false);
+  await PU.subscribe('u2', sub(2), {});
+  await PU.schedule('u1', Date.now() - 1, 'train', 'train:a', 'done', 'ready');
+  await PU.schedule('u1', Date.now() + 3600e3, 'train', 'train:b', 'later', 'later');
+  here.add('u1');
+  ok('someone in the game is not buzzed', (await PU.sweep()) === 0 && sentTo.length === 0);
+  here.clear();
+  await PU.schedule('u1', Date.now() - 1, 'train', 'train:a', 'done', 'ready');
+  ok('away, it reaches their phone when it is due — and only what is due', (await PU.sweep()) === 1 && sentTo.length === 1 && sentTo[0].title === 'done');
+  await PU.cancel('u1', 'train:b');
+  ok('a cancelled one never comes', (await PU.sweep(Date.now() + 7200e3)) === 0);
+  ok('a boss goes to whoever wants bosses', (await PU.bossAlert('מגמדון', 'קניון האש')) === 1 && sentTo.at(-1).endpoint.endsWith('/2'));
+  ok('and not twice in a row', (await PU.bossAlert('מגמדון', 'קניון האש')) === 0);
+  WP.sendNotification = async () => { throw Object.assign(new Error('gone'), { statusCode: 410 }); };
+  await PU.notify('u2', null, { title: 't', body: 'b' });
+  ok('a phone that is gone is forgotten', (await st.pushSubsFor('u2')).length === 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
