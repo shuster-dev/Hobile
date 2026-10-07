@@ -80,7 +80,12 @@ const approach = () => page.evaluate(async () => {
   if (!wilds.length) return { err: 'no free wild', total: all.length, engaged: all.filter((x) => x.engagedBy).length,
     mode: g.mode, zone: g.world?.zone?.id, hasState: !!st, room: g.net?.room?.constructor?.name || null };
   const me = w.selfPosition();
-  const t = wilds.sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
+  // The nearest one not already tried: in the doubled town the nearest can be
+  // round the back of a block, and walking at it in a straight line meets a wall.
+  const tried = (window.__tried ||= new Set());
+  const ranked = wilds.sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z));
+  const t = ranked.find((x) => !tried.has(x.id)) || ranked[0];
+  tried.add(t.id);
   for (let i = 0; i < 150; i++) {
     const p = w.selfPosition();
     const live = g.worldState()?.wilds?.get?.(t.id) || t;
@@ -121,7 +126,7 @@ const warmed = await page.waitForFunction(() => globalThis.__hobileBattleWarm !=
 ok('the first fight is got ready while the player walks', warmed);
 
 let hunt = null, reached = null, entered = false;
-for (let attempt = 0; attempt < 3 && !entered; attempt++) {
+for (let attempt = 0; attempt < 5 && !entered; attempt++) {
   const h = await approach();
   // Already fighting means an earlier attempt landed and the handoff simply
   // took longer than the wait — that is a slow room, not a failed encounter.
@@ -131,6 +136,8 @@ for (let attempt = 0; attempt < 3 && !entered; attempt++) {
   if (h.mode === 'battle') { entered = true; break; }
   hunt = h;
   if (h.err) { await wait(1500); continue; }
+  // walled off: the next one along
+  if (h.dist >= 3) { hunt = h; continue; }
   reached = h;
   await page.evaluate(() => {
     // Every frame from the button press until the fight has been up a while.

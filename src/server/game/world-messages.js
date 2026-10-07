@@ -24,6 +24,7 @@ import {
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
 import { handleGm } from './gm.js';
+import * as Social from '../social.js';
 
 // The furthest one move packet may carry a player. The client sends roughly
 // 20 a second and a sprint is about 7 m/s, so 3m leaves generous headroom for
@@ -184,11 +185,19 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // A player picks among the channels players have. "gm" and
             // "system" are the server's own voice, and used to be claimable
             // by anyone who typed the name into the message.
+            let ch = PLAYER_CHANNELS.has(t.ch) ? t.ch : "zone";
+            // Online: world, party and whispers reach across zones, blocks
+            // hold, and nobody floods (social.js). Guild chat stays the room's.
+            if (ctx.online && ch !== "guild") {
+              let err = Social.chat(n, { ch, text: t.text, to: t.to, toId: t.toId }, ctx.roomChat);
+              err && ctx.net.emit("error", { code: err });
+              break;
+            }
             let o = {
-              ch: PLAYER_CHANNELS.has(t.ch) ? t.ch : "zone",
+              ch,
               from: n.name,
               fromId: n.id,
-              text: String(t.text || "").slice(0, 240),
+              text: Social.clean(t.text),
               t: r
             };
             ctx.chat(o);
@@ -198,14 +207,41 @@ export function handleWorldMessage(ctx, e, t = {}) {
           engageWild(ctx, typeof t.wildId == "string" ? t.wildId : "");
           break;
         case "duel":
-        // The client has a whole accept path behind this — a toast, a pending
-        // id, and the action button — and nothing on the server answered the
-        // second half of it. Saying no is not the same as saying nothing.
         case "duelAccept":
+        case "duelDecline":
           {
-            ctx.net.emit("error", {
-              code: "pvp_offline"
-            });
+            // The single-player build has nobody to fight. Saying no is not
+            // the same as saying nothing.
+            if (!ctx.online) {
+              ctx.net.emit("error", { code: "pvp_offline" });
+              break;
+            }
+            if (e === "duel") {
+              let a = activeCreature(n);
+              if (!a) return ctx.net.emit("error", { code: "no_healthy_creature" });
+              let o = Social.challenge(n, { id: t.targetId, pair: !!t.pair });
+              o.ok ? ctx.net.emit("duelSent", { name: o.name, pair: !!o.pair }) : ctx.net.emit("error", { code: o.code });
+              break;
+            }
+            if (e === "duelDecline") {
+              Social.declineChallenge(n, t);
+              break;
+            }
+            let o = Social.acceptChallenge(n, t);
+            if (!o.ok) return ctx.net.emit("error", { code: o.code });
+            ctx.startPvp({ sides: o.sides, pair: o.pair });
+            break;
+          }
+        case "coopJoin":
+          {
+            if (!ctx.online) return;
+            let a = activeCreature(n);
+            if (!a || a.hp <= 0) return ctx.net.emit("error", { code: "no_healthy_creature" });
+            if (r < (ctx.battlePending || 0)) return;
+            let o = Social.joinCoop(n, String(t.roomId || ""), ctx.zoneId);
+            if (!o.ok) return ctx.net.emit("error", { code: o.code });
+            ctx.battlePending = r + FIELD.pendingMs;
+            ctx.net.emit("goto", { roomId: o.roomId, kind: "battle", coop: !0 });
             break;
           }
         case "bossAttack":
@@ -482,17 +518,26 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "partyInvite":
         case "partyAccept":
+        case "partyDecline":
+        case "partyKick":
+        case "partyPromote":
         case "friendAdd":
-          ctx.net.emit("error", {
-            code: "solo_mode"
-          });
-          break;
-        case "partyLeave":
-          ctx.net.emit("party", null);
-          break;
         case "friendRespond":
         case "friendRemove":
-          ctx.net.emit("friends", ctx.friendList());
+        case "block":
+        case "report":
+          {
+            if (!ctx.online) {
+              e === "friendRespond" || e === "friendRemove" ? ctx.net.emit("friends", ctx.friendList()) : ctx.net.emit("error", { code: "solo_mode" });
+              break;
+            }
+            return socialMessage(ctx, e, t).catch((err) => {
+              console.error("[social]", e, err);
+              ctx.net.emit("error", { code: "server_error" });
+            });
+          }
+        case "partyLeave":
+          ctx.online ? Social.leaveParty(n) : ctx.net.emit("party", null);
           break;
         case "guildList":
           ctx.net.emit("guildList", ctx.net.guilds.map(o => ({
@@ -575,4 +620,44 @@ export function handleWorldMessage(ctx, e, t = {}) {
           break;
       }
     
+}
+
+
+/** Friends, party, blocking and reports — online only (social.js). Each
+ *  answers its sender with what changed, or why nothing did. */
+async function socialMessage(ctx, type, t = {}) {
+  const doc = ctx.doc, say = (o, ok) => o.ok ? ok?.(o) : ctx.net.emit('error', { code: o.code || 'failed' });
+  const who = { id: typeof t.id === 'string' ? t.id : typeof t.targetId === 'string' ? t.targetId : undefined, name: typeof t.name === 'string' ? t.name : undefined };
+  switch (type) {
+    case 'friendAdd':
+      return say(await Social.friendAdd(doc, who), (o) => {
+        ctx.net.emit('friendResult', { ok: true, name: o.name, pending: !!o.pending, added: !!o.added });
+        ctx.net.emit('friends', Social.friendsView(doc));
+      });
+    case 'friendRespond':
+      await Social.friendRespond(doc, String(t.fromId || t.id || ''), !!t.accept);
+      return ctx.net.emit('friends', Social.friendsView(doc));
+    case 'friendRemove':
+      await Social.friendRemove(doc, String(t.id || ''));
+      return ctx.net.emit('friends', Social.friendsView(doc));
+    case 'block':
+      return say(await Social.block(doc, String(t.id || ''), t.on !== false), () => ctx.net.emit('friends', Social.friendsView(doc)));
+    case 'report': {
+      // what was reported, by whom, about whom — for the GM log
+      const row = { at: Date.now(), op: 'report', by: { id: doc.id, name: doc.name }, about: String(t.id || '').slice(0, 64), reason: Social.clean(t.reason || '').slice(0, 200), zone: ctx.zoneId };
+      console.log('[report]', JSON.stringify(row));
+      ctx.report?.(row);
+      return ctx.net.emit('reported', { ok: true });
+    }
+    case 'partyInvite':
+      return say(Social.partyInvite(doc, who), (o) => ctx.net.emit('partySent', { name: o.name }));
+    case 'partyAccept':
+      return say(Social.partyAccept(doc, { inviteId: t.inviteId, partyId: t.partyId, fromId: t.fromId }));
+    case 'partyDecline':
+      return say(Social.partyDecline(doc, { inviteId: t.inviteId, partyId: t.partyId, fromId: t.fromId }));
+    case 'partyKick':
+      return say(Social.partyKick(doc, String(t.id || '')));
+    case 'partyPromote':
+      return say(Social.partyPromote(doc, String(t.id || '')));
+  }
 }

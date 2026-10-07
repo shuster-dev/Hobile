@@ -7,17 +7,15 @@ import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 
 /**
- * Friends, parties, guilds, duels and the chat channels beyond this zone's.
- *
- * The screens for all of it exist, and none of it works on the server yet: a
- * friend request or a party invite came back "solo only", a duel "needs a real
- * player", a guild had no members and lived in one room, and world or whisper
- * chat reached nobody but the sender. Offering buttons that only ever say no
- * is worse than not offering them, so they are hidden behind this one switch,
- * code and screens intact, until the social layer is built for real.
+ * Friends, parties, duels and the chat channels beyond this zone's — online,
+ * through the server's social layer (server/social.js). The single-player
+ * build has nobody to be friends with, so there they stay hidden: `ui.social`
+ * is false and these panels do not open. Guilds are not built for real yet
+ * and stay hidden everywhere.
  */
-export const SOCIAL = !1;
-const SOCIAL_PANELS = new Set(["friends", "party", "guild"]);
+export const SOCIAL = !0;
+export const GUILDS = !1;
+const SOCIAL_PANELS = new Set(["friends", "party", "player", "guild"]);
 
 var $ = i => document.querySelector(i),
   el = (i, e, t) => {
@@ -125,7 +123,7 @@ function usernameError(i) {
 
 var UI = class {
   constructor(e = {}) {
-    this.hooks = e, this.profile = null, this.party = null, this.guild = null, this.friends = {
+    this.social = !1, this.hooks = e, this.profile = null, this.party = null, this.guild = null, this.friends = {
       friends: [],
       pending: []
     }, this.chatLog = [], this.chatChannel = "zone", this.chatDraft = "", this.zone = null, this.openPanelId = null, document.addEventListener("pointerdown", n => {
@@ -539,14 +537,14 @@ var UI = class {
         gm: "[GM]",
         system: ""
       }[e.ch] ?? "",
-      n = e.from ? `<b>${Ze(e.from)}</b>: ` : "";
+      n = e.ch === "whisper" && e.to ? `<b>${Ze(e.from)}</b> ← <b>${Ze(e.to)}</b>: ` : e.from ? `<b>${Ze(e.from)}</b>: ` : "";
     return `${t ? `<span class="ch-tag">${t}</span> ` : ""}${n}${Ze(e.text || e.he || "")}`;
   }
   togglePanel(e) {
     this.openPanelId === e ? this.closePanel() : this.openPanel(e);
   }
   openPanel(e) {
-    if (!SOCIAL && SOCIAL_PANELS.has(e)) return;
+    if (!this.social && SOCIAL_PANELS.has(e) || e === "guild" && !GUILDS) return;
     this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), this.renderPanel(e);
   }
   closePanel() {
@@ -565,6 +563,7 @@ var UI = class {
         chat: "צ'אט",
         shop: "חנות",
         party: "קבוצה",
+        player: "שחקן",
         leaders: "טבלת מובילים",
         base: "הבסיס",
         card: "כרטיס יצור",
@@ -594,6 +593,7 @@ var UI = class {
       chat: () => this.panelChat(o),
       shop: () => this.panelShop(o),
       party: () => this.panelParty(o),
+      player: () => this.panelPlayer(o),
       leaders: () => this.panelLeaders(o),
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
@@ -900,7 +900,7 @@ var UI = class {
   panelMenu(e) {
     let t = el("div", "grid2"),
       n = [["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🏪 חנות", "shop"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
-    SOCIAL || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
+    n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
     for (let [c, h] of n) {
@@ -1265,11 +1265,13 @@ var UI = class {
     };
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
   }
+  /** Friends: add by name, answer requests, see who is on and where, and from
+   *  each row whisper, call into your party, or open them for more. */
   panelFriends(e) {
     let t = el("div", "row"),
-      n = textInput("שם שחקן"),
+      n = textInput("שם הדמות של חבר"),
       s = el("button", "btn primary small", "הוסף");
-    s.style.flex = "0 0 84px";
+    n.id = "friend-name", s.style.flex = "0 0 84px";
     let r = () => {
       let a = n.value.trim();
       a && (this.hooks.addFriend?.(a), n.value = "");
@@ -1282,48 +1284,162 @@ var UI = class {
     for (let a of o) {
       let l = el("div", "list-item ready");
       l.innerHTML = `<div class="grow"><b>${Ze(a.name)}</b>
-        <span>בקשת חברות · ${lvlLabel(a.level)}</span></div>`;
-      let c = el("button", "btn small primary icon-only", "✓"),
-        h = el("button", "btn small danger icon-only", "✕");
+        <span>רוצה להיות חבר שלך · ${lvlLabel(a.level)}</span></div>`;
+      let c = el("button", "btn small primary", "אשר"),
+        h = el("button", "btn small ghost", "דחה");
       c.setAttribute("aria-label", `אשר את ${a.name}`), h.setAttribute("aria-label", `דחה את ${a.name}`), c.onclick = () => this.hooks.respondFriend?.(a.id, !0), h.onclick = () => this.hooks.respondFriend?.(a.id, !1), l.append(c, h), e.appendChild(l);
     }
-    if (!this.friends.friends?.length) {
-      e.appendChild(emptyState("👥", "עוד אין חברים", "הוסף שחקן לפי שם כדי לראות מתי הוא מחובר"));
-      return;
-    }
-    e.appendChild(section("חברים", `${ltr(this.friends.friends.length)}`));
-    for (let a of this.friends.friends) {
-      let l = el("div", "list-item"),
-        c = ZONES[a.zone];
-      if (l.innerHTML = `<div class="dot ${a.online ? "on" : ""}"></div>
-        <div class="grow"><b>${Ze(a.name)}</b>
-        <span>${lvlLabel(a.level)} · ${a.online ? `${Ze(loc(c || {})) || "—"} · ${bp(a.status)}` : "לא מחובר"}</span></div>`, a.online) {
-        let d = el("button", "btn small", "הזמן");
-        d.setAttribute("aria-label", `הזמן את ${a.name} לקבוצה`), d.onclick = () => this.hooks.partyInvite?.(a.name), l.appendChild(d);
+    let list = this.friends.friends || [];
+    if (!list.length) {
+      e.appendChild(emptyState("👥", "עוד אין חברים", "הוסף לפי שם הדמות, או עמוד ליד שחקן ולחץ על כפתור הפעולה"));
+    } else {
+      let on = list.filter(a => a.online).length;
+      e.appendChild(section("חברים", `${ltr(`${on}/${list.length}`)} מחוברים`));
+      let mineParty = new Set((this.party?.members || []).map(m => m.id));
+      for (let a of list) {
+        let l = el("div", "list-item friend"),
+          c = ZONES[a.zone];
+        l.innerHTML = `<div class="dot ${a.online ? "on" : ""}"></div>
+          <div class="grow"><b>${Ze(a.name)}</b>
+          <span>${lvlLabel(a.level)} · ${a.online ? `${Ze(loc(c || {})) || "—"} · ${bp(a.status)}` : "לא מחובר"}${mineParty.has(a.id) ? " · ⚔ בקבוצה שלך" : ""}</span></div>`;
+        if (a.online && !mineParty.has(a.id)) {
+          let d = el("button", "btn small", "לקבוצה");
+          d.setAttribute("aria-label", `הזמן את ${a.name} לקבוצה`), d.onclick = () => this.hooks.partyInvite?.(a.id), l.appendChild(d);
+        }
+        if (a.online) {
+          let h = el("button", "btn small ghost icon-only", "💬");
+          h.setAttribute("aria-label", `לחש אל ${a.name}`), h.onclick = () => {
+            this.chatChannel = "whisper", this.whisperTo = a.name, this.whisperToId = a.id, this.openPanel("chat");
+          }, l.appendChild(h);
+        }
+        let m = el("button", "btn small ghost icon-only", "⋯");
+        m.setAttribute("aria-label", `עוד על ${a.name}`), m.onclick = () => this.showPlayer({ id: a.id, name: a.name, level: a.level, friend: !0, online: a.online, zone: a.zone }), l.appendChild(m), e.appendChild(l);
       }
-      let h = el("button", "btn small ghost icon-only", "💬");
-      h.setAttribute("aria-label", `לחש אל ${a.name}`), h.onclick = () => {
-        this.chatChannel = "whisper", this.whisperTo = a.name, this.openPanel("chat");
-      }, l.appendChild(h), e.appendChild(l);
+    }
+    let blocked = this.friends.blocked || [];
+    if (blocked.length) {
+      e.appendChild(section("חסומים", `${ltr(blocked.length)}`));
+      for (let a of blocked) {
+        let l = el("div", "list-item");
+        l.innerHTML = `<div class="grow"><b>${Ze(a.name)}</b><span>לא יכול/ה ללחוש לך, להזמין או לבקש חברות</span></div>`;
+        let u = el("button", "btn small ghost", "בטל חסימה");
+        u.onclick = () => this.hooks.block?.(a.id, !1), l.appendChild(u), e.appendChild(l);
+      }
     }
   }
+  /** The party: who, where, how they are; leader can promote and remove. */
   panelParty(e) {
-    if (!this.party) {
-      e.appendChild(emptyState("⚔", "אינך בקבוצה", "הזמן חברים מרשימת החברים כדי לחקור מבוכים יחד"));
+    let p = this.party;
+    if (!p) {
+      e.appendChild(emptyState("⚔", "אינך בקבוצה", "הזמן חבר מרשימת החברים, או עמוד ליד שחקן ולחץ על כפתור הפעולה. בקבוצה נלחמים יחד ביצורים, ובזוגות נגד זוג אחר."));
       let n = el("button", "btn", "פתח רשימת חברים");
       n.onclick = () => this.openPanel("friends"), e.appendChild(n);
       return;
     }
-    e.appendChild(section("הקבוצה", rangeLabel(this.party.members.length, 4, "/")));
-    for (let n of this.party.members) {
-      let s = el("div", "list-item");
-      s.innerHTML = `<div class="dot on"></div>
-        <div class="grow"><b>${Ze(n.name)} ${n.id === this.party.leaderId ? "👑" : ""}</b>
-        <span>${lvlLabel(n.level)} · ${bp(n.status)}</span>
-        <div class="bar hp" style="margin-top:4px"><i style="width:${Math.round((n.hp ?? 1) * 100)}%"></i></div></div>`, e.appendChild(s);
+    let me = this.profile?.id, lead = p.leaderId === me;
+    e.appendChild(section("הקבוצה", rangeLabel(p.members.length, p.max || 4, "/")));
+    for (let n of p.members) {
+      let s = el("div", "list-item member"),
+        z = ZONES[n.zone],
+        pet = SPECIES[n.petSpecies];
+      s.innerHTML = `<div class="dot ${n.online ? "on" : ""}"></div>
+        <div class="grow"><b>${Ze(n.name)} ${n.id === p.leaderId ? "👑" : ""} ${n.id === me ? "<span class=\"pill\">אתה</span>" : ""}</b>
+        <span>${lvlLabel(n.level)} · ${n.online ? `${Ze(loc(z || {})) || "—"} · ${bp(n.status)}` : "לא מחובר"}${pet ? ` · ${Ze(loc(pet))}` : ""}</span>
+        <div class="bar hp" style="margin-top:4px"><i style="width:${Math.round((n.hp ?? 1) * 100)}%"></i></div></div>`;
+      if (lead && n.id !== me) {
+        let k = el("button", "btn small ghost icon-only", "👑");
+        k.setAttribute("aria-label", `העבר הנהגה ל${n.name}`), k.title = "העבר הנהגה", k.onclick = () => this.hooks.partyPromote?.(n.id);
+        let x = el("button", "btn small danger icon-only", "✕");
+        x.setAttribute("aria-label", `הוצא את ${n.name} מהקבוצה`), x.title = "הוצא מהקבוצה", x.onclick = () => this.hooks.partyKick?.(n.id), s.append(k, x);
+      }
+      e.appendChild(s);
     }
-    let t = el("button", "btn danger", "עזוב קבוצה");
-    t.onclick = () => this.hooks.partyLeave?.(), e.appendChild(t);
+    let tip = el("div", "empty plain");
+    tip.innerHTML = p.members.length === 2 ? "⚔ זוג: עמדו ליד זוג אחר ולחצו על כפתור הפעולה — <b>קרב זוגות</b>. ונלחמים יחד ביצורים: מי שקרוב מקבל הזמנה להצטרף." : "כשמישהו מהקבוצה נלחם ביצור, מי שקרוב אליו מקבל הזמנה להצטרף לקרב.", e.appendChild(tip);
+    let row = el("div", "row"),
+      inv = el("button", "btn", "הזמן חבר"),
+      t = el("button", "btn danger", "עזוב קבוצה");
+    inv.onclick = () => this.openPanel("friends"), t.onclick = () => this.hooks.partyLeave?.(), row.append(inv, t), e.appendChild(row);
+  }
+  /** Someone you are standing beside (or picked from a list): what you can do
+   *  with them. */
+  showPlayer(p) {
+    this.playerCard = p, this.openPanel("player");
+  }
+  panelPlayer(e) {
+    let p = this.playerCard;
+    if (!p) return e.appendChild(emptyState("🙂", "אין שחקן נבחר"));
+    let friend = (this.friends.friends || []).some(f => f.id === p.id),
+      inMine = (this.party?.members || []).some(m => m.id === p.id),
+      myPair = this.party?.members?.length === 2,
+      card = el("div", "list-item player-head");
+    card.innerHTML = `<div class="dot ${p.online === !1 ? "" : "on"}"></div><div class="grow"><b>${Ze(p.name)}</b><span>${lvlLabel(p.level || 1)}${friend ? " · 👥 חבר" : ""}${inMine ? " · ⚔ בקבוצה שלך" : p.partyId ? " · בקבוצה" : ""}</span></div>`, e.appendChild(card);
+    let grid = el("div", "grid2 player-actions"),
+      add = (label, fn, cls = "btn", off = !1, why = "") => {
+        let b = el("button", cls, label);
+        b.disabled = off, why && (b.title = why), b.onclick = () => {
+          fn(), this.closePanel();
+        }, grid.appendChild(b);
+      };
+    let here = p.near !== !1 && p.online !== !1;
+    friend || add("👥 הוסף לחברים", () => this.hooks.addFriendId?.(p.id, p.name));
+    inMine || add("⚔ הזמן לקבוצה", () => this.hooks.partyInvite?.(p.id), "btn", p.online === !1);
+    add("🗡 דו‑קרב 1 נגד 1", () => this.hooks.duel?.(p.id, !1), "btn primary", !here, "צריך לעמוד באותו אזור");
+    add("⚔ קרב זוגות 2 נגד 2", () => this.hooks.duel?.(p.id, !0), "btn primary", !here || !myPair || !p.partyId || inMine, "צריך שבקבוצה שלך יהיו 2, ושהוא בזוג אחר");
+    p.online !== !1 && add("💬 לחישה", () => {
+      this.chatChannel = "whisper", this.whisperTo = p.name, this.whisperToId = p.id, setTimeout(() => this.openPanel("chat"), 0);
+    });
+    friend && add("➖ הסר מחברים", () => this.hooks.removeFriend?.(p.id), "btn ghost");
+    add("🚫 חסום", () => this.hooks.block?.(p.id, !0), "btn danger");
+    add("⚑ דווח", () => this.hooks.report?.(p.id, p.name), "btn ghost");
+    e.appendChild(grid);
+  }
+  /**
+   * Something someone asked you, with a yes and a no, at the top of the
+   * screen until you answer or it runs out: a friend request, a party
+   * invitation, a challenge, a call to join a fight. Several stack.
+   */
+  offer({ key, icon = "", title, sub = "", until = Date.now() + 3e4, yes = "אשר", no = "דחה", onYes, onNo }) {
+    let host = $("#offers");
+    host || (host = el("div"), host.id = "offers", ($("#app") || document.body).appendChild(host));
+    key && host.querySelector(`[data-key="${key}"]`)?.remove();
+    let c = el("div", "offer");
+    key && (c.dataset.key = key), c.setAttribute("role", "alertdialog"), c.innerHTML = `<div class="o-ico">${icon}</div><div class="o-txt"><b></b><span></span></div><div class="o-btns"></div><i class="o-time"></i>`, c.querySelector("b").textContent = title, c.querySelector(".o-txt span").textContent = sub;
+    let done = () => {
+        c.remove(), clearInterval(tick);
+      },
+      y = el("button", "btn small primary", yes),
+      n = el("button", "btn small ghost", no);
+    y.onclick = () => (done(), onYes?.()), n.onclick = () => (done(), onNo?.()), c.querySelector(".o-btns").append(y, n);
+    let total = Math.max(1e3, until - Date.now()),
+      bar = c.querySelector(".o-time"),
+      tick = setInterval(() => {
+        let left = until - Date.now();
+        left <= 0 ? done() : bar.style.width = `${left / total * 100}%`;
+      }, 250);
+    for (host.prepend(c); host.childElementCount > 3;) host.lastElementChild.remove();
+    audio.sfx("chat");
+    return done;
+  }
+  dropOffer(key) {
+    $("#offers")?.querySelector(`[data-key="${key}"]`)?.remove();
+  }
+  /** Your party on the world screen: a line each, health under the name. */
+  renderPartyStrip() {
+    let host = $("#party-strip");
+    if (!host) {
+      let v = document.querySelector("#hud .vitals");
+      if (!v) return;
+      host = el("div"), host.id = "party-strip", host.setAttribute("role", "button"), host.setAttribute("aria-label", "הקבוצה"), host.onclick = () => this.openPanel("party"), v.after(host);
+    }
+    let p = this.party,
+      me = this.profile?.id,
+      others = (p?.members || []).filter(m => m.id !== me);
+    if (!this.social || !others.length) {
+      host.classList.add("hidden");
+      return;
+    }
+    host.classList.remove("hidden"), host.innerHTML = others.map(m => `<div class="pm ${m.online ? "" : "off"}"><span class="nm">${m.id === p.leaderId ? "👑 " : ""}${Ze(m.name)}</span><span class="st">${m.status === "battle" ? "⚔" : m.status === "dungeon" ? "🕳" : m.zone && m.zone !== this.zone?.id ? "↗" : ""}</span><div class="bar hp"><i style="width:${Math.round((m.hp ?? 1) * 100)}%"></i></div></div>`).join("");
   }
   panelGuild(e) {
     let t = this.guild;
@@ -1477,7 +1593,7 @@ var UI = class {
     for (let l of this.chatLog.slice(-120)) t.appendChild(el("div", `ch-${l.ch}`, this.chatLine(l)));
     e.appendChild(t);
     let n = el("div", "tabs"),
-      channels = SOCIAL ? ["zone", "world", "party", "guild", "whisper"] : ["zone"];
+      channels = this.social ? ["zone", "world", "party", "whisper"] : ["zone"];
     // One channel needs no tabs; and a channel it no longer offers is not the
     // one it sends on.
     channels.includes(this.chatChannel) || (this.chatChannel = "zone"), channels.length < 2 && n.classList.add("hidden");
@@ -1508,7 +1624,8 @@ var UI = class {
           this.hooks.chat?.({
             ch: this.chatChannel,
             text: l,
-            to: this.whisperTo
+            to: this.whisperTo,
+            toId: this.whisperToId
           }), r.value = "", this.chatDraft = "";
         }
       };
@@ -1579,16 +1696,28 @@ var UI = class {
       o = e.filter(d => d.side !== r?.side),
       a = e.filter(d => d.side === r?.side),
       l = d => !d.benched && d.kind !== "trainer",
-      c = a.find(d => d.kind === "trainer"),
-      h = c?.benched && a.some(d => d.kind === "creature" && d.hp > 0);
-    for (let d of [...o.filter(l), ...a.filter(l)]) {
+      me = this.battleMe || r?.ownerId,
+      // your own trainer: in a fight with other players there are several
+      c = a.find(d => d.kind === "trainer" && (!me || !d.ownerId || d.ownerId === me)),
+      h = c?.benched && a.some(d => d.kind === "creature" && d.hp > 0 && (!me || d.ownerId === me)),
+      foes = o.filter(l),
+      // the foe your moves go at: the one you tapped, while it stands
+      aim = foes.find(d => d.id === this.battleTarget && d.hp > 0) || null;
+    aim || (this.battleTarget = null);
+    for (let d of [...foes, ...a.filter(l)]) {
       let u = SPECIES[d.species],
-        f = row(d.id, `combat-row ${d.side !== r?.side ? "foe" : ""}`, d.side !== r?.side ? s : ss);
-      fill(f, `${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, (d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join(""));
+        foe = d.side !== r?.side,
+        owner = d.ownerId && d.ownerId !== me && this.battlePlayers?.[d.ownerId],
+        f = row(d.id, `combat-row ${foe ? "foe" : ""} ${foe && foes.length > 1 && aim?.id === d.id ? "aimed" : ""} ${!foe && owner ? "ally" : ""}`, foe ? s : ss);
+      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, (d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join(""));
+      // two foes: tap one to aim at it
+      f.onclick = foe && foes.length > 1 ? () => {
+        this.battleTarget = d.id, this.hooks.aim?.(d.id);
+      } : null;
     }
     c && fill(row(`trainer:${c.id}`, `combat-row self ${h ? "shielded" : "exposed"}`, ss), Ze(c.name), rangeLabel(c.hp, c.maxHp, "/"), c.hp / Math.max(1, c.maxHp) * 100, null, `<span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span>`);
     for (let [k, f] of rows) keep.has(k) || (f.remove(), rows.delete(k));
-    (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this._effFor = null, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = o.filter(l)[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
+    (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this._effFor = null, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = aim || foes[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
   }
   /** ▲ on a move that hits this foe hard, ▼ on one it shrugs off. Ten
    *  elements is more than anyone keeps in their head mid-fight, and the
@@ -1762,6 +1891,7 @@ function Cb(i) {
 function bp(i) {
   return {
     idle: "בעולם",
+    world: "בעולם",
     battle: "בקרב",
     dungeon: "במבוך",
     afk: "לא פעיל",

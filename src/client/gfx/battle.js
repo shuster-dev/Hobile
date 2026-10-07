@@ -433,6 +433,16 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       }));
       this.arena.add(T), this.motes = T;
     }
+    /** The other players in this fight: what their trainers look like, and
+     *  which trainer is mine. */
+    setPlayers(players = [], myId = null) {
+      this.appearances = new Map(players.map(p => [p.id, p.appearance || {}])), this.myOwnerId = myId || this.myOwnerId || null;
+      for (let a of this.actors.values()) {
+        if (a.kind !== "trainer" || !a.ownerId || a.ownerId === this.myOwnerId) continue;
+        let want = this.appearances.get(a.ownerId);
+        want && a.look !== want && (a.look = want, this.reskinTrainer(a, want));
+      }
+    }
     setTrainer(e, t) {
       this.appearance = e || {}, typeof t == "string" && t && (this.myTrainerId = t);
       let n = this.myTrainerId && this.actors.get(this.myTrainerId) || this.actors.get(TRAINER_ID);
@@ -450,8 +460,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       });
       s.ghost = !0, s.benched = !0, this.relayout();
     }
-    reskinTrainer(e) {
-      let t = buildAvatar(this.appearance || {}, { hi: !0 });
+    reskinTrainer(e, look = null) {
+      let t = buildAvatar(look || this.appearance || {}, { hi: !0 });
       t.userData.phase = e.group.userData.phase || 0, e.holder.remove(e.group), fadeTree(e.group), e.mats = null, e.flashMats = null, e.holder.add(t), e.group = t, this.trainer && this.trainer.actorId === e.id && (this.trainer.avatar = t);
     }
     sync(e, t) {
@@ -529,7 +539,9 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     spawnActor(e) {
       let t = new Group(),
         n = e.kind === "trainer",
-        s = n ? buildAvatar(this.appearance || {}, { hi: !0 }) : setStarLook(buildCreature(e.species, {
+        // another player's trainer wears their own look
+        look = n && e.ownerId && e.ownerId !== this.myOwnerId ? this.appearances?.get(e.ownerId) : null,
+        s = n ? buildAvatar(look || this.appearance || {}, { hi: !0 }) : setStarLook(buildCreature(e.species, {
           hi: !0
         }), e.star || 1);
       let glow = n ? null : takeGlow(s);
@@ -543,6 +555,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         holder: t,
         group: s,
         shadow: a,
+        ownerId: e.ownerId || "",
+        look,
         species: e.species,
         kind: e.kind,
         side: e.side,
@@ -572,6 +586,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
     }
     claimTrainer(e) {
       if (this.trainer && this.trainer.actorId === e.id || this.myTrainerId && this.myTrainerId !== e.id || e.id === TRAINER_ID) return;
+      // not someone else's, in a fight with other players in it
+      if (e.ownerId && this.myOwnerId && e.ownerId !== this.myOwnerId) return;
       let t = this.actors.get(TRAINER_ID);
       t && t !== e && this.retire(TRAINER_ID), this.myTrainerId = e.id, this.trainer = {
         holder: e.holder,
@@ -603,12 +619,13 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         let r = this._field[s],
           o = this._bench[s];
         r.length = 0, o.length = 0;
-        let a = null;
+        // trainers standing back: one per player on this side
+        let a = [];
         for (let u of this.actors.keys()) {
           let f = this.actors.get(u);
           if (f.side === s) {
             if (f.kind === "trainer" && f.benched) {
-              a = f;
+              a.push(f);
               continue;
             }
             (f.benched ? o : r).push(f);
@@ -617,7 +634,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         r.sort(rp), o.sort(rp);
         let l = 0;
         for (let u = 0; u < r.length; u++) r[u].downed || l++;
-        let c = l > 1 ? Math.min(2.4, 4.6 / (l - 1)) : 0,
+        let c = l > 1 ? Math.min(1.7, 4.2 / (l - 1)) : 0,
           h = 0,
           d = 0;
         for (let u = 0; u < r.length; u++) {
@@ -628,7 +645,11 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           let f = o[u];
           slotPosition(u, nt), f.home.set(nt.x + SIDE_X[s] * 0.6, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = sp * this.heroScale(f), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
         }
-        a && (a.home.set(ip[0] * SIDE_DIR[s], 0.35, SIDE_Z[s] + ip[1] * SIDE_DIR[s]), a.targetScale = 1, a.faceY = (s === "a" ? Math.PI : 0) - 0.3 * SIDE_DIR[s]);
+        a.sort((x, y) => (y.id === this.myTrainerId) - (x.id === this.myTrainerId));
+        a.forEach((f, k) => {
+          // the second trainer a step in towards the middle, the next past them
+          f.home.set((ip[0] - k * 1.5) * SIDE_DIR[s], 0.35, SIDE_Z[s] + (ip[1] + k * 0.35) * SIDE_DIR[s]), f.targetScale = 1, f.faceY = (s === "a" ? Math.PI : 0) - 0.3 * SIDE_DIR[s];
+        });
       }
       // A fainted creature lies on the open side of its own half, where it can
       // be seen — not in the near corner, which is under the health cards.
