@@ -5,9 +5,7 @@ import { BattleView, audio } from './gfx/battle.js';
 import { CreatorStage, PortraitPainter, portraits } from './gfx/stage.js';
 import { KINDS } from './gfx/people.js';
 import { WorldView } from './gfx/world.js';
-import { TRICKS } from '../shared/tricks.js';
-import { REPORT_REASONS } from '../shared/reports.js';
-import { CameraRig, Joystick, Keyboard, lookSpeed } from './input.js';
+import { CameraRig, Joystick, Keyboard } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
 import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
 import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
@@ -18,8 +16,7 @@ import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '
 import { HOURS, howOf, rowFor } from '../shared/habitats.js';
 import { abilityInfo } from '../shared/traits.js';
 import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
-import { RIDE, mountsOf, saddleWanted } from '../shared/riding.js';
-import { materialName } from '../shared/saddles.js';
+import { RIDE, mountsOf } from '../shared/riding.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
 import { cosmeticById } from '../shared/cosmetics.js';
@@ -37,8 +34,7 @@ var STARTER_LINES = {
 var Game = class {
   constructor(e) {
     this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
-      let k = lookSpeed().k;
-      if (n *= k, s *= k, this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
+      if (this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
         return;
       }
@@ -584,17 +580,6 @@ var Game = class {
       // up on a creature, or down (shared/riding.js)
       this.riding = t || null, this.ui.renderRide(this.riding), audio.sfx(t ? "portal" : "uiBack"), t && vibrate(20);
       t && this.ui.toast(`${RIDE[t.kind]?.icon || ""} ${RIDE[t.kind]?.he || ""} על ${loc(SPECIES[t.species])}`, "good");
-    }), e.on("saddled", t => {
-      // a saddle made and fitted: now it can carry you
-      audio.sfx("quest"), vibrate([20, 40, 60]), this.ui.celebrate("🐎 אוכף מוכן!", "quest");
-      this.ui.toast(`${RIDE[t.kind]?.icon || ""} ${loc(SPECIES[t.species])} מוכן לרכיבה — הכפתור ליד "פעולה"`, "good"), this.ui.openPanelId === "base" && this.ui.renderPanel("base");
-    }), e.on("petTrick", t => {
-      // someone's creature plays (shared/tricks.js) — yours, or theirs nearby
-      let st = this.net.room?.state, key = null;
-      st?.players?.forEach((p, k) => { p.id === t.id && (key = k); });
-      if (key == null || this.mode !== "world") return;
-      this.world.petTrick(key, t.trick, t.seed || 0);
-      t.id === this.profile?.id && (audio.sfx(t.trick === "fetch" ? "throw" : t.trick === "treat" ? "loot" : "ui"), vibrate(12));
     }), e.on("dungeonOffer", t => {
       this.ui.offer({
         key: `dungeon:${t.roomId}`, icon: t.endless ? "🗼" : "🕳", title: `${t.fromName} נכנס/ת ל${t.he} — הצטרף!`, sub: t.endless ? "טיפוס במגדל ביחד" : `דרגה: ${loc(tierOf(t.tier))} · ניסיון ושלל לכולם`, until: t.until,
@@ -614,7 +599,7 @@ var Game = class {
       audio.sfx("quest"), this.ui.celebrate(`🛡 באף גילדה ${t.level}!`, "quest");
     }), e.on("partySent", t => this.ui.toast(`הזמנה לקבוצה נשלחה ל${t.name}`, "good")), e.on("duelSent", t => this.ui.toast(t.pair ? `הזמנה לקרב זוגות נשלחה ל${t.name}` : `הזמנה לדו‑קרב נשלחה ל${t.name}`, "good")), e.on("friendResult", t => {
       t.added ? this.ui.toast(`${t.name} ואתה חברים עכשיו 👥`, "good") : t.pending && this.ui.toast(`בקשת חברות נשלחה ל${t.name}`, "good");
-    }), e.on("reported", t => this.ui.toast(`הדיווח${t?.name ? ` על ${t.name}` : ""} נשלח לצוות. תודה.`, "good")), e.on("allyJoined", t => {
+    }), e.on("reported", () => this.ui.toast("הדיווח נשלח. תודה.", "good")), e.on("allyJoined", t => {
       this.battle.players = t.players || this.battle.players, this.applyBattlePlayers(), t.id !== this.profile?.id && (this.ui.battleBanner(t.side === this.battle.mySide ? `🤝 ${t.name} הצטרף/ה לקרב!` : `${t.name} נכנס/ה לזירה`, 1500), audio.sfx("quest"));
     }), e.on("allyLeft", t => {
       this.battle.players = t.players || this.battle.players, this.applyBattlePlayers(), t.id !== this.profile?.id && this.ui.battleBanner(t.side === this.battle.mySide ? `${t.name} יצא/ה מהקרב` : `${t.name} פרש/ה!`, 1300);
@@ -691,8 +676,7 @@ var Game = class {
       if (!this.transitioning) {
         this.transitioning = !0, this.engagePending = 0, this.ambush = t.kind === "battle" && t.ambush ? { wildId: t.wildId } : null;
         try {
-          // a GM's warp names the very channel (game/gm.js teleport / bring)
-          t.kind === "world" ? (t.room && (this._wantRoom = t.room), await this.enterWorld(t.zone, t.fromZone)) : await this.enterRoom(t.roomId, t.kind);
+          t.kind === "world" ? await this.enterWorld(t.zone, t.fromZone) : await this.enterRoom(t.roomId, t.kind);
         } finally {
           this.transitioning = !1;
         }
@@ -827,11 +811,6 @@ var Game = class {
         let parts = Object.entries(t.duplicate).map(([id, count]) => `${ITEMS[id]?.icon || ""} ${loc(ITEMS[id]) || id} ×${count}`);
         n.push(`כפול — ${parts.join(" · ")}`);
       }
-      // a piece toward a saddle for its family (shared/saddles.js)
-      if (t.mat) {
-        let mn = materialName(t.mat.family);
-        n.push(`${mn.icon} ${mn.he} ${t.mat.have >= t.mat.need ? `(${t.mat.have} — מספיק לאוכף!)` : `(${t.mat.have}/${t.mat.need})`}`);
-      }
       let s = t.outcome === "captured" ? 4200 : 2e3;
       if (evo.length) {
         await new Promise(r => setTimeout(r, 1700));
@@ -864,17 +843,15 @@ var Game = class {
     }), e.on("gm", t => this.onGm(t)), e.on("gmGift", t => {
       // Someone with the keys sent you something (or you sent it to yourself).
       audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
-      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : "משאבים בלי סוף";
+      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : "משאבים בלי סוף";
       this.ui.celebrate(t.from ? "🎁 מתנה!" : "🎁 נוסף!", "quest"), this.ui.toast(t.from ? `${t.from} (GM) שלח לך: ${what}` : `נוסף לך: ${what}`, "good"), t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmTake", t => {
       // a GM took something back (a mistake fixed) — or gave back what was taken
       let back = t.undo === "take",
         n = Math.abs(Number(t.amount ?? t.qty ?? 0)),
-        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : t.what === "saddle" ? `🐎 האוכף של ${loc(SPECIES[t.species])}` : "";
+        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : "";
       what && this.ui.toast(back ? `${t.from ? `${t.from} (GM) החזיר לך` : "הוחזר לך"}: ${what}` : `${t.from ? `${t.from} (GM) הוריד לך` : "הוסר לך"}: ${what}`, back ? "good" : "");
       t.what === "creature" && this.wantFaces(this.profile?.team);
-    }), e.on("gmBring", t => {
-      audio.sfx("ui"), vibrate([20, 30, 20]), this.ui.toast(`🧲 ${t.from || "GM"} (GM) זימן אותך אליו`, "good");
     }), e.on("gmAnnounce", t => {
       audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
@@ -927,20 +904,11 @@ var Game = class {
   onGm(t) {
     if (!t) return;
     if (t.kind === "hello") {
-      this.ui.gm = { on: !0, limits: t.limits || {}, reports: t.reports || 0 };
+      this.ui.gm = { on: !0, limits: t.limits || {} };
       this.ui.openPanelId === "menu" && this.ui.renderPanel("menu");
       return;
     }
-    if (t.kind === "players") return this.ui.gmPlayers = t.players || [], this.ui.gmRefresh("players"), this.ui.gmRefresh("reports");
-    if (t.kind === "reports") return this.ui.gmReports = t.rows || [], this.ui.gm && (this.ui.gm.reports = t.open || 0), this.ui.gmRefresh("reports");
-    if (t.kind === "reportNew") {
-      // someone reported someone: a GM online hears of it now
-      let r = t.report, why = REPORT_REASONS[r?.reason];
-      this.ui.gm && (this.ui.gm.reports = t.open || (this.ui.gm.reports || 0) + 1);
-      r && (this.ui.gmReports = [r, ...(this.ui.gmReports || []).filter(x => x.id !== r.id)]);
-      audio.sfx("deny"), this.ui.toast(`⚑ דיווח חדש: ${r?.about?.name || ""} — ${why?.he || r?.reason || ""}`, "bad");
-      return this.ui.gmRefresh("reports");
-    }
+    if (t.kind === "players") return this.ui.gmPlayers = t.players || [], this.ui.gmRefresh("players");
     if (t.kind === "log") return this.ui.gmLog = t.rows || [], this.ui.gmRefresh("log");
     if (t.kind === "economy") return this.ui.gmEconomy = t.report || null, this.ui.gmRefresh("economy");
     if (t.kind === "creatures") return this.ui.gmCreatures = { to: t.to, list: t.list || [] }, this.ui.gmRefresh("creatures");
@@ -948,7 +916,7 @@ var Game = class {
       audio.sfx("ui"), this.ui.toast(`✔ ${this.ui.gmSummary(t.op, t.detail, t.to)}`, "good");
       t.op !== "teleport" && this.net.send("gm", { op: "log" });
       // a creature came or went: the list shown is out of date
-      (t.op === "take" || t.op === "undo" || t.op === "saddle" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
+      (t.op === "take" || t.op === "undo" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
       return;
     }
     t.kind === "error" && (audio.sfx("deny"), this.ui.toast({
@@ -968,10 +936,7 @@ var Game = class {
       already_undone: "כבר בוטל",
       cannot_undo: "את הפעולה הזו אי אפשר לבטל",
       already_there: "היצור כבר אצל השחקן",
-      bad_gift: "פעולה לא מוכרת",
-      not_yourself: "בחר שחקן אחר — לא את עצמך",
-      reports_unavailable: "הדיווחים לא זמינים כרגע",
-      bad_status: "מצב לא מוכר"
+      bad_gift: "פעולה לא מוכרת"
     }[t.code] || t.code, "bad"), this.ui.gmRefresh("log"));
   }
   /** A wild coming for me: say it once when it starts, and once if I got
@@ -1029,19 +994,9 @@ var Game = class {
   bindButtons() {
     $("#btn-action").onclick = () => this.doAction();
     for (let e of document.querySelectorAll(".skill-btn")) e.onclick = () => {
-      // a trick for the one beside you, or a move at what is in front of you
-      if (e.dataset.trick) return this.petTrick(e.dataset.trick);
       let t = e.dataset.skill;
       t && (this.worldState()?.boss?.active ? this.attackBoss(t) : this.doAction(t));
     };
-  }
-  /** Ask for a trick (the server tells the room; this screen plays it on the echo). */
-  petTrick(trick) {
-    let def = TRICKS[trick], now = Date.now();
-    if (!def || this.mode !== "world") return;
-    if (this.riding) return this.ui.toast("קודם תרד מהיצור", "bad");
-    if (now < (this._trickUntil || 0)) return;
-    this._trickUntil = now + Math.min(def.ms, 2600), this.net.send("petTrick", { trick });
   }
   setView(e) {
     let t = this.world.setViewMode(e);
@@ -1108,9 +1063,8 @@ var Game = class {
         if (this.riding) return e("ride", {});
         let ms = mountsOf(this.profile?.team || []), last = ms.find(m => m.uid === this._lastRide);
         let m = last || ms[0];
-        m ? (this._lastRide = m.uid, e("ride", { uid: m.uid })) : saddleWanted(this.profile?.team || []).length ? (this.ui.toast("צריך אוכף — צוד 5 מהמשפחה שלו ובנה אותו בחצר", "bad"), this.ui.baseFocus = "saddles", this.openBase()) : this.ui.toast("אין ביצוות יצור שיכול לשאת אותך — יצור מפותח או בעל ★3", "bad");
+        m ? (this._lastRide = m.uid, e("ride", { uid: m.uid })) : this.ui.toast("אין ביצוות יצור שיכול לשאת אותך — יצור מפותח או בעל ★3", "bad");
       },
-      saddleMake: t => e("saddleMake", { uid: t }),
       arenaView: () => e("arenaView"),
       arenaQueue: () => e("arenaQueue"),
       arenaCancel: () => e("arenaCancel"),
@@ -1119,7 +1073,7 @@ var Game = class {
       guildRank: (t, n) => e("guildRank", { id: t, rank: n }),
       guildSettings: t => e("guildSettings", t),
       gm: (op, data = {}) => e("gm", { ...data, op }),
-      gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" }), e("gm", { op: "reports" })),
+      gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" })),
       clinicHeal: () => e("clinicHeal"),
       // NB: swapCreature is defined once, further down in this same object.
       // It used to be declared here too, sending an unhandled "switchCreature"
@@ -1220,10 +1174,9 @@ var Game = class {
         id: t,
         on: n
       }), n && this.ui.toast("נחסם/ה — לא תקבל ממנו/ה הודעות והזמנות", "good")),
-      report: (t, reason, note = "") => e("report", {
+      report: (t, n) => e("report", {
         id: t,
-        reason,
-        note
+        reason: `reported ${n || ""}`
       }),
       partyKick: t => e("partyKick", {
         id: t
@@ -1815,9 +1768,6 @@ var Game = class {
     let e = this.worldState();
     if (!e) return;
     let t = this.world.selfPosition();
-    // the small buttons: moves when something is there to fight, else play
-    let wild = this.nearestWild(t);
-    this.ui.setClusterMode(e.boss?.active && dist2d(e.boss, t) < 15 || wild && wild.d < 7.5 ? "moves" : "tricks");
     if (e.boss?.active && dist2d(e.boss, t) < 15) {
       this.ui.setPrompt(`☠ תקוף את ${loc(SPECIES[e.boss.species])}`), $("#btn-action").textContent = "תקוף";
       return;
@@ -1980,11 +1930,6 @@ function Oc(i) {
     daily_taken: "כבר אספת את הפרס של היום — חזור מחר",
     cannot_land: "אי אפשר לרדת כאן — רק על קרקע מוצקה",
     cannot_ride: "היצור הזה לא יכול לשאת אותך",
-    need_saddle: "צריך אוכף — בנה אותו בחצר (אוכפי רכיבה)",
-    need_materials: "חסרות חתיכות — צוד עוד מהמשפחה שלו",
-    already_saddled: "כבר יש לו אוכף",
-    no_pet_here: "אין יצור לידך לשחק איתו",
-    no_creature: "היצור לא נמצא",
     not_here: "לא כאן",
     not_now: "עוד לא — הסיפור עוד לא הגיע לכאן",
     already_owned: "כבר יש לך את זה",
@@ -2022,13 +1967,7 @@ function Oc(i) {
     pair_not_here: "כל הארבעה צריכים להיות באותו אזור, לא בקרב",
     fight_over: "הקרב כבר נגמר",
     chat_too_fast: "לאט — יותר מדי הודעות",
-    not_invited: "הקרב הזה לא שלך",
-    already_reported: "כבר דיווחת עליו לאחרונה — הצוות יבדוק",
-    too_many_reports: "שלחת הרבה דיווחים בשעה האחרונה. נסה שוב מאוחר יותר",
-    need_note: "כתוב בכמה מילים מה קרה",
-    bad_reason: "בחר סיבה לדיווח",
-    bad_player: "השחקן לא נמצא",
-    reports_unavailable: "אי אפשר לדווח כרגע, נסה שוב בעוד רגע"
+    not_invited: "הקרב הזה לא שלך"
   }[i] || i || "שגיאה";
 }
 

@@ -21,7 +21,6 @@ import { GM_LIMITS } from '../game/gm.js';
 import { isAdmin } from '../admin.js';
 import { verifyToken } from '../auth.js';
 import * as Social from '../social.js';
-import * as Reports from '../reports.js';
 import * as Guilds from '../guilds.js';
 import * as Arena from '../arena.js';
 
@@ -58,7 +57,6 @@ function reachPlayer(id) {
       return {
         doc,
         zoneId: room.zoneId,
-        roomId: room.roomId,
         self: () => room.state.players.get(sessionId),
         ctx: () => room.ctxBySession.get(sessionId),
         send: (event, data) => client.send(event, data),
@@ -246,7 +244,6 @@ export class WorldRoom extends Room {
   async onLeave(client, consented) {
     const doc = this.docsBySession.get(client.sessionId);
     doc && Social.detach(doc.id, `world:${this.roomId}:${client.sessionId}`);
-    doc && Reports.unwatch(doc.id, `${this.roomId}:${client.sessionId}`);
     // out of the world is out of the arena queue (unless it was a match)
     doc && Arena.queued(doc.id) && !Social.worldSink(doc.id) && Arena.dequeue(doc.id, 'left');
     if (doc) await this.store.saveDoc(doc).catch(() => {});
@@ -268,7 +265,6 @@ export class WorldRoom extends Room {
       doc,
       zone: this.zone,
       zoneId: this.zoneId,
-      roomId: this.roomId,
       colliders: this.colliders,
       state: this.state,
       wildDocs: this.wildDocs,
@@ -286,8 +282,6 @@ export class WorldRoom extends Room {
         summon: (species, level) => room.summon(client, species, level),
         audit: (entry) => room.audit(doc, user, entry),
         recent: (n) => room.store.adminLog ? room.store.adminLog(n) : [],
-        // the reports inbox (server/reports.js)
-        reports: { list: (n) => Reports.listReports(n), set: (id, status) => Reports.setReport(doc, id, status) },
       } : null,
       net: {
         emit: (event, data) => client.send(event, data),
@@ -297,8 +291,6 @@ export class WorldRoom extends Room {
       // the social layer is the online server's (social.js); the
       // single-player build has nobody to be friends with
       online: true,
-      // something everyone in this room sees (a pet's trick)
-      roomEmit: (event, data) => room.broadcast(event, data),
       roomChat: (msg, ok) => {
         for (const c of room.clients) {
           const other = room.docsBySession.get(c.sessionId);
@@ -343,12 +335,7 @@ export class WorldRoom extends Room {
     client.send('guild', Guilds.view(Guilds.guildOf(doc), doc.id));
     client.send('party', Social.partyView(Social.partyOf(doc.id)));
     client.send('friends', Social.friendsView(doc));
-    if (this.ctxBySession.get(client.sessionId)?.admin) {
-      // a GM online hears of a new report the moment it is filed (server/reports.js)
-      Reports.watch(doc.id, `${this.roomId}:${client.sessionId}`, (e, d) => client.send(e, d));
-      Reports.openCount().then((open) => client.send('gm', { kind: 'hello', limits: GM_LIMITS, reports: open }))
-        .catch(() => client.send('gm', { kind: 'hello', limits: GM_LIMITS }));
-    }
+    if (this.ctxBySession.get(client.sessionId)?.admin) client.send('gm', { kind: 'hello', limits: GM_LIMITS });
     const hint = fieldHint(doc, this.zone);
     if (hint) { client.send('chat', { ch: 'system', t: Date.now(), text: hint }); this.dirty = true; }
     const others = Math.max(0, this.state.players.size - 1);

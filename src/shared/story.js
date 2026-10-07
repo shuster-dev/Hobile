@@ -18,7 +18,6 @@
  *   deliver  — bring `count` of `item`; taken when the reward is handed over
  *   level    — reach trainer level `count`
  *   dex      — have caught `count` different species
- *   saddle   — have `count` creatures wearing a saddle (shared/saddles.js)
  */
 
 // Quest givers who are not street NPCs (they stand behind a counter).
@@ -107,14 +106,6 @@ export const NPC_QUESTS = Object.fromEntries([
     { offer: ['יצור שרק נלחם — מתעייף. יצור שמתאמן — מתחזק.', 'שים אחד מהם במגרש האימונים בחצר שלך.'],
       busy: ['המגרש בחצר מחכה.'],
       done: ['ככה עושים את זה. קח ליבת אתר — ממנה בונים את השדרוגים הגדולים.'] }),
-  q('n_ren_4', 'ren', 4, 'אוכף ראשון',
-    'בחר יצור שגדול מספיק לשאת אותך, צוד 5 מהמשפחה שלו בשביל החומר, ובנה לו אוכף בחצר.',
-    { kind: 'saddle', count: 1 },
-    { gold: 1200, xp: 700, items: [['sphere_great', 4], ['potion_m', 3]] },
-    { after: ['n_ren_3'], level: 6 },
-    { offer: ['יש לך יצור שכבר גדול מספיק לשאת אותך? יפה. אבל בלי אוכף הוא לא ייתן לך לעלות עליו.', 'צוד חמישה מהמשפחה שלו — גם הקטנים שהוא גדל מהם נחשבים. כל אחד משאיר פרווה, נוצה או קשקש. עם חמש חתיכות, ספסל העבודה בחצר שלך יתפור לו אוכף.'],
-      busy: ['עוד אין אוכף. חמש חתיכות מהמשפחה של היצור, ואז לחצר — "אוכפי רכיבה".'],
-      done: ['זה אוכף! עכשיו לחץ על כפתור הרכיבה ותעלה. ואם הוא מעופף — תחזיק חזק.'] }),
 
   // --- Sela, the North Gate ----------------------------------------------------
   q('n_sela_1', 'sela', 1, 'שומרת השער',
@@ -209,11 +200,6 @@ export function heldProgress(doc, quest) {
   if (g.kind === 'level') return doc?.level || 1;
   if (g.kind === 'dex') return seenSpecies(doc);
   if (g.kind === 'deliver') return inv(doc, g.item);
-  if (g.kind === 'saddle') {
-    // creatures wearing a saddle: the server's map, or the profile's lists
-    const all = [...Object.values(doc?.creatures || {}), ...['team', 'box', 'away'].flatMap((k) => (doc?.[k] || []).filter((c) => typeof c === 'object'))];
-    return new Set(all.filter((c) => c?.saddle).map((c) => c.uid)).size;
-  }
   if (g.kind === 'star') {
     const best = Math.max(0, ...Object.values(doc?.creatures || {}).map((c) => c?.star || 1),
       ...(doc?.team || []).map((c) => (typeof c === 'object' ? c?.star || 1 : 0)));

@@ -17,7 +17,6 @@ import * as Guilds from './guilds.js';
 import * as Arena from './arena.js';
 import * as Push from './push.js';
 import * as Social from './social.js';
-import * as Reports from './reports.js';
 import { AddressLimiter } from './game/guard.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
@@ -34,7 +33,6 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const store = await openStore(process.env);
 await reportAdmins(store);
 await Guilds.useStore(store);
-Reports.useReports(store);
 // the arena opens its fights as any duel is opened (server/arena.js)
 Arena.useRooms((opts) => matchMaker.createRoom('battle', { store, ...opts }));
 // the phone notifications (server/push.js): keys, the queue sweep

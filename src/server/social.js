@@ -288,32 +288,6 @@ export function chat(doc, { ch, text, to, toId } = {}, roomBroadcast, members = 
   const e = ONLINE.get(doc.id), now = Date.now();
   const body = clean(text).trim();
   if (!body) return null;
-  const err = sendChat(doc, { ch, body, to, toId }, e, now, roomBroadcast, members);
-  // what was really typed (before the asterisks), for a report's evidence
-  err || noteSaid(doc, ch, text, now, to);
-  return err;
-}
-
-/**
- * What each player said lately, as typed — the filter's asterisks hide the
- * very words a "bad language" report is about. Kept in memory only, a few
- * dozen lines a player, and read only into a report (server/reports.js).
- */
-const SAID = new Map();
-const SAID_KEEP = 24;
-export function noteSaid(doc, ch, text, t = Date.now(), to = '') {
-  const raw = String(text || '').replace(/[\u0000-\u001f\u200e\u200f\u202a-\u202e]/g, '').trim().slice(0, 240);
-  if (!raw) return;
-  let list = SAID.get(doc.id);
-  if (!list) { if (SAID.size > 20000) SAID.delete(SAID.keys().next().value); SAID.set(doc.id, list = []); }
-  list.push({ ch: ch || 'zone', text: raw, t, ...(to ? { to: String(to).slice(0, 40) } : {}) });
-  list.length > SAID_KEEP && list.splice(0, list.length - SAID_KEEP);
-}
-export function saidBy(id, n = 12, sinceMs = 30 * 60_000, now = Date.now()) {
-  return (SAID.get(id) || []).filter((l) => now - l.t <= sinceMs).slice(-n);
-}
-
-function sendChat(doc, { ch, body, to, toId }, e, now, roomBroadcast, members) {
   if (e) {
     // a burst is fine, a flood is not; the world channel is slower still
     e.chatTimes = (e.chatTimes || []).filter((x) => now - x < SOCIAL.chatWindowMs);
@@ -625,5 +599,5 @@ const upkeep = setInterval(() => {
 upkeep.unref?.();
 
 /** For tests: forget everyone. */
-export function _reset() { ONLINE.clear(); PARTIES.clear(); INVITES.clear(); COOP.clear(); SAID.clear(); }
+export function _reset() { ONLINE.clear(); PARTIES.clear(); INVITES.clear(); COOP.clear(); }
 export const _debug = { ONLINE, PARTIES, INVITES, COOP };
