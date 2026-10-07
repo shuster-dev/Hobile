@@ -544,6 +544,49 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .job-btns .btn{min-width:38px;padding:4px 8px}
 .job-btns .btn.best{outline:2px solid var(--aether);outline-offset:1px}
 .work-yield{color:var(--gold);font-size:var(--t-sm)}
+
+/* --- reports: the picker, and the GM's inbox --------------------------- */
+.report-reasons{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-bottom:var(--s3)}
+.report-reason{display:flex;align-items:center;gap:var(--s2);justify-content:flex-start;text-align:start;min-height:52px;font-weight:700}
+.report-reason .ico{font-size:20px}
+.report-reason.on{border-color:var(--coral);background:var(--coral-soft);box-shadow:0 0 0 2px var(--coral) inset}
+.report-reason:last-child{grid-column:1 / -1}
+.report-note{width:100%;resize:vertical;min-height:72px;margin-bottom:var(--s3);font:inherit}
+.gm-reports{display:flex;flex-direction:column;gap:var(--s2);margin-bottom:var(--s2)}
+.gm-report{border:1px solid var(--stroke);border-radius:var(--r2);padding:var(--s2) var(--s3);background:var(--raise);display:flex;flex-direction:column;gap:6px}
+.gm-report.open{border-color:var(--coral);box-shadow:inset 3px 0 0 var(--coral)}
+.gm-report:not(.open){opacity:.72}
+.gm-report .top{display:flex;justify-content:space-between;gap:var(--s2);font-size:var(--t-sm)}
+.gm-report .why{font-weight:800}
+.gm-report .when{color:var(--muted)}
+.gm-report .who{font-size:var(--t-sm)}
+.gm-report .pill.on{background:var(--aether-soft);color:var(--aether-deep)}
+.gm-report .note{font-size:var(--t-sm);font-style:italic}
+.gm-report .evidence summary{cursor:pointer;font-size:var(--t-sm);color:var(--muted)}
+.gm-report .ev-line{font-size:var(--t-sm);padding:3px 0;border-top:1px dashed var(--stroke)}
+.gm-report .ev-line .ch{color:var(--muted);font-size:var(--t-xs)}
+.gm-report .ev-line .tx{font-weight:600;unicode-bidi:plaintext}
+
+/* --- the action cluster: one arc round the big button ------------------- */
+/* Four places on a quarter circle — straight up to straight left — far
+   enough out that no two touch and none touches the big button. The ride
+   button takes the fourth (game.js decides who sits where). */
+#action-cluster{--mb:86px;--sb:56px;--R:118px;--edge:6px}
+@media(max-height:640px){#action-cluster{--mb:76px;--sb:50px;--R:104px}}
+@media (orientation:landscape) and (max-height:520px){#action-cluster{--mb:70px;--sb:46px;--R:96px}}
+#action-cluster .skill-btn,#action-cluster .ride-btn{width:var(--sb);height:var(--sb)}
+#action-cluster .skill-btn.s0{right:calc(var(--edge) + var(--mb) / 2 - var(--sb) / 2);bottom:calc(var(--edge) + var(--mb) / 2 + var(--R) - var(--sb) / 2)}
+#action-cluster .skill-btn.s1{right:calc(var(--edge) + var(--mb) / 2 + var(--R) * .5 - var(--sb) / 2);bottom:calc(var(--edge) + var(--mb) / 2 + var(--R) * .866 - var(--sb) / 2)}
+#action-cluster .skill-btn.s2{right:calc(var(--edge) + var(--mb) / 2 + var(--R) * .866 - var(--sb) / 2);bottom:calc(var(--edge) + var(--mb) / 2 + var(--R) * .5 - var(--sb) / 2)}
+#action-cluster .skill-btn.s3,#action-cluster .ride-btn{right:calc(var(--edge) + var(--mb) / 2 + var(--R) - var(--sb) / 2);bottom:calc(var(--edge) + var(--mb) / 2 - var(--sb) / 2)}
+#action-cluster .ride-btn{font-size:calc(var(--sb) * .42)}
+#action-cluster .skill-btn.trick{background:radial-gradient(circle at 35% 30%,#fffaf0,#ffe9c7);border-color:#fff}
+#action-cluster .skill-btn.trick .ico{font-size:calc(var(--sb) * .44);line-height:1}
+
+/* --- saddles (shared/saddles.js) ----------------------------------------- */
+.saddle-row .fam{font-size:var(--t-xs);color:var(--muted)}
+.saddle-row.ready{border-color:var(--aether);box-shadow:inset 3px 0 0 var(--aether)}
+.saddle-row.done{opacity:.85}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">

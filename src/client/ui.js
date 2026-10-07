@@ -1,5 +1,5 @@
 import { audio } from './gfx/battle.js';
-import { zoneMinimap } from './input.js';
+import { cycleLookSpeed, lookSpeed, zoneMinimap } from './input.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
 import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, clinicCost, powerOf, questGold, typeMultiplier } from '../shared/gamedata.js';
@@ -8,12 +8,15 @@ import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
 import { ARENA, ARENA_TIERS, DUNGEON_TIERS, TOWER, arenaTier, canEnter, seasonEnds, weekEnds } from '../shared/endgame.js';
 import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
+import { familyMembers, materialName, saddleCost } from '../shared/saddles.js';
+import { TRICKS, TRICK_IDS } from '../shared/tricks.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
 import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
 import { DYES, HATS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
+import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -313,10 +316,12 @@ var UI = class {
     let b = $("#btn-ride");
     if (!b) return;
     let ms = mountsOf(this.profile?.team || []);
-    b.classList.toggle("hidden", !ms.length && !riding), b.classList.toggle("on", !!riding);
+    b.classList.toggle("on", !!riding);
     let k = riding?.kind || ms[0]?.kind;
     b.textContent = riding ? "⬇" : RIDE[k]?.icon || "🐎", b.setAttribute("aria-label", riding ? "לרדת" : RIDE[k]?.he || "רכיבה");
     b.onclick = () => this.hooks.rideToggle?.();
+    // shown or not by the cluster: it takes the fourth place on the arc
+    this._clusterKey = null, this.syncCluster();
   }
   /** Under the vitals: a gift waiting today, or else the season that is on. */
   renderDailyChip() {
@@ -670,7 +675,8 @@ var UI = class {
         tailor: "👒 החייט",
         notify: "🔔 התראות לטלפון",
         channels: "📡 ערוצים",
-        pass: "🎟 מסלול העונה"
+        pass: "🎟 מסלול העונה",
+        report: "⚑ דיווח על שחקן"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -705,6 +711,7 @@ var UI = class {
       notify: () => this.panelNotify(o),
       channels: () => this.panelChannels(o),
       pass: () => this.panelPass(o),
+      report: () => this.panelReport(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
@@ -871,6 +878,13 @@ var UI = class {
     hint.textContent = "כל פעולה כאן נרשמת ביומן שבתחתית, עם השם שלך — ואפשר לבטל אותה משם (↩).";
     e.appendChild(hint);
 
+    // what players reported (server/reports.js): open ones first
+    let rhead = section("⚑ דיווחים", this.gm?.reports ? `${this.gm.reports} פתוחים` : "");
+    this._gmReportsHead = rhead, e.appendChild(rhead);
+    let rbox = el("div", "gm-reports");
+    this._gmReportsBox = rbox, this.fillGmReports(), e.appendChild(rbox);
+    e.appendChild(btn("🔄 רענן דיווחים", "small ghost", () => ask("reports")));
+
     // who
     e.appendChild(section("למי"));
     let who = el("select", "field-input");
@@ -958,8 +972,12 @@ var UI = class {
     e.appendChild(row(zone, btn("🌀 שגר אותי", "", () => ask("teleport", { zone: f.zone }))));
     e.appendChild(row(
       btn("👣 אל השחקן", "", () => f.to === "me" ? this.toast("בחר שחקן ברשימה למעלה", "bad") : ask("teleport", { player: f.to })),
+      btn("🧲 זמן אותו אליי", "", () => f.to === "me" ? this.toast("בחר שחקן ברשימה למעלה", "bad") : ask("bring", { to: f.to })),
       btn("❤ ריפוי הצוות", "", () => ask("heal", { to: f.to }))
     ));
+    let bh = el("div", "hint");
+    bh.textContent = "״אל השחקן״ מעביר אותך לידו. ״זמן אותו אליי״ מביא אותו לעמוד לידך — גם מאזור אחר. הוא מקבל הודעה.";
+    e.appendChild(bh);
 
     // say something to everyone
     e.appendChild(section("הודעה לכל השרת"));
@@ -1003,7 +1021,7 @@ var UI = class {
       let d = new Date(r.at),
         line = el("div", "gm-log-row"),
         time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-      line.innerHTML = `<span class="mono">${ltr(time)}</span> <b>${Ze(r.gm?.name || "")}</b> ${Ze(this.gmSummary(r.op, r.detail, r.to && r.to.id !== r.gm?.id ? r.to.name : null))}`;
+      line.innerHTML = `<span class="mono">${ltr(time)}</span> <b>${Ze(r.gm?.name || r.by?.name || "")}</b> ${Ze(this.gmSummary(r.op, r.detail, r.to && r.to.id !== r.gm?.id ? r.to.name : null))}`;
       if (undone.has(r.id)) line.appendChild(el("span", "pill", "בוטל"));
       else if (r.id && this.gmUndoable(r)) {
         let b = el("button", "btn small ghost gm-undo", "↩ בטל");
@@ -1017,8 +1035,60 @@ var UI = class {
     }
   }
   gmRefresh(kind) {
+    kind === "reports" && this.openPanelId === "menu" && this.renderPanel("menu");
     if (this.openPanelId !== "gm") return;
-    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "creatures" ? this.fillGmCreatures() : kind === "economy" && this.fillGmEconomy();
+    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "creatures" ? this.fillGmCreatures() : kind === "reports" ? this.fillGmReports() : kind === "economy" && this.fillGmEconomy();
+  }
+  /** The reports inbox: who, about whom, why, what they said — and what to do. */
+  fillGmReports() {
+    let box = this._gmReportsBox, rows = this.gmReports;
+    if (!box) return;
+    let meta = this._gmReportsHead?.querySelector(".meta");
+    meta ? meta.textContent = this.gm?.reports ? `${this.gm.reports} פתוחים` : "" : this.gm?.reports && this._gmReportsHead?.insertAdjacentHTML("beforeend", `<span class="meta">${this.gm.reports} פתוחים</span>`);
+    box.innerHTML = "";
+    if (!rows) return box.appendChild(el("div", "hint", "טוען דיווחים…"));
+    if (!rows.length) return box.appendChild(emptyState("✅", "אין דיווחים"));
+    let ago = t => {
+        let m = Math.max(0, Math.round((Date.now() - t) / 6e4));
+        return m < 1 ? "עכשיו" : m < 60 ? `לפני ${m} דק׳` : m < 1440 ? `לפני ${Math.round(m / 60)} שע׳` : new Date(t).toLocaleDateString("he-IL");
+      },
+      chName = { zone: "אזור", world: "עולם", party: "קבוצה", guild: "גילדה", whisper: "לחישה" };
+    for (let r of rows.slice(0, 40)) {
+      let why = REPORT_REASONS[r.reason] || { icon: "⚑", he: r.reason },
+        card = el("div", `gm-report ${r.status}`),
+        online = (this.gmPlayers || []).some(p => p.id === r.about?.id);
+      card.innerHTML = `<div class="top"><span class="why">${why.icon} ${Ze(why.he)}</span><span class="when">${ago(r.at)}</span></div>
+        <div class="who"><b></b> דיווח על <b></b> <span class="pill">Lv ${r.about?.level || 1}</span>${online ? ` <span class="pill on">מחובר</span>` : ""}</div>`;
+      let [by, about] = card.querySelectorAll(".who b");
+      by.textContent = r.by?.name || "?", about.textContent = r.about?.name || "?";
+      if (r.note) {
+        let n = el("div", "note");
+        n.textContent = `״${r.note}״`, card.appendChild(n);
+      }
+      if (r.evidence?.length) {
+        let ev = el("details", "evidence"), sum = el("summary", "", `💬 ${r.evidence.length} הודעות אחרונות שלו`);
+        ev.appendChild(sum);
+        for (let l of r.evidence) {
+          let line = el("div", "ev-line"), d = new Date(l.t);
+          line.innerHTML = `<span class="mono">${ltr(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`)}</span> <span class="ch">${chName[l.ch] || l.ch}${l.to ? ` ← ${Ze(l.to)}` : ""}</span> <span class="tx"></span>`;
+          line.querySelector(".tx").textContent = l.text, ev.appendChild(line);
+        }
+        card.appendChild(ev);
+      } else REPORT_REASONS[r.reason]?.evidence && card.appendChild(el("div", "hint", "אין הודעות שלו מחצי השעה שלפני הדיווח."));
+      let acts = el("div", "row gm-row");
+      if (r.status === "open") {
+        online && acts.append(btn("👣 אליו", () => this.hooks.gm?.("teleport", { player: r.about.id })), btn("🧲 זמן אליי", () => this.hooks.gm?.("bring", { to: r.about.id })));
+        acts.append(btn("✔ טופל", () => this.hooks.gm?.("reportSet", { id: r.id, status: "handled" }), "primary"), btn("✕ דחה", () => this.hooks.gm?.("reportSet", { id: r.id, status: "dismissed" }), "ghost"));
+      } else {
+        let st = el("span", "hint grow", `${REPORT_STATUS[r.status] || r.status}${r.doneBy?.name ? ` · ${r.doneBy.name}` : ""}`);
+        acts.append(st, btn("↺ פתח שוב", () => this.hooks.gm?.("reportSet", { id: r.id, status: "open" }), "ghost"));
+      }
+      card.appendChild(acts), box.appendChild(card);
+    }
+    function btn(label, fn, cls = "") {
+      let b = el("button", `btn small ${cls}`, label);
+      return b.onclick = fn, b;
+    }
   }
   /** A row of the log that can be taken back (gm.js `undo`). */
   gmUndoable(r) {
@@ -1040,6 +1110,10 @@ var UI = class {
       line.innerHTML = `<div class="grow"><b>${Ze(loc(sp) || c.species)} ${c.shiny ? "✨" : ""} <span class="pill">Lv ${c.level}</span> <span class="stars">${starLabel(c.star || 1)}</span></b><span>${where[c.where] || ""}</span></div>`;
       let face = zoneMinimap(c.species);
       face && line.insertAdjacentHTML("afterbegin", `<div class="thumb"><img src="${face}" alt=""></div>`);
+      if (c.rides) {
+        let sb = el("button", `btn small ${c.saddle ? "ghost" : ""}`, c.saddle ? "🐎 הורד אוכף" : "🐎 תן אוכף");
+        sb.onclick = () => this.hooks.gm?.("saddle", { to: f.to, uid: c.uid, on: !c.saddle }), line.appendChild(sb);
+      }
       line.appendChild(this._gmSure("🗑 הסר", () => this.hooks.gm?.("take", { to: f.to, what: "creature", uid: c.uid }))), box.appendChild(line);
     }
     list.list.length || box.appendChild(el("div", "hint", "אין לשחקן יצורים"));
@@ -1067,6 +1141,10 @@ var UI = class {
         fill: () => "משאבים בלי סוף",
         heal: () => "ריפוי הצוות",
         teleport: () => d.beside ? `שיגור אל ${d.beside}` : `שיגור ל${loc(ZONES[d.zone]) || d.zone}`,
+        saddle: () => `🐎 ${d.on ? "אוכף ל" : "הוסר אוכף מ"}${loc(SPECIES[d.species]) || d.species}`,
+        bring: () => `🧲 זומן אליך${d.from && d.from !== d.zone ? ` (מ${loc(ZONES[d.from]) || d.from})` : ""}`,
+        reportSet: () => `⚑ דיווח (${REPORT_REASONS[d.reason]?.he || d.reason || ""}) — ${REPORT_STATUS[d.status] || d.status}`,
+        report: () => `⚑ דיווח: ${REPORT_REASONS[d.reason]?.he || d.reason || ""}`,
         summon: () => `זימון ${loc(SPECIES[d.species]) || d.species} Lv ${d.level}`,
         announce: () => `📢 ${d.text || ""}${Number.isFinite(d.reached) ? ` (${d.reached} שחקנים)` : ""}`
       }[op];
@@ -1082,12 +1160,12 @@ var UI = class {
 
   panelMenu(e) {
     let t = el("div", "grid2"),
-      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🎟 מסלול העונה" + (this.profile?.pass?.ready ? ` (${this.profile.pass.ready})` : ""), "pass"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["⛶ מסך מלא", "__fullscreen"]];
+      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🎟 מסלול העונה" + (this.profile?.pass?.ready ? ` (${this.profile.pass.ready})` : ""), "pass"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["🖐 מצלמה", "__look"], ["⛶ מסך מלא", "__fullscreen"]];
     // the phone's bell and the zone's channels need the server (server/push.js, WorldRoom)
     this.social && n.push(["🔔 התראות", "notify"], [`📡 ערוץ ${this.zone?.channel || 1}`, "channels"]);
     n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
     // Only a session the server called a GM's ever gets the hello that sets this.
-    this.gm?.on && n.unshift(["👑 כלי GM", "gm"]);
+    this.gm?.on && n.unshift([`👑 כלי GM${this.gm.reports ? ` · ⚑ ${this.gm.reports}` : ""}`, "gm"]);
     for (let [c, h] of n) {
       let d = el("button", "btn", c);
       if (h === "__view") {
@@ -1095,6 +1173,9 @@ var UI = class {
         d.textContent = `👁 ${u()}`, d.onclick = () => {
           this.hooks.toggleView?.(), d.textContent = `👁 ${u()}`;
         };
+      } else if (h === "__look") {
+        let u = () => `🖐 מצלמה: ${lookSpeed().he}`;
+        d.textContent = u(), d.title = "כמה מהר גרירה מסובבת את המצלמה", d.onclick = () => (cycleLookSpeed(), d.textContent = u(), this.toast(`רגישות המצלמה: ${lookSpeed().he}`));
       } else if (h === "__fullscreen") {
         d.onclick = () => this.hooks.fullscreen?.();
       } else if (h === "__tower") {
@@ -1225,9 +1306,15 @@ var UI = class {
       l.onclick = d, l.onkeydown = f => {
         (f.key === "Enter" || f.key === " ") && (f.preventDefault(), d());
       };
-      // one that can carry you: a button to get on it (shared/riding.js)
+      // one that can carry you: a button to get on it (shared/riding.js) —
+      // or, with no saddle yet, to the workbench that makes one
       let mk = a && this.social !== void 0 && mountKind(s.species, s.star || 1);
-      if (mk) {
+      if (mk && !s.saddle) {
+        let sb = el("button", "btn small icon-only", "🪢");
+        sb.title = "צריך אוכף", sb.setAttribute("aria-label", "צריך אוכף — לחצר"), sb.onclick = f => {
+          f.stopPropagation(), this.baseFocus = "saddles", this.hooks.openBase?.();
+        }, l.appendChild(sb);
+      } else if (mk) {
         let rb = el("button", `btn small icon-only ${this._riding?.uid === s.uid ? "primary" : ""}`, RIDE[mk].icon);
         rb.title = RIDE[mk].he, rb.setAttribute("aria-label", RIDE[mk].he), rb.onclick = f => {
           f.stopPropagation(), this.hooks.ride?.(this._riding?.uid === s.uid ? null : s.uid), this.closePanel();
@@ -1276,6 +1363,7 @@ var UI = class {
       s.onclick = () => this.hooks.baseOpen?.(), n.appendChild(s), e.appendChild(n);
     }
     this.workSection(e, t);
+    this.saddleSection(e);
     e.appendChild(section("תאי אימון", `${ltr(t.freeSlots)} פנויים`));
     for (let n of t.training) {
       let s = SPECIES[n.species],
@@ -1339,6 +1427,52 @@ var UI = class {
       e.appendChild(s);
     }
     this.startCountdowns();
+  }
+  /**
+   * Saddles (shared/saddles.js): every creature big enough to carry you, how
+   * many pieces of its family's material you have toward a saddle, and the
+   * button that makes one and fits it.
+   */
+  saddleSection(e) {
+    let p = this.profile;
+    if (!p) return;
+    let mats = p.mats || {},
+      all = [...(p.team || []).map(c => ({ c, team: !0 })), ...(p.box || []).map(c => ({ c, team: !1 }))].filter(({ c }) => c && mountKind(c.species, c.star || 1));
+    let head = section("🐎 אוכפי רכיבה", all.length ? rangeLabel(all.filter(({ c }) => c.saddle).length, all.length, "/") : "");
+    head.id = "saddles", e.appendChild(head);
+    if (!all.length) {
+      let h = el("div", "hint");
+      h.textContent = "יצור מפותח (או בעל ★3) שגדול מספיק — ציפור, יצור מים או בעל ארבע רגליים — יכול לשאת אותך. כשיהיה לך כזה: צוד 5 מהמשפחה שלו, וכאן תבנה לו אוכף.";
+      e.appendChild(h);
+    }
+    all.sort((x, y) => !!x.c.saddle - !!y.c.saddle || y.team - x.team);
+    for (let { c, team } of all) {
+      let sp = SPECIES[c.species], kind = mountKind(c.species, c.star || 1), cost = saddleCost(c.species, c.star || 1),
+        mn = materialName(cost.family), have = mats[cost.family] || 0,
+        row = el("div", `list-item saddle-row ${c.saddle ? "done" : have >= cost.pieces ? "ready" : ""}`),
+        face = zoneMinimap(c.species),
+        fam = familyMembers(cost.family).map(id => loc(SPECIES[id])).join(" / ");
+      row.innerHTML = `<div class="thumb">${face ? `<img src="${face}" alt="" />` : ""}</div>
+        <div class="grow"><b>${Ze(loc(sp))} <span class="pill">${RIDE[kind].icon} ${RIDE[kind].he}</span></b>
+        <span>${c.saddle ? "✓ יש אוכף — אפשר לרכוב" + (team ? "" : " (מהצוות)") : `${mn.icon} ${Ze(mn.he)} · ${ltr(`${have}/${cost.pieces}`)} · ${ltr(cost.gold.toLocaleString("en-US"))}⛁`}</span>
+        ${c.saddle ? "" : `<span class="fam">ניצחון או לכידה של: ${Ze(fam)}</span>`}</div>`;
+      if (c.saddle) {
+        if (team) {
+          let b = el("button", `btn small ${this._riding?.uid === c.uid ? "" : "primary"}`, this._riding?.uid === c.uid ? "רד" : "רכב");
+          b.onclick = () => (this.hooks.ride?.(this._riding?.uid === c.uid ? null : c.uid), this.closePanel()), row.appendChild(b);
+        }
+      } else {
+        let ok = have >= cost.pieces && (p.gold || 0) >= cost.gold,
+          b = el("button", `btn small ${ok ? "primary" : ""}`, "בנה אוכף");
+        b.disabled = !ok, b.title = ok ? "" : have < cost.pieces ? `חסרות ${cost.pieces - have} חתיכות` : "אין מספיק זהב";
+        b.onclick = () => (b.disabled = !0, this.hooks.saddleMake?.(c.uid)), row.appendChild(b);
+      }
+      e.appendChild(row);
+    }
+    if (this.baseFocus === "saddles") {
+      this.baseFocus = null;
+      requestAnimationFrame(() => head.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
   }
   /** Creatures from the box at work on the farm (shared/farmwork.js). */
   workSection(e, t) {
@@ -1672,8 +1806,42 @@ var UI = class {
     });
     friend && add("➖ הסר מחברים", () => this.hooks.removeFriend?.(p.id), "btn ghost");
     add("🚫 חסום", () => this.hooks.block?.(p.id, !0), "btn danger");
-    add("⚑ דווח", () => this.hooks.report?.(p.id, p.name), "btn ghost");
+    add("⚑ דווח", () => {
+      this.reportTarget = { id: p.id, name: p.name }, setTimeout(() => this.openPanel("report"), 0);
+    }, "btn ghost");
+    // a GM can go to them, or bring them over, from their card
+    this.gm?.on && p.online !== !1 && (add("👣 אליו (GM)", () => this.hooks.gm?.("teleport", { player: p.id }), "btn ghost"), add("🧲 זמן אליי (GM)", () => this.hooks.gm?.("bring", { to: p.id }), "btn ghost"));
     e.appendChild(grid);
+  }
+  /** Why you are reporting someone: one reason, a few words if you like. */
+  panelReport(e) {
+    let p = this.reportTarget;
+    if (!p) return e.appendChild(emptyState("⚑", "אין שחקן נבחר"));
+    let f = this.reportForm?.id === p.id ? this.reportForm : this.reportForm = { id: p.id, reason: "", note: "" },
+      head = el("div", "hint");
+    head.innerHTML = `על <b></b> — הדיווח מגיע לצוות המשחק, יחד עם ההודעות האחרונות שלו בצ'אט. הוא לא יודע מי דיווח.`, head.querySelector("b").textContent = p.name, e.appendChild(head);
+    e.appendChild(section("מה קרה?"));
+    let list = el("div", "report-reasons"),
+      send = el("button", "btn primary", "⚑ שלח דיווח"),
+      note = el("textarea", "field-input report-note");
+    let sync = () => {
+      for (let b of list.children) b.classList.toggle("on", b.dataset.reason === f.reason), b.setAttribute("aria-pressed", String(b.dataset.reason === f.reason));
+      let need = REPORT_REASONS[f.reason]?.needsNote;
+      note.placeholder = need ? "ספר במילים שלך מה קרה (חובה)" : "משהו להוסיף? (לא חובה)";
+      send.disabled = !f.reason || need && f.note.trim().length < 3;
+    };
+    for (let [id, r] of Object.entries(REPORT_REASONS)) {
+      let b = el("button", "btn report-reason");
+      b.type = "button", b.dataset.reason = id, b.innerHTML = `<span class="ico">${r.icon}</span><span></span>`, b.lastChild.textContent = r.he;
+      b.onclick = () => (f.reason = id, sync()), list.appendChild(b);
+    }
+    e.appendChild(list);
+    note.maxLength = REPORT_LIMITS.note, note.rows = 3, note.value = f.note, note.oninput = () => (f.note = note.value, sync()), e.appendChild(note);
+    send.onclick = () => {
+      if (send.disabled) return;
+      send.disabled = !0, this.hooks.report?.(p.id, f.reason, f.note.trim()), this.reportForm = null, this.closePanel();
+    };
+    e.appendChild(send), sync();
   }
   /**
    * Something someone asked you, with a yes and a no, at the top of the
@@ -2197,11 +2365,38 @@ var UI = class {
     });
   }
   renderWorldSkills(e) {
-    let t = e?.skills || [];
+    this._worldSkills = e?.skills || [], this.syncCluster();
+  }
+  /** "moves" when there is something to fight in reach, "tricks" otherwise. */
+  setClusterMode(mode) {
+    this._clusterMode !== mode && (this._clusterMode = mode, this.syncCluster());
+  }
+  /**
+   * The small buttons round the big one, on one arc so none sits on another:
+   * the lead's moves when a wild or a boss is in reach; otherwise three
+   * tricks to play with the one walking beside you (shared/tricks.js), and
+   * the ride button in the fourth place when something can carry you.
+   */
+  syncCluster() {
+    let mode = this._clusterMode || "tricks", riding = !!this._riding,
+      canRide = riding || mountsOf(this.profile?.team || []).length > 0,
+      rideShown = riding || canRide && mode === "tricks",
+      moves = this._worldSkills || [],
+      key = `${mode}|${riding}|${rideShown}|${moves.join(",")}`;
+    if (key === this._clusterKey) return;
+    this._clusterKey = key;
+    $("#btn-ride")?.classList.toggle("hidden", !rideShown);
     document.querySelectorAll(".skill-btn").forEach((n, s) => {
-      let r = t[s],
-        o = MOVES[r];
-      n.dataset.skill = r || "", n.disabled = !o, n.classList.toggle("hidden", !o), n.querySelector(".ico").textContent = o && ELEMENTS[o.type]?.icon || "✦", n.title = o ? loc(o) : "", n.setAttribute("aria-label", o ? loc(o) : `כישור ${s + 1}`);
+      let r = null, trick = null;
+      if (mode === "moves") s === 3 && rideShown || (r = moves[s] || null);
+      else riding || s > 2 || (trick = TRICKS[TRICK_IDS[s]]);
+      let o = r && MOVES[r];
+      n.dataset.skill = o ? r : "", n.dataset.trick = trick ? trick.id : "", n.classList.toggle("trick", !!trick);
+      let on = !!(o || trick);
+      n.disabled = !on, n.classList.toggle("hidden", !on);
+      n.querySelector(".ico").textContent = trick ? trick.icon : o && ELEMENTS[o.type]?.icon || "✦";
+      let label = trick ? trick.he : o ? loc(o) : `כישור ${s + 1}`;
+      n.title = on ? label : "", n.setAttribute("aria-label", label);
     });
   }
   setPrompt(e) {
