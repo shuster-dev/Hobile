@@ -109,6 +109,23 @@ ok('and lands on the same character',
 ok('the guest username is gone from the lookup',
   (await api('/api/login', { username: 'ghosty', password: 'wrong' })).status === 401);
 
+// before a beta: crashes reach the server, a player can take their data or be forgotten
+{
+  const er = await api('/api/errors', { token: a.json.token, reports: [{ kind: 'error', message: 'TypeError: x is undefined', stack: 'at f (main.js:1:2)', version: 'TEST', device: 'iOS 26 Safari' }] });
+  ok('a crash from a phone is taken', er.status === 200 && er.json.n === 1);
+  ok('and nonsense is not', (await api('/api/errors', { reports: [{ message: '' }] })).json.n === 0);
+  const ex = await api('/api/account/export', null, a.json.token);
+  ok('a player can download what is kept about them, without the password', ex.status === 200 && ex.json.account?.username === 'alice' && !('hash' in ex.json.account) && !('salt' in ex.json.account));
+  const c = await api('/api/register', { username: 'carl', password: 'hunter2', agree: true });
+  await api('/api/character', { name: 'Carl', starter: 'cindcub' }, c.json.token);
+  ok('deleting asks for the name, typed', (await api('/api/account/delete', { confirm: 'nope' }, c.json.token)).status === 400);
+  const del = await api('/api/account/delete', { confirm: 'Carl' }, c.json.token);
+  ok('and then the account is gone: no login, no character', del.status === 200
+    && (await api('/api/login', { username: 'carl', password: 'hunter2' })).status === 401
+    && (await api('/api/me', null, c.json.token)).json.hasCharacter !== true);
+  ok('the name can be taken again', (await api('/api/register', { username: 'carl', password: 'hunter3' })).status === 200);
+}
+
 // world
 const clientA = new Client(`ws://127.0.0.1:${PORT}`);
 const clientB = new Client(`ws://127.0.0.1:${PORT}`);
@@ -450,6 +467,11 @@ async function walkTo(me, target, near = 5) {
   ok('nobody else can read the inbox', !errsB.includes('server_error') && errsB.includes('forbidden'));
 
   roomA.send('gm', { op: 'bring', to: bobId });
+  roomA.send('gm', { op: 'errors' });
+  ok('the GM sees the crashes from the phones', await until(() => gmA.some((m) => m.kind === 'errors' && m.rows.some((r) => r.sample?.message === 'TypeError: x is undefined' && r.users === 1)), 4000));
+  roomA.send('gm', { op: 'metrics' });
+  ok('and the metrics: who is on, who came today', await until(() => gmA.some((m) => m.kind === 'metrics' && m.report.online >= 2 && m.report.dau >= 2), 4000),
+    JSON.stringify(gmA.find((m) => m.kind === 'metrics')?.report || {}).slice(0, 200));
   ok('a GM can bring a player over: told, and sent into the GM\'s own channel', await until(() => bringB.some((m) => m.from === 'Alice')
     && gotoB.some((g) => g.kind === 'world' && g.zone === 'aetherport' && g.room === roomA.roomId), 4000), JSON.stringify(gotoB));
   const bp = (await api('/api/me', null, b.json.token)).json;

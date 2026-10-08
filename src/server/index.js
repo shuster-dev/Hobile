@@ -18,6 +18,9 @@ import * as Arena from './arena.js';
 import * as Push from './push.js';
 import * as Social from './social.js';
 import * as Reports from './reports.js';
+import * as Telemetry from './telemetry.js';
+import * as Metrics from './metrics.js';
+import { kickPlayer } from './rooms/WorldRoom.js';
 import { AddressLimiter } from './game/guard.js';
 import { HOME_ZONE, ZONES, STARTERS, AVATAR, avatarLook } from '../shared/gamedata.js';
 
@@ -35,6 +38,11 @@ const store = await openStore(process.env);
 await reportAdmins(store);
 await Guilds.useStore(store);
 Reports.useReports(store);
+// crashes from the phones, and who comes back (server/telemetry.js, metrics.js)
+Telemetry.useTelemetry(store);
+Metrics.useMetrics(store);
+// a promise nobody waited on: logged and counted, not a crash
+process.on('unhandledRejection', (e) => { console.warn('[unhandled]', e?.message || e); Telemetry.serverError(e, 'unhandledRejection'); });
 // the arena opens its fights as any duel is opened (server/arena.js)
 Arena.useRooms((opts) => matchMaker.createRoom('battle', { store, ...opts }));
 // the phone notifications (server/push.js): keys, the queue sweep
@@ -68,6 +76,46 @@ const requireAuth = (req, res, next) => {
 };
 
 app.get('/api/health', (req, res) => res.json({ ok: true, zones: Object.keys(ZONES).length }));
+
+// --- crashes from the phones (client/crash.js -> server/telemetry.js) ----------
+// A few at a time, each distinct error once per session; whose it was, if the
+// page sent its token (a beacon cannot set a header).
+const reporter = new AddressLimiter(TESTING ? 1000 : 0.5, TESTING ? 1e6 : 20);
+app.post('/api/errors', reporter.middleware(), async (req, res) => {
+  const list = Array.isArray(req.body?.reports) ? req.body.reports.slice(0, 10) : [req.body];
+  const claims = typeof req.body?.token === 'string' ? verifyToken(req.body.token) : null;
+  const who = claims ? (Social.liveDoc(claims.sub)?.name || claims.sub.slice(0, 8)) : '';
+  let n = 0;
+  for (const r of list) if (r && await Telemetry.noteError(r, who ? { user: who } : {}).catch(() => false)) n++;
+  res.json({ ok: true, n });
+});
+
+// --- the player's own data: a copy, or gone for good (g3) --------------------------
+app.get('/api/account/export', requireAuth, async (req, res) => {
+  const user = await store.findUserById(req.userId);
+  const doc = await store.getDoc(req.userId);
+  const { salt, hash, ...account } = user || {};
+  res.setHeader('content-disposition', 'attachment; filename="hobile-my-data.json"');
+  res.json({ exportedAt: new Date().toISOString(), account, character: doc || null });
+});
+app.post('/api/account/delete', knock.middleware(), requireAuth, async (req, res) => {
+  const user = await store.findUserById(req.userId);
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  const doc = Social.liveDoc(req.userId) || await store.getDoc(req.userId);
+  // typed out, so it is never a slip of the thumb
+  const said = String(req.body?.confirm || '').trim().toLowerCase();
+  const names = [doc?.name, user.guest ? null : user.username].filter(Boolean).map((n) => String(n).toLowerCase());
+  if (!said || !names.includes(said)) return res.status(400).json({ error: 'confirm_mismatch' });
+  if (doc) {
+    doc._deleted = true;
+    try { Social.leaveParty(doc, 'left'); } catch { /* not in one */ }
+    try { Guilds.leave(doc, 'left'); } catch { /* not in one */ }
+  }
+  kickPlayer(req.userId, 4000);
+  await store.deleteAccount(req.userId);
+  console.log('[account] deleted', req.userId);
+  res.json({ ok: true });
+});
 
 // --- phone notifications (server/push.js) -------------------------------------
 app.get('/api/push/key', (req, res) => res.json({ key: Push.publicKey(), prefs: Push.PREFS }));
@@ -103,7 +151,8 @@ app.post('/api/register', knock.middleware(), async (req, res) => {
   if (password.length < 6) return res.status(400).json({ error: 'weak_password' });
   if (await store.findUser(name.value)) return res.status(409).json({ error: 'username_taken' });
   const { salt, hash } = hashPassword(password);
-  const user = await store.createUser({ id: uid(), username: name.value, salt, hash });
+  // when they agreed to the terms and the privacy policy (the form asks)
+  const user = await store.createUser({ id: uid(), username: name.value, salt, hash, ...(req.body?.agree ? { agreedAt: Date.now() } : {}) });
   res.json({ token: signToken(user.id), hasCharacter: false });
 });
 
@@ -118,7 +167,7 @@ app.post('/api/login', knock.middleware(), async (req, res) => {
 });
 
 app.post('/api/guest', newcomer.middleware(), async (req, res) => {
-  const user = await store.createUser({ id: uid(), username: `guest_${uid().slice(0, 8)}`, guest: true });
+  const user = await store.createUser({ id: uid(), username: `guest_${uid().slice(0, 8)}`, guest: true, ...(req.body?.agree ? { agreedAt: Date.now() } : {}) });
   res.json({ token: signToken(user.id), hasCharacter: false });
 });
 
@@ -154,7 +203,7 @@ app.post('/api/claim', knock.middleware(), requireAuth, async (req, res) => {
   if (await store.findUser(name.value)) return res.status(409).json({ error: 'username_taken' });
   const { salt, hash } = hashPassword(password);
   const prev = user.username;
-  const claimed = { ...user, username: name.value, salt, hash, guest: false, claimedAt: Date.now() };
+  const claimed = { ...user, username: name.value, salt, hash, guest: false, claimedAt: Date.now(), ...(req.body?.agree ? { agreedAt: Date.now() } : {}) };
   await store.replaceUser(prev, claimed);
   res.json({ token: signToken(claimed.id), username: claimed.username });
 });
@@ -217,6 +266,17 @@ if (fs.existsSync(webRoot)) {
     }
     next();
   });
+  // the privacy policy and the terms, with whoever runs this server as the contact
+  for (const page of ['privacy.html', 'terms.html']) {
+    app.get(`/${page}`, (req, res, next) => {
+      const f = path.join(webRoot, page);
+      if (!fs.existsSync(f)) return next();
+      const contact = process.env.CONTACT_EMAIL ? `<a href="mailto:${process.env.CONTACT_EMAIL}">${process.env.CONTACT_EMAIL}</a>` : 'דרך כפתור "⚑ דווח" או "צור קשר" במשחק';
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.setHeader('cache-control', 'no-cache');
+      res.send(fs.readFileSync(f, 'utf8').replaceAll('{{CONTACT}}', contact));
+    });
+  }
   app.use(express.static(webRoot, { maxAge: '1h', index: 'index.html', setHeaders: (res, f) => {
     const n = path.basename(f);
     if (n === 'index.html' || n === 'sw.js' || n === 'version.json') res.setHeader('cache-control', 'no-cache');
@@ -244,6 +304,7 @@ console.log(`[hobile] listening on :${PORT}  (db=${process.env.DB_DRIVER || 'mem
 
 const shutdown = async () => {
   console.log('[hobile] shutting down');
+  Metrics.flush();
   await gameServer.gracefullyShutdown(false).catch(() => {});
   await store.close().catch(() => {});
   process.exit(0);

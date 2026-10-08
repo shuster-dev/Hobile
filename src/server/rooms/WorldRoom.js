@@ -22,6 +22,9 @@ import { isAdmin } from '../admin.js';
 import { verifyToken } from '../auth.js';
 import * as Social from '../social.js';
 import * as Reports from '../reports.js';
+import * as Telemetry from '../telemetry.js';
+import * as Metrics from '../metrics.js';
+import { MAIN_QUEST_IDS } from '../../shared/gamedata.js';
 import * as Guilds from '../guilds.js';
 import * as Arena from '../arena.js';
 
@@ -78,6 +81,17 @@ export function channelsOf(zoneId) {
   return [...WORLDS].filter((r) => r.zoneId === zoneId && !r.disposed)
     .map((r) => ({ roomId: r.roomId, channel: r.channel, players: r.clients.length, max: r.maxClients, full: r.clients.length >= r.maxClients }))
     .sort((a, b) => a.channel - b.channel);
+}
+
+/** Send a player out of every world room (their account is gone). */
+export function kickPlayer(id, code = 4000) {
+  let n = 0;
+  for (const room of WORLDS) for (const [sid, doc] of room.docsBySession) {
+    if (doc.id !== id) continue;
+    room.clients.find((c) => c.sessionId === sid)?.leave(code);
+    n++;
+  }
+  return n;
 }
 
 /** The room a player is in now, if any. */
@@ -162,6 +176,7 @@ export class WorldRoom extends Room {
         handleWorldMessage(ctx, String(type), payload || {});
       } catch (err) {
         console.error('[world]', type, err);
+        Telemetry.serverError(err, `world:${type}`);
         client.send('error', { code: 'server_error' });
       }
     });
@@ -288,6 +303,9 @@ export class WorldRoom extends Room {
         recent: (n) => room.store.adminLog ? room.store.adminLog(n) : [],
         // the reports inbox (server/reports.js)
         reports: { list: (n) => Reports.listReports(n), set: (id, status) => Reports.setReport(doc, id, status) },
+        // crashes from the phones, and who comes back (server/telemetry.js, metrics.js)
+        errors: { list: (n) => Telemetry.listErrors(n), resolve: (sig) => Telemetry.resolveError(sig) },
+        metrics: () => Metrics.metricsReport({ onlineNow: onlinePlayers().length, mainIds: MAIN_QUEST_IDS }),
       } : null,
       net: {
         emit: (event, data) => client.send(event, data),

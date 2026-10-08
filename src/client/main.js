@@ -1,5 +1,11 @@
 import { Game } from './game.js';
+import { initCrash } from './crash.js';
 
+// first, so even the start-up is watched (client/crash.js)
+initCrash({
+  version: window.HOBILE_BUNDLE?.version || '',
+  state: () => ({ mode: window.__hobile?.mode, zone: window.__hobile?.zone?.id, token: window.__hobile?.net?.token }),
+});
 const game = new Game();
 game.boot();
 window.__hobile = game;

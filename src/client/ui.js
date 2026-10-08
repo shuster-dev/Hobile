@@ -641,7 +641,7 @@ var UI = class {
   }
   openPanel(e) {
     if (!this.social && SOCIAL_PANELS.has(e) || e === "guild" && !GUILDS) return;
-    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), e === "arena" && this.hooks.arenaView?.(), this.renderPanel(e);
+    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && (this.hooks.baseOpen?.(), this.hooks.coachEvent?.("base")), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), e === "arena" && this.hooks.arenaView?.(), this.renderPanel(e);
   }
   closePanel() {
     this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearInterval(this._mapTimer), this._mapTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
@@ -885,6 +885,18 @@ var UI = class {
     this._gmReportsBox = rbox, this.fillGmReports(), e.appendChild(rbox);
     e.appendChild(btn("🔄 רענן דיווחים", "small ghost", () => ask("reports")));
 
+    // who comes back, and where they stop (server/metrics.js)
+    e.appendChild(section("📈 מדדים — מי חוזר ואיפה עוצרים"));
+    let mbox = el("div", "gm-metrics");
+    this._gmMetricsBox = mbox, this.fillGmMetrics(), e.appendChild(mbox);
+    e.appendChild(btn("🔄 רענן מדדים", "small ghost", () => ask("metrics")));
+
+    // what broke on the phones (server/telemetry.js)
+    e.appendChild(section("🐞 תקלות מהטלפונים"));
+    let ebox = el("div", "gm-errors");
+    this._gmErrorsBox = ebox, this.fillGmErrors(), e.appendChild(ebox);
+    e.appendChild(btn("🔄 רענן תקלות", "small ghost", () => ask("errors")));
+
     // who
     e.appendChild(section("למי"));
     let who = el("select", "field-input");
@@ -1037,7 +1049,54 @@ var UI = class {
   gmRefresh(kind) {
     kind === "reports" && this.openPanelId === "menu" && this.renderPanel("menu");
     if (this.openPanelId !== "gm") return;
-    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "creatures" ? this.fillGmCreatures() : kind === "reports" ? this.fillGmReports() : kind === "economy" && this.fillGmEconomy();
+    kind === "players" ? this.fillGmWho() : kind === "log" ? this.fillGmLog() : kind === "creatures" ? this.fillGmCreatures() : kind === "reports" ? this.fillGmReports() : kind === "metrics" ? this.fillGmMetrics() : kind === "errors" ? this.fillGmErrors() : kind === "economy" && this.fillGmEconomy();
+  }
+  /** Daily, weekly, monthly; back after a day, a week, a month; and how far
+   *  the ones who stopped had got (server/metrics.js). */
+  fillGmMetrics() {
+    let box = this._gmMetricsBox, r = this.gmMetrics;
+    if (!box) return;
+    if (!r) return box.innerHTML = "<div class=\"hint\">טוען…</div>";
+    let ret = x => x?.pct == null ? "—" : `${x.pct}%`,
+      of = x => x?.of ? `מתוך ${x.of}` : "עוד אין מספיק",
+      card = (v, label, sub = "") => `<div class="m-card"><b dir="ltr">${v}</b><span>${label}</span>${sub ? `<i>${sub}</i>` : ""}</div>`,
+      bars = (title, rows) => {
+        let max = Math.max(1, ...rows.map(x => x.n));
+        return `<div class="m-bars"><h5>${title}</h5>${rows.filter(x => x.n || rows.length <= 6).map(x => `<div class="m-bar"><span>${Ze(x.label)}</span><i style="--w:${Math.round(x.n / max * 100)}%"></i><b dir="ltr">${x.n}${x.pct != null ? ` · ${x.pct}%` : ""}</b></div>`).join("") || "<div class=\"hint\">—</div>"}</div>`;
+      };
+    box.innerHTML = `<div class="m-grid">
+      ${card(r.online, "מחוברים עכשיו")}${card(r.dau, "שיחקו היום")}${card(r.wau, "השבוע")}${card(r.mau, "החודש")}
+      ${card(r.newToday, "חדשים היום", `${r.newWeek} השבוע`)}${card(ret(r.d1), "חזרו למחרת", of(r.d1))}${card(ret(r.d7), "חזרו אחרי שבוע", of(r.d7))}${card(ret(r.d30), "חזרו אחרי חודש", of(r.d30))}
+      ${card(r.avgSessionMin == null ? "—" : `${r.avgSessionMin}′`, "ישיבה ממוצעת", `${r.sessions} ישיבות`)}${card(r.medianPlayMin == null ? "—" : `${r.medianPlayMin}′`, "זמן משחק (חציון)", `${r.players} שחקנים`)}
+    </div>
+    <div class="hint">${r.gone ? `${r.gone} שחקנים לא חזרו 3 ימים או יותר — כמה רחוק הגיעו:` : "עוד אין שחקנים שהפסיקו לחזור."}${r.untracked ? ` (${r.untracked} מלפני המדידה לא נספרים)` : ""}</div>
+    ${r.gone ? bars("לפי רמה", r.byLevel) + bars("לפי זמן משחק", r.byTime) + bars("לפי העלילה (משימות ראשיות)", r.byStory) + (r.byGuide?.length ? bars("לפי מדריך הפתיחה", r.byGuide) : "") : ""}`;
+  }
+  /** What broke, worst first; open a row for the stack; mark it fixed. */
+  fillGmErrors() {
+    let box = this._gmErrorsBox, rows = this.gmErrors;
+    if (!box) return;
+    box.innerHTML = "";
+    if (!rows) return box.appendChild(el("div", "hint", "טוען…"));
+    if (!rows.length) return box.appendChild(emptyState("✅", "אין תקלות"));
+    let ago = t => {
+      let m = Math.max(0, Math.round((Date.now() - t) / 6e4));
+      return m < 1 ? "עכשיו" : m < 60 ? `לפני ${m} דק׳` : m < 1440 ? `לפני ${Math.round(m / 60)} שע׳` : `לפני ${Math.round(m / 1440)} ימים`;
+    };
+    for (let r of rows.slice(0, 40)) {
+      let s = r.sample || {}, row = el("details", `gm-error ${r.resolved ? "done" : ""}`), sum = el("summary");
+      sum.innerHTML = `<b class="msg"></b><span class="meta">×${r.count} · ${ago(r.last)} · ${Ze(s.device || "")}${s.standalone ? " · אפליקציה" : ""} · ${r.users || 0} שחקנים · ${Ze((r.versions || []).slice(-2).join(", "))}${r.resolved ? " · ✓ טופל" : ""}</span>`;
+      sum.querySelector(".msg").textContent = `${s.kind === "server" ? "🖥 " : ""}${s.message || r.sig}`;
+      row.appendChild(sum);
+      let pre = el("pre", "stack");
+      pre.textContent = [`${s.source || ""}  ${s.mode ? `· ${s.mode}` : ""} ${s.zone ? `· ${s.zone}` : ""} · ${s.screen || ""}${s.user ? ` · ${s.user}` : ""}`, s.stack || ""].join("\n").trim();
+      row.appendChild(pre);
+      if (!r.resolved) {
+        let b = el("button", "btn small primary", "✓ טופל");
+        b.onclick = f => (f.preventDefault(), this.hooks.gm?.("errorDone", { sig: r.sig })), row.appendChild(b);
+      }
+      box.appendChild(row);
+    }
   }
   /** The reports inbox: who, about whom, why, what they said — and what to do. */
   fillGmReports() {
@@ -1216,6 +1275,7 @@ var UI = class {
       e.appendChild(u);
       let f = el("button", "btn danger", "התנתקות");
       f.style.marginTop = "var(--s3)", f.onclick = () => this.hooks.logout?.(), e.appendChild(f);
+      this.privacySection(e);
       return;
     }
     let t = el("div", "hint");
@@ -1243,6 +1303,33 @@ var UI = class {
     }, e.appendChild(l2);
     let c = el("button", "btn ghost", "כבר יש לי חשבון — התחברות");
     c.style.marginTop = "var(--s2)", c.onclick = () => this.hooks.switchAccount?.(), e.appendChild(c);
+    this.privacySection(e);
+  }
+  /**
+   * The rules and what is kept about you (g3): the two pages, a copy of
+   * everything the server holds on you, and deleting it all for good — asked
+   * twice, the second time by typing your name.
+   */
+  privacySection(e) {
+    e.appendChild(section("פרטיות ותנאים"));
+    let links = el("div", "row gm-row");
+    links.innerHTML = `<a class="btn small ghost" href="./terms.html" target="_blank" rel="noopener">📜 תנאי שימוש</a><a class="btn small ghost" href="./privacy.html" target="_blank" rel="noopener">🔒 מדיניות פרטיות</a>`;
+    e.appendChild(links);
+    let exp = el("button", "btn small ghost", "📄 הורד את הנתונים שלי");
+    exp.onclick = () => this.hooks.exportData?.(), e.appendChild(exp);
+    let box = el("div", "danger-zone");
+    box.innerHTML = `<b>מחיקת החשבון</b><span>מוחק לצמיתות את הדמות, היצורים, החפצים וההתקדמות. אי אפשר לבטל.</span>`;
+    let name = this.profile?.name || "", input = textInput(`כדי לאשר, כתוב: ${name}`), err = el("div", "error-text"),
+      del = el("button", "btn danger", "🗑 מחק את החשבון לצמיתות");
+    input.oninput = () => { del.disabled = input.value.trim().toLowerCase() !== name.toLowerCase(); };
+    del.disabled = !0;
+    del.onclick = async () => {
+      if (del.disabled) return;
+      del.disabled = !0, err.textContent = "";
+      let r = await this.hooks.deleteAccount?.(input.value.trim());
+      r?.ok || (err.textContent = r?.message || "המחיקה לא הצליחה", del.disabled = !1);
+    };
+    box.append(input, err, del), e.appendChild(box);
   }
 
   /** Who is playing, and whether there is anything to claim. */

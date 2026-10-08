@@ -400,6 +400,35 @@ export function handleGm(ctx, t = {}) {
       return done({ what: 'saddle', on: t.on !== false, species: r.species, uid: r.uid }, target.doc);
     }
 
+    case 'errors': {
+      // crashes from the phones and the server (server/telemetry.js)
+      if (!ctx.gm.errors) return fail('errors_unavailable');
+      Promise.resolve(ctx.gm.errors.list(60))
+        .then((rows) => ctx.net.emit('gm', { kind: 'errors', rows }))
+        .catch(() => fail('errors_unavailable'));
+      return;
+    }
+
+    case 'errorDone': {
+      if (!ctx.gm.errors) return fail('errors_unavailable');
+      Promise.resolve(ctx.gm.errors.resolve(String(t.sig || '')))
+        .then(async (r) => {
+          if (!r) return fail('not_found');
+          ctx.net.emit('gm', { kind: 'errors', rows: await ctx.gm.errors.list(60) });
+        })
+        .catch(() => fail('errors_unavailable'));
+      return;
+    }
+
+    case 'metrics': {
+      // who comes back, and where they stop (server/metrics.js)
+      if (!ctx.gm.metrics) return fail('metrics_unavailable');
+      Promise.resolve(ctx.gm.metrics())
+        .then((report) => ctx.net.emit('gm', { kind: 'metrics', report }))
+        .catch((e) => (console.warn('[gm] metrics', e?.message), fail('metrics_unavailable')));
+      return;
+    }
+
     case 'reports': {
       // the inbox: open reports first (server/reports.js)
       if (!ctx.gm.reports) return fail('reports_unavailable');

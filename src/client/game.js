@@ -6,6 +6,7 @@ import { CreatorStage, PortraitPainter, portraits } from './gfx/stage.js';
 import { KINDS } from './gfx/people.js';
 import { WorldView } from './gfx/world.js';
 import { TRICKS } from '../shared/tricks.js';
+import { Coach } from './coach.js';
 import { REPORT_REASONS } from '../shared/reports.js';
 import { CameraRig, Joystick, Keyboard, lookSpeed } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
@@ -36,7 +37,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.coach = new Coach(this), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       let k = lookSpeed().k;
       if (n *= k, s *= k, this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
@@ -199,10 +200,11 @@ var Game = class {
     }, this.ui.setAccount(this.account), this.account;
   }
   showLogin() {
-    this.ui.showScreen("login"), this.ui.setMode("none");
+    // the single-player note belongs to the single-player build only
+    this.ui.showScreen("login"), this.ui.setMode("none"), $("#solo-note")?.classList.toggle("hidden", !this.solo);
     let e = !1,
       t = s => {
-        e = s, $("#tab-login").classList.toggle("on", !s), $("#tab-register").classList.toggle("on", s), $("#btn-submit").textContent = s ? "צור חשבון" : "התחבר", $("#in-pass").setAttribute("autocomplete", s ? "new-password" : "current-password");
+        e = s, $("#tab-login").classList.toggle("on", !s), $("#tab-register").classList.toggle("on", s), $("#btn-submit").textContent = s ? "צור חשבון" : "התחבר", $("#in-pass").setAttribute("autocomplete", s ? "new-password" : "current-password"), $("#agree-row")?.classList.toggle("hidden", !s);
       },
       keep = $("#in-remember");
     // The name comes back filled in; the password is the phone's to offer —
@@ -216,6 +218,8 @@ var Game = class {
       let s = $("#in-user").value.trim(),
         r = $("#in-pass").value;
       $("#login-error").textContent = "", setRemember(!keep || keep.checked);
+      // a new account agrees to the terms and the privacy policy, and is 13+
+      if (e && !$("#in-agree")?.checked) return $("#login-error").textContent = "כדי להירשם צריך לאשר את תנאי השימוש ואת מדיניות הפרטיות";
       try {
         let o = e ? await this.net.register(s, r) : await this.net.login(s, r);
         try {
@@ -529,6 +533,8 @@ var Game = class {
   bindNet() {
     let e = this.net;
     e.on("profile", t => {
+      // the first ten minutes' guide follows what the server says is done (client/coach.js)
+      t.tutorial && this.coach.set(t.tutorial);
       this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t), this.storyWorld();
@@ -584,6 +590,12 @@ var Game = class {
       // up on a creature, or down (shared/riding.js)
       this.riding = t || null, this.ui.renderRide(this.riding), audio.sfx(t ? "portal" : "uiBack"), t && vibrate(20);
       t && this.ui.toast(`${RIDE[t.kind]?.icon || ""} ${RIDE[t.kind]?.he || ""} על ${loc(SPECIES[t.species])}`, "good");
+    }), e.on("tutorial", t => {
+      // a step of the guide saved; at the end, a little gift
+      this.coach.set(t);
+      t.gift && (audio.sfx("quest"), vibrate([20, 40, 60]), this.ui.celebrate("🎓 המדריך הושלם!", "quest"), this.ui.toast(`🎁 +${t.gift.gold}⛁ · ${t.gift.items.map(([i, q]) => `${ITEMS[i]?.icon || ""} ×${q}`).join(" · ")} — עכשיו העולם שלך`, "good"));
+    }), e.on("dialogue", t => {
+      this.coach.event("talk");
     }), e.on("saddled", t => {
       // a saddle made and fitted: now it can carry you
       audio.sfx("quest"), vibrate([20, 40, 60]), this.ui.celebrate("🐎 אוכף מוכן!", "quest");
@@ -932,6 +944,8 @@ var Game = class {
       return;
     }
     if (t.kind === "players") return this.ui.gmPlayers = t.players || [], this.ui.gmRefresh("players"), this.ui.gmRefresh("reports");
+    if (t.kind === "metrics") return this.ui.gmMetrics = t.report || null, this.ui.gmRefresh("metrics");
+    if (t.kind === "errors") return this.ui.gmErrors = t.rows || [], this.ui.gmRefresh("errors");
     if (t.kind === "reports") return this.ui.gmReports = t.rows || [], this.ui.gm && (this.ui.gm.reports = t.open || 0), this.ui.gmRefresh("reports");
     if (t.kind === "reportNew") {
       // someone reported someone: a GM online hears of it now
@@ -971,6 +985,8 @@ var Game = class {
       bad_gift: "פעולה לא מוכרת",
       not_yourself: "בחר שחקן אחר — לא את עצמך",
       reports_unavailable: "הדיווחים לא זמינים כרגע",
+      errors_unavailable: "רשימת התקלות לא זמינה כרגע",
+      metrics_unavailable: "המדדים לא זמינים כרגע",
       bad_status: "מצב לא מוכר"
     }[t.code] || t.code, "bad"), this.ui.gmRefresh("log"));
   }
@@ -1093,6 +1109,7 @@ var Game = class {
     let e = (t, n) => this.net.send(t, n);
     return {
       openBase: () => this.openBase(),
+      coachEvent: t => this.coach?.event(t),
       dexOpen: () => e("dex"),
       fullscreen: async () => {
         if (device.canFullscreen) { await toggleFullscreen(); this._paintFullscreen?.(); this.ui.closePanel(); return; }
@@ -1119,7 +1136,7 @@ var Game = class {
       guildRank: (t, n) => e("guildRank", { id: t, rank: n }),
       guildSettings: t => e("guildSettings", t),
       gm: (op, data = {}) => e("gm", { ...data, op }),
-      gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" }), e("gm", { op: "reports" })),
+      gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" }), e("gm", { op: "reports" }), e("gm", { op: "metrics" }), e("gm", { op: "errors" })),
       clinicHeal: () => e("clinicHeal"),
       // NB: swapCreature is defined once, further down in this same object.
       // It used to be declared here too, sending an unhandled "switchCreature"
@@ -1273,6 +1290,25 @@ var Game = class {
       logout: () => {
         this.net.logout(), location.reload();
       },
+      // a copy of everything the server keeps about you (index.js /account/export)
+      exportData: async () => {
+        try {
+          let d = await this.net.api("/account/export", null, "GET"),
+            url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" })),
+            a = document.createElement("a");
+          a.href = url, a.download = "hobile-my-data.json", document.body.appendChild(a), a.click(), a.remove(), setTimeout(() => URL.revokeObjectURL(url), 5e3);
+        } catch (t) {
+          this.ui.toast(Oc(t.code), "bad");
+        }
+      },
+      // gone for good: the account, the character, everything (index.js /account/delete)
+      deleteAccount: async t => {
+        try {
+          return await this.net.api("/account/delete", { confirm: t }), this.transitioning = !0, this.net.logout(), this.ui.toast("החשבון נמחק", "good"), setTimeout(() => location.reload(), 1200), { ok: !0 };
+        } catch (n) {
+          return { ok: !1, message: Oc(n.code) };
+        }
+      },
       claim: async (t, n) => {
         try {
           let s = await this.net.claim(t, n);
@@ -1299,6 +1335,7 @@ var Game = class {
         this.net.logout(), location.reload();
       },
       useSkill: t => {
+        this.coach.event("attack");
         this.net.send("skill", {
           skill: t,
           target: this.ui.battleTarget || void 0
@@ -1317,6 +1354,7 @@ var Game = class {
         }), this.cooldowns = { swap: this.cooldowns.swap };
       },
       trainerAction: t => {
+        t === "sphere" && this.coach.event("capture");
         let n = {
           action: t
         };
@@ -1471,6 +1509,9 @@ var Game = class {
     let s = this.net.room?.state?.phase,
       r = (this.mode === "battle" || this.mode === "dungeon") && s !== void 0 && s !== "active";
     this.ui.tickCooldowns(this.cooldowns, Date.now(), r);
+    // the guide's ring, hand and arrow, and the two steps measured each frame
+    this.coach.tick();
+    this.mode === "battle" && this.coach.event("fight");
   }
   applyShake() {
     let e = this.mode === "world" ? this.world.camera : this.battleView.camera;
@@ -2023,6 +2064,8 @@ function Oc(i) {
     fight_over: "הקרב כבר נגמר",
     chat_too_fast: "לאט — יותר מדי הודעות",
     not_invited: "הקרב הזה לא שלך",
+    confirm_mismatch: "השם שכתבת לא תואם",
+    unauthorized: "צריך להתחבר שוב",
     already_reported: "כבר דיווחת עליו לאחרונה — הצוות יבדוק",
     too_many_reports: "שלחת הרבה דיווחים בשעה האחרונה. נסה שוב מאוחר יותר",
     need_note: "כתוב בכמה מילים מה קרה",

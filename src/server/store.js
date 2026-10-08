@@ -33,6 +33,7 @@ class MemoryStore {
     this.pushSubs = new Map();  // endpoint -> { userId, sub, prefs, at } (server/push.js)
     this.pushQ = [];            // notifications waiting for their time
     this.reports = [];          // player reports, newest last (server/reports.js)
+    this.errors = new Map();    // signature -> crash row (server/telemetry.js)
     if (this.file && fs.existsSync(this.file)) this._load();
   }
   _load() {
@@ -46,6 +47,7 @@ class MemoryStore {
       for (const r of raw.pushSubs || []) this.pushSubs.set(r.sub.endpoint, r);
       this.pushQ = Array.isArray(raw.pushQ) ? raw.pushQ : [];
       this.reports = Array.isArray(raw.reports) ? raw.reports : [];
+      for (const r of raw.errors || []) this.errors.set(r.sig, r);
     } catch (e) { console.warn('[store] could not read', this.file, e.message); }
   }
   _flush() {
@@ -61,8 +63,15 @@ class MemoryStore {
         pushSubs: [...this.pushSubs.values()],
         pushQ: this.pushQ,
         reports: this.reports,
+        errors: [...this.errors.values()],
       }));
     } catch (e) { console.warn('[store] could not write', this.file, e.message); }
+  }
+  /** Many small writes (a crash storm) make one flush, not one each. */
+  _flushSoon() {
+    if (!this.file || this._soon) return;
+    this._soon = setTimeout(() => { this._soon = null; this._flush(); }, 2000);
+    this._soon.unref?.();
   }
   async connect() { return this; }
   async close() { this._flush(); }
@@ -80,7 +89,11 @@ class MemoryStore {
     return user;
   }
   async getDoc(userId) { return this.docs.get(userId) || null; }
-  async saveDoc(doc) { this.docs.set(doc.id, doc); this._flush(); return doc; }
+  async saveDoc(doc) {
+    // a deleted account's rooms may still try to save it on their way out
+    if (doc?._deleted) return doc;
+    this.docs.set(doc.id, doc); this._flush(); return doc;
+  }
   /** A character by its name, any case (for "add friend" by name). */
   async findDocIdByName(name) {
     const n = String(name || '').trim().toLowerCase();
@@ -128,6 +141,40 @@ class MemoryStore {
     return r;
   }
   async reportsSince(by, about, since) { return this.reports.filter((r) => r.by?.id === by && (!about || r.about?.id === about) && r.at >= since).length; }
+  // --- crashes from the phones (server/telemetry.js) ---------------------------
+  async noteError(sig, sample) {
+    let r = this.errors.get(sig);
+    if (!r) {
+      if (this.errors.size >= ERRORS_KEEP) {
+        // the oldest quiet one makes room
+        const old = [...this.errors.values()].sort((a, b) => a.last - b.last)[0];
+        old && this.errors.delete(old.sig);
+      }
+      this.errors.set(sig, r = { sig, first: sample.at, count: 0, versions: [], users: [], resolved: false });
+    }
+    r.count += 1, r.last = sample.at, r.sample = sample, r.resolved = false;
+    sample.version && !r.versions.includes(sample.version) && r.versions.push(sample.version);
+    sample.user && !r.users.includes(sample.user) && r.users.length < 200 && r.users.push(sample.user);
+    this._flushSoon();
+    return r;
+  }
+  async listErrors(limit = 60) {
+    return [...this.errors.values()].sort((a, b) => a.resolved - b.resolved || b.last - a.last).slice(0, limit)
+      .map((r) => ({ ...r, users: r.users.length }));
+  }
+  async resolveError(sig) { const r = this.errors.get(sig); if (!r) return null; r.resolved = true; this._flush(); return r; }
+  // --- what the metrics are counted from (server/metrics.js) -------------------
+  async metricsRows(limit = 50000) {
+    return [...this.docs.values()].slice(0, limit).map((d) => ({ id: d.id, level: d.level, seen: d.seen, quests: { done: d.quests?.done || [] }, tutorial: d.tutorial }));
+  }
+  // --- a player who asks to be forgotten (index.js /api/account/delete) ------------
+  async deleteAccount(id) {
+    for (const [name, u] of this.users) if (u.id === id) this.users.delete(name);
+    this.docs.delete(id);
+    for (const [k, r] of this.pushSubs) if (r.userId === id) this.pushSubs.delete(k);
+    this.pushQ = this.pushQ.filter((q) => q.userId !== id);
+    this._flush();
+  }
   // --- settings and phone notifications (server/push.js) ---------------------
   async getConfig(key) { return this.config[key] ?? null; }
   async setConfig(key, value) { this.config[key] = value; this._flush(); return value; }
@@ -147,6 +194,7 @@ class MemoryStore {
 // The memory store keeps the newest GM actions; Mongo keeps them all.
 const GM_LOG_KEEP = 1000;
 const REPORTS_KEEP = 2000;
+const ERRORS_KEEP = 500;
 
 // Player documents are held as one live object per player, exactly as the
 // memory store holds them, and written through to Mongo.
@@ -188,6 +236,7 @@ class MongoStore {
     this.pushSubsC = db.collection('pushsubs');
     this.pushQC = db.collection('pushq');
     this.reportsC = db.collection('reports');
+    this.errorsC = db.collection('errors');
     await this.usersC.createIndex({ username: 1 }, { unique: true });
     await this.usersC.createIndex({ id: 1 }, { unique: true });
     await this.docsC.createIndex({ id: 1 }, { unique: true });
@@ -206,6 +255,8 @@ class MongoStore {
     await this.reportsC.createIndex({ id: 1 }, { unique: true });
     await this.reportsC.createIndex({ status: 1, at: -1 });
     await this.reportsC.createIndex({ 'by.id': 1, at: -1 });
+    await this.errorsC.createIndex({ sig: 1 }, { unique: true });
+    await this.errorsC.createIndex({ resolved: 1, last: -1 });
     return this;
   }
   async close() {
@@ -244,6 +295,8 @@ class MongoStore {
     return read;
   }
   async saveDoc(doc) {
+    // a deleted account's rooms may still try to save it on their way out
+    if (doc?._deleted) return doc;
     this._remember(doc);
     // The driver serialises when the write runs, not when it is queued, so each
     // write in the chain carries the newest state and the last one wins.
@@ -292,6 +345,36 @@ class MongoStore {
     return this.reportsC.findOne({ id }, { projection: { _id: 0 } });
   }
   async reportsSince(by, about, since) { return this.reportsC.countDocuments({ 'by.id': by, ...(about ? { 'about.id': about } : {}), at: { $gte: since } }); }
+  // --- crashes from the phones (server/telemetry.js) ---------------------------
+  async noteError(sig, sample) {
+    await this.errorsC.updateOne({ sig }, {
+      $inc: { count: 1 },
+      $set: { last: sample.at, sample, resolved: false },
+      $setOnInsert: { sig, first: sample.at },
+      $addToSet: { versions: sample.version || '?', ...(sample.user ? { users: sample.user } : {}) },
+    }, { upsert: true });
+  }
+  async listErrors(limit = 60) {
+    const rows = await this.errorsC.find({}, { projection: { _id: 0 } }).sort({ resolved: 1, last: -1 }).limit(limit).toArray();
+    return rows.map((r) => ({ ...r, users: (r.users || []).length }));
+  }
+  async resolveError(sig) {
+    const u = await this.errorsC.updateOne({ sig }, { $set: { resolved: true } });
+    return u.matchedCount ? { sig, resolved: true } : null;
+  }
+  // --- what the metrics are counted from (server/metrics.js) -------------------
+  async metricsRows(limit = 50000) {
+    return this.docsC.find({}, { projection: { _id: 0, id: 1, level: 1, seen: 1, 'quests.done': 1, tutorial: 1 } }).limit(limit).toArray();
+  }
+  // --- a player who asks to be forgotten (index.js /api/account/delete) ------------
+  async deleteAccount(id) {
+    this.docs.delete(id);
+    await Promise.allSettled([this.writes.get(id)]);
+    await this.usersC.deleteOne({ id });
+    await this.docsC.deleteOne({ id });
+    await this.pushSubsC.deleteMany({ userId: id });
+    await this.pushQC.deleteMany({ userId: id });
+  }
   // --- settings and phone notifications (server/push.js) ---------------------
   async getConfig(key) { return (await this.configC.findOne({ key }, { projection: { _id: 0 } }))?.value ?? null; }
   async setConfig(key, value) { await this.configC.replaceOne({ key }, { key, value }, { upsert: true }); return value; }
