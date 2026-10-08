@@ -6,6 +6,7 @@ import { CreatorStage, PortraitPainter, portraits } from './gfx/stage.js';
 import { KINDS } from './gfx/people.js';
 import { WorldView } from './gfx/world.js';
 import { TRICKS } from '../shared/tricks.js';
+import { Coach } from './coach.js';
 import { REPORT_REASONS } from '../shared/reports.js';
 import { CameraRig, Joystick, Keyboard, lookSpeed } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
@@ -36,7 +37,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.coach = new Coach(this), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       let k = lookSpeed().k;
       if (n *= k, s *= k, this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
@@ -532,6 +533,8 @@ var Game = class {
   bindNet() {
     let e = this.net;
     e.on("profile", t => {
+      // the first ten minutes' guide follows what the server says is done (client/coach.js)
+      t.tutorial && this.coach.set(t.tutorial);
       this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t), this.storyWorld();
@@ -587,6 +590,12 @@ var Game = class {
       // up on a creature, or down (shared/riding.js)
       this.riding = t || null, this.ui.renderRide(this.riding), audio.sfx(t ? "portal" : "uiBack"), t && vibrate(20);
       t && this.ui.toast(`${RIDE[t.kind]?.icon || ""} ${RIDE[t.kind]?.he || ""} על ${loc(SPECIES[t.species])}`, "good");
+    }), e.on("tutorial", t => {
+      // a step of the guide saved; at the end, a little gift
+      this.coach.set(t);
+      t.gift && (audio.sfx("quest"), vibrate([20, 40, 60]), this.ui.celebrate("🎓 המדריך הושלם!", "quest"), this.ui.toast(`🎁 +${t.gift.gold}⛁ · ${t.gift.items.map(([i, q]) => `${ITEMS[i]?.icon || ""} ×${q}`).join(" · ")} — עכשיו העולם שלך`, "good"));
+    }), e.on("dialogue", t => {
+      this.coach.event("talk");
     }), e.on("saddled", t => {
       // a saddle made and fitted: now it can carry you
       audio.sfx("quest"), vibrate([20, 40, 60]), this.ui.celebrate("🐎 אוכף מוכן!", "quest");
@@ -1100,6 +1109,7 @@ var Game = class {
     let e = (t, n) => this.net.send(t, n);
     return {
       openBase: () => this.openBase(),
+      coachEvent: t => this.coach?.event(t),
       dexOpen: () => e("dex"),
       fullscreen: async () => {
         if (device.canFullscreen) { await toggleFullscreen(); this._paintFullscreen?.(); this.ui.closePanel(); return; }
@@ -1325,6 +1335,7 @@ var Game = class {
         this.net.logout(), location.reload();
       },
       useSkill: t => {
+        this.coach.event("attack");
         this.net.send("skill", {
           skill: t,
           target: this.ui.battleTarget || void 0
@@ -1343,6 +1354,7 @@ var Game = class {
         }), this.cooldowns = { swap: this.cooldowns.swap };
       },
       trainerAction: t => {
+        t === "sphere" && this.coach.event("capture");
         let n = {
           action: t
         };
@@ -1497,6 +1509,9 @@ var Game = class {
     let s = this.net.room?.state?.phase,
       r = (this.mode === "battle" || this.mode === "dungeon") && s !== void 0 && s !== "active";
     this.ui.tickCooldowns(this.cooldowns, Date.now(), r);
+    // the guide's ring, hand and arrow, and the two steps measured each frame
+    this.coach.tick();
+    this.mode === "battle" && this.coach.event("fight");
   }
   applyShake() {
     let e = this.mode === "world" ? this.world.camera : this.battleView.camera;

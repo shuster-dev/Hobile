@@ -138,7 +138,7 @@ export function report(rows, { now = Date.now(), onlineNow = 0, mainIds = [] } =
     byLevel: count((r) => bucket(r.level || 1, [3, 6, 11, 21], LV), LV),
     byTime: count((r) => bucket((r.seen.playMs || 0) / 6e4, [5, 15, 60, 180], TIME), TIME),
     byStory: count((r) => bucket(story(r), [1, 2, 3, 6, 11], STORY), STORY),
-    byGuide: gone.some((r) => r.tutorial) ? count((r) => (r.tutorial?.done ? 'סיים' : `צעד ${(r.tutorial?.step || 0) + 1}`), []) : [],
+    byGuide: gone.some((r) => r.tutorial && !r.tutorial.legacy) ? count((r) => (r.tutorial?.done ? 'סיים את המדריך' : r.tutorial?.skipped ? 'דילג' : `${(r.tutorial?.steps || []).length} מתוך 7 צעדים`), []) : [],
   };
 }
 

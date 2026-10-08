@@ -1895,6 +1895,38 @@ section('crashes, metrics, privacy and the name');
   await st.close();
 }
 
+// ------------------------------------------------- the first ten minutes' guide
+section('the guide for the first ten minutes');
+{
+  const TU = await import('../src/shared/tutorial.js');
+  ok('seven steps, each said in one line with an icon', TU.TUTORIAL.length === 7 && TU.TUTORIAL.every((s) => s.he && s.icon && s.he.length < 80));
+  ok('the next step fits where you are: walking first in the world, a move first in a fight',
+    TU.nextStep({ steps: [] }, 'world').id === 'move' && TU.nextStep({ steps: [] }, 'battle').id === 'attack');
+  ok('a step done early is not asked again', TU.nextStep({ steps: ['move', 'look', 'fight'] }, 'world').id === 'talk');
+  ok('done or skipped: nothing', TU.nextStep({ steps: [], skipped: true }, 'world') === null && TU.nextStep({ steps: [], done: true }, 'battle') === null);
+  const d = C.createPlayerDoc('qa-guide', 'QA', {}, 'cindcub');
+  C.normalizeDoc(d);
+  ok('a new player gets the guide', d.tutorial && !d.tutorial.done && C.publicProfile(d).tutorial.steps.length === 0);
+  const old = C.createPlayerDoc('qa-old', 'Old', {}, 'cindcub');
+  old.level = 9; delete old.tutorial; C.normalizeDoc(old);
+  ok('someone already well on their way does not', old.tutorial.done === true && old.tutorial.legacy === true);
+  const { ZONES: Z5 } = await import('../src/shared/gamedata.js');
+  const out = [], gctx = { doc: d, zone: Z5.aetherport, zoneId: 'aetherport', colliders: [], self: () => ({ x: 0, z: 0 }), net: { emit: (k, v) => out.push([k, v]), save() {} } };
+  const gold0 = d.gold;
+  for (const id of ['move', 'look', 'talk', 'fight', 'attack', 'capture']) WM.handleWorldMessage(gctx, 'tutorial', { did: id });
+  WM.handleWorldMessage(gctx, 'tutorial', { did: 'nonsense' });
+  ok('each step is kept; nonsense is not', d.tutorial.steps.length === 6 && !d.tutorial.done);
+  WM.handleWorldMessage(gctx, 'tutorial', { did: 'base' });
+  ok('the last one finishes it, with the little gift', d.tutorial.done === true && d.gold - gold0 === TU.TUTORIAL_GIFT.gold && out.some(([k, v]) => k === 'tutorial' && v.gift));
+  WM.handleWorldMessage(gctx, 'tutorial', { did: 'base' });
+  ok('and the gift is once', d.gold - gold0 === TU.TUTORIAL_GIFT.gold);
+  const s2 = C.createPlayerDoc('qa-skip', 'Skip', {}, 'cindcub');
+  C.normalizeDoc(s2);
+  WM.handleWorldMessage({ ...gctx, doc: s2 }, 'tutorial', { skip: true });
+  WM.handleWorldMessage({ ...gctx, doc: s2 }, 'tutorial', { did: 'move' });
+  ok('skipping ends it for good', s2.tutorial.skipped === true && s2.tutorial.steps.length === 0);
+}
+
 // --------------------------------------------------- saddles, tricks, reports
 // Riding needs a saddle (shared/saddles.js): five pieces of a family, hunted;
 // tricks for the pet (shared/tricks.js) are checked and told to the room;

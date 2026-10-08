@@ -1124,6 +1124,11 @@ function normalizeDoc(i) {
     c.maxHp > 0 && c.hp > c.maxHp && (c.hp = c.maxHp);
     c.hp < 0 && (c.hp = 0);
   }
+  // The first ten minutes' guide (shared/tutorial.js): a new player gets it;
+  // someone who was already well on their way when it arrived does not.
+  if (!i.tutorial || typeof i.tutorial !== "object") {
+    i.tutorial = (i.level || 1) >= 3 || (i.quests?.done || []).length >= 2 ? { steps: [], done: !0, legacy: !0 } : { steps: [] };
+  }
   // Riding came before saddles: whoever was up on a creature when saddles
   // arrived keeps a saddle on that one, rather than finding it gone.
   if (!i.saddlesSince) {
@@ -1301,7 +1306,9 @@ function publicProfile(i) {
     // the season's track (shared/pass.js)
     pass: passView(i),
     // pieces toward saddles, by family (shared/saddles.js)
-    mats: { ...(i.mats || {}) }
+    mats: { ...(i.mats || {}) },
+    // the first ten minutes' guide (shared/tutorial.js)
+    tutorial: { steps: [...(i.tutorial?.steps || [])], done: !!i.tutorial?.done, skipped: !!i.tutorial?.skipped }
   };
 }
 

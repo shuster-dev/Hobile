@@ -30,6 +30,7 @@ import { TIER_IDS, TOWER, canEnter, weekly } from '../../shared/endgame.js';
 import { mountKind, moveMode } from '../../shared/riding.js';
 import { TRICKS, TRICK_GAP_MS } from '../../shared/tricks.js';
 import { makeSaddle } from './saddles.js';
+import { TUTORIAL_GIFT, TUTORIAL_IDS, tutorialFinished, tutorialOf } from '../../shared/tutorial.js';
 import * as Social from '../social.js';
 import * as Reports from '../reports.js';
 import { sceneSeen, storyFoe } from './saga.js';
@@ -252,6 +253,29 @@ export function handleWorldMessage(ctx, e, t = {}) {
             if (!c.saddle) return ctx.net.emit("error", { code: "need_saddle" });
             if (c.hp <= 0) return ctx.net.emit("error", { code: "fainted" });
             setRide(ctx, s, n, { uid: c.uid, species: c.species, star: c.star || 1, kind }), ctx.net.save(), ctx.net.emit("ride", ctx.ride);
+          }
+          break;
+        case "tutorial":
+          {
+            // the first ten minutes' guide (shared/tutorial.js): a step done,
+            // or the whole guide skipped; the little gift once, at the end
+            let tut = tutorialOf(n);
+            if (tut.done || tut.skipped) return;
+            if (t.skip) {
+              tut.skipped = !0, tut.at = r, ctx.net.save(), ctx.net.emit("tutorial", { ...tut });
+              return;
+            }
+            let id = typeof t.did === "string" && TUTORIAL_IDS.includes(t.did) ? t.did : null;
+            if (!id || tut.steps.includes(id)) return;
+            tut.steps.push(id);
+            let gift = null;
+            if (tutorialFinished(tut)) {
+              tut.done = !0, tut.at = r;
+              earn(n, TUTORIAL_GIFT.gold, "quest");
+              for (let [item, q] of TUTORIAL_GIFT.items) giveItem(n, item, q);
+              gift = TUTORIAL_GIFT;
+            }
+            ctx.net.save(), ctx.net.emit("tutorial", { ...tut, gift }), gift && ctx.net.emit("profile", publicProfile(n));
           }
           break;
         case "saddleMake":

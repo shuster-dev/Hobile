@@ -641,7 +641,7 @@ var UI = class {
   }
   openPanel(e) {
     if (!this.social && SOCIAL_PANELS.has(e) || e === "guild" && !GUILDS) return;
-    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && this.hooks.baseOpen?.(), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), e === "arena" && this.hooks.arenaView?.(), this.renderPanel(e);
+    this.closeDialogue(), this.openPanelId = e, this.panelHost.classList.add("open"), e === "base" && (this.hooks.baseOpen?.(), this.hooks.coachEvent?.("base")), e === "dex" && this.hooks.dexOpen?.(), e === "gm" && this.hooks.gmOpen?.(), e === "arena" && this.hooks.arenaView?.(), this.renderPanel(e);
   }
   closePanel() {
     this.openPanelId = null, this.panelHost.classList.remove("open"), clearInterval(this._cdTimer), this._cdTimer = null, clearInterval(this._mapTimer), this._mapTimer = null, clearTimeout(this._clearTimer), this._clearTimer = setTimeout(() => {
