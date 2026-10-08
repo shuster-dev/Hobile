@@ -64,7 +64,8 @@ var Net = class {
     async register(e, t) {
       return this._auth(await this.api("/register", {
         username: e,
-        password: t
+        password: t,
+        agree: !0
       }));
     }
     async login(e, t) {
@@ -74,7 +75,8 @@ var Net = class {
       }));
     }
     async guest() {
-      return this._auth(await this.api("/guest", {}));
+      // the title screen says that playing is agreeing to the terms
+      return this._auth(await this.api("/guest", { agree: !0 }));
     }
     _auth(e) {
       return this.token = e.token, writeToken(e.token), e;
@@ -96,7 +98,8 @@ var Net = class {
     async claim(e, t) {
       let n = await this.api("/claim", {
         username: e,
-        password: t
+        password: t,
+        agree: !0
       });
       return this._auth(n), n;
     }

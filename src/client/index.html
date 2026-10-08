@@ -583,6 +583,33 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 #action-cluster .skill-btn.trick{background:radial-gradient(circle at 35% 30%,#fffaf0,#ffe9c7);border-color:#fff}
 #action-cluster .skill-btn.trick .ico{font-size:calc(var(--sb) * .44);line-height:1}
 
+/* --- GM: metrics and crashes ---------------------------------------------- */
+.m-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:var(--s2);margin-bottom:var(--s2)}
+.m-card{background:var(--raise);border:1px solid var(--stroke);border-radius:var(--r2);padding:var(--s2) var(--s3);display:flex;flex-direction:column;gap:2px}
+.m-card b{font-size:var(--t-xl);font-weight:900}
+.m-card span{font-size:var(--t-sm)}
+.m-card i{font-style:normal;font-size:var(--t-xs);color:var(--muted)}
+.m-bars{margin:var(--s2) 0}
+.m-bars h5{margin:0 0 4px;font-size:var(--t-sm)}
+.m-bar{display:grid;grid-template-columns:110px 1fr auto;align-items:center;gap:var(--s2);font-size:var(--t-xs);margin:3px 0}
+.m-bar span{unicode-bidi:plaintext;text-align:start}
+.m-bar i{display:block;height:8px;border-radius:99px;background:linear-gradient(90deg,var(--aether),var(--aether-deep));width:var(--w);min-width:2px}
+.gm-errors{display:flex;flex-direction:column;gap:var(--s2);margin-bottom:var(--s2)}
+.gm-error{border:1px solid var(--stroke);border-radius:var(--r2);padding:var(--s2) var(--s3);background:var(--raise)}
+.gm-error:not(.done){box-shadow:inset 3px 0 0 var(--danger)}
+.gm-error.done{opacity:.65}
+.gm-error summary{cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.gm-error .msg{font-size:var(--t-sm);direction:ltr;text-align:left;word-break:break-word}
+.gm-error .meta{font-size:var(--t-xs);color:var(--muted)}
+.gm-error .stack{direction:ltr;text-align:left;font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;background:var(--sunken);padding:var(--s2);border-radius:var(--r1)}
+
+/* --- legal and the account's danger zone --------------------------------- */
+.legal-line{font-size:var(--t-xs);color:var(--muted);text-align:center;max-width:320px;margin:var(--s2) auto 0;line-height:1.5}
+.legal-line a,.remember.agree a{color:var(--aether);text-decoration:underline}
+.remember.agree{align-items:flex-start;font-size:var(--t-sm);line-height:1.45}
+.danger-zone{margin-top:var(--s4);padding:var(--s3);border:1px solid var(--danger);border-radius:var(--r2);display:flex;flex-direction:column;gap:var(--s2)}
+.danger-zone span{font-size:var(--t-sm);color:var(--muted)}
+
 /* --- saddles (shared/saddles.js) ----------------------------------------- */
 .saddle-row .fam{font-size:var(--t-xs);color:var(--muted)}
 .saddle-row.ready{border-color:var(--aether);box-shadow:inset 3px 0 0 var(--aether)}
@@ -692,6 +719,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
       <p class="title-sub" id="title-sub"></p>
       <button class="btn play" id="btn-play" type="button" disabled>טוען…</button>
       <button class="btn ghost small" id="btn-title-login" type="button">יש לי חשבון — התחברות</button>
+      <p class="legal-line">בכניסה למשחק אתה מסכים ל<a href="./terms.html" target="_blank" rel="noopener">תנאי השימוש</a> ול<a href="./privacy.html" target="_blank" rel="noopener">מדיניות הפרטיות</a>, ומאשר שאתה בן 13 ומעלה (או שהורה אישר).</p>
     </div>
   </div>
 
@@ -702,7 +730,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
       <p class="logo-he" lang="he" dir="rtl">הובייל אונליין</p>
       <h1 class="sr-only">Hobile Online</h1>
       <p>עולם פתוח • יצורים • גילדות • בוסים עולמיים</p>
-      <p style="opacity:.7;font-size:12px">מצב אימון לשחקן יחיד — רץ כולו בדפדפן. מולטיפלייר אמיתי מתקבל בהרצת השרת.</p>
+      <p id="solo-note" class="hidden" style="opacity:.7;font-size:12px">מצב אימון לשחקן יחיד — רץ כולו בדפדפן. מולטיפלייר אמיתי מתקבל בהרצת השרת.</p>
     </div>
     <div class="card">
       <div class="tabs">
@@ -713,10 +741,12 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
         <div class="field"><label for="in-user">שם משתמש</label><input id="in-user" name="username" dir="ltr" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="16" enterkeyhint="next" /></div>
         <div class="field"><label for="in-pass">סיסמה</label><input id="in-pass" name="password" dir="ltr" type="password" autocomplete="current-password" enterkeyhint="go" /></div>
         <label class="remember"><input type="checkbox" id="in-remember" checked /> זכור אותי במכשיר הזה</label>
+        <label class="remember agree hidden" id="agree-row"><input type="checkbox" id="in-agree" /> <span>קראתי ואני מסכים ל<a href="./terms.html" target="_blank" rel="noopener">תנאי השימוש</a> ול<a href="./privacy.html" target="_blank" rel="noopener">מדיניות הפרטיות</a>, ואני בן 13 ומעלה (או שהורה אישר)</span></label>
         <div class="error-text" id="login-error" role="alert"></div>
         <button class="btn primary" id="btn-submit" type="submit">התחבר</button>
       </form>
       <button class="btn ghost" id="btn-guest" type="button">כניסה מהירה כאורח</button>
+      <p class="legal-line">כניסה כאורח היא הסכמה ל<a href="./terms.html" target="_blank" rel="noopener">תנאים</a> ול<a href="./privacy.html" target="_blank" rel="noopener">פרטיות</a>.</p>
     </div>
   </div>
 

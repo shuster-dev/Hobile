@@ -15,6 +15,7 @@
 // what a party is for anyway.
 import { activeCreature } from './game/combat.js';
 import { hpRatio } from './game/player.js';
+import * as Metrics from './metrics.js';
 
 export const SOCIAL = {
   offlineGraceMs: 4000,      // a room switch is not a logout
@@ -70,6 +71,8 @@ export function attach(doc, key, sink) {
   e.doc = doc;
   e.sinks.set(key, sink);
   normalize(doc);
+  // a sitting starts (or carries on) — server/metrics.js
+  Metrics.online(doc);
   // a party that ended while they were away
   if (doc.partyId && !PARTIES.get(doc.partyId)?.members.includes(doc.id)) doc.partyId = '';
   sink.setParty?.(doc.partyId || '');
@@ -84,6 +87,8 @@ export function detach(id, key) {
   if (!e) return;
   e.sinks.delete(key);
   if (e.sinks.size) { tellFriends(id, true); return; }
+  // the sitting ends unless they are back in a moment (server/metrics.js)
+  Metrics.offline(e.doc);
   clearTimeout(e.offTimer);
   e.offTimer = setTimeout(() => {
     if (e.sinks.size) return;

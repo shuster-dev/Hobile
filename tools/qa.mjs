@@ -1832,6 +1832,69 @@ section('riding');
   ok('and down again', !rctx.ride && !self.mount && !rdoc.riding);
 }
 
+// ---------------------------------------------- before a beta: the foundations
+// Crashes reach the GM (server/telemetry.js), the metrics count who comes back
+// (server/metrics.js), the legal pages exist and are linked, and the name of
+// someone else's game appears nowhere a player could see it.
+section('crashes, metrics, privacy and the name');
+{
+  const fsx = await import('node:fs'), pathx = await import('node:path');
+  // the name: in the code, the pages, the manifest, the docs that ship
+  const walk = (d) => fsx.readdirSync(d, { withFileTypes: true }).flatMap((f) => f.isDirectory() ? walk(pathx.join(d, f.name)) : [pathx.join(d, f.name)]);
+  const files = [...walk('src'), 'README.md', 'render.yaml', ...walk('docs')].filter((f) => /\.(js|html|json|md|webmanifest|svg|yaml|css)$/.test(f));
+  const BRAND = /pok[eé]\s?mon|pok[eé]dex|pok[eé]\s?ball|פוקימון|פוקדקס|פוקבול/i;
+  const hits = files.filter((f) => BRAND.test(fsx.readFileSync(f, 'utf8')));
+  ok('no trademark of another game anywhere in what ships', hits.length === 0, hits.join(', '));
+
+  // the legal pages: present, linked from the title and the sign-up, and say what is kept
+  const priv = fsx.readFileSync('src/client/privacy.html', 'utf8'), terms = fsx.readFileSync('src/client/terms.html', 'utf8'), page = fsx.readFileSync('src/client/index.html', 'utf8');
+  ok('a privacy policy and terms, each with a contact', priv.includes('{{CONTACT}}') && terms.includes('{{CONTACT}}'));
+  ok('the privacy policy says what is kept: chat, reports, crashes, play time, children', ['צ\'אט', 'דיווחים', 'תקלות', 'שימוש', 'ילדים', '13'].every((w) => priv.includes(w)));
+  ok('the title screen and the sign-up link to both, and sign-up asks to agree', /btn-title-login[\s\S]{0,400}terms\.html[\s\S]{0,200}privacy\.html/.test(page) && page.includes('id="in-agree"'));
+  ok('the build ships both pages', fsx.readFileSync('tools/build.mjs', 'utf8').includes("'privacy.html', 'terms.html'"));
+
+  // crashes: one row per fault, counted; a fixed one comes back if it happens again
+  const T = await import('../src/server/telemetry.js');
+  ok('the same fault on two builds is one signature', T.signature('x is undefined', 'at f (https://h/main.ABC123.js:10:5)') === T.signature('x is undefined', 'at f (https://h/main.ZZZ999.js:12:9)'));
+  ok('nonsense is not kept', T.cleanReport({ message: '' }) === null && T.cleanReport({ message: 'a'.repeat(9000) }).sample.message.length === T.ERR_LIMITS.message);
+  const { openStore } = await import('../src/server/store.js');
+  const st = await openStore({ DB_DRIVER: 'memory' });
+  T.useTelemetry(st);
+  await T.noteError({ message: 'boom', stack: 'Error\n at a (main.js:1:1)', version: 'V1', device: 'iOS 26 Safari' }, { user: 'Dana' });
+  await T.noteError({ message: 'boom', stack: 'Error\n at a (main.js:2:9)', version: 'V2', device: 'iOS 26 Safari' }, { user: 'Noa' });
+  let rows = await T.listErrors();
+  ok('a crash is counted, with its builds and how many players met it', rows.length === 1 && rows[0].count === 2 && rows[0].versions.join() === 'V1,V2' && rows[0].users === 2);
+  await T.resolveError(rows[0].sig);
+  ok('marked fixed, it waits at the bottom', (await T.listErrors())[0].resolved === true);
+  await T.noteError({ message: 'boom', stack: 'Error\n at a (main.js:3:3)', version: 'V3' });
+  ok('and it comes back if it happens again', (await T.listErrors())[0].resolved === false);
+  T.useTelemetry(null);
+
+  // metrics: sittings, days, retention, where they stopped
+  const M = await import('../src/server/metrics.js');
+  const DAY = 86400e3, now = Date.parse('2026-10-08T12:00:00Z');
+  const mk = (id, firstDaysAgo, backOn, level = 1, playMin = 10) => {
+    const days = [firstDaysAgo, ...backOn].map((k) => M.dayStamp(now - k * DAY)).sort();
+    return { id, level, seen: { first: now - firstDaysAgo * DAY, days, sessions: days.length, playMs: playMin * 6e4 }, quests: { done: [] } };
+  };
+  const rowsM = [mk('a', 10, [9, 3, 0], 12, 300), mk('b', 10, [], 1, 3), mk('c', 9, [8], 4, 40), mk('d', 2, [1, 0], 3, 20), { id: 'old', level: 5 }];
+  const rep = M.report(rowsM, { now, onlineNow: 2 });
+  ok('daily, weekly and monthly players', rep.dau === 2 && rep.wau === 2 && rep.mau === 4 && rep.online === 2, JSON.stringify({ dau: rep.dau, wau: rep.wau, mau: rep.mau }));
+  ok('back the next day: counted by the day they started', rep.d1.of === 4 && rep.d1.pct === 75, JSON.stringify(rep.d1));
+  ok('players from before the metrics are not counted, but are said', rep.untracked === 1 && rep.players === 4);
+  ok('the ones who stopped, by level and by time played', rep.gone === 2 && rep.byLevel.find((x) => x.label === '1–2').n === 1 && rep.byTime.find((x) => x.label === 'פחות מ‑5 דק׳').n === 1);
+  const doc = { id: 'p1' };
+  M.online(doc, now);
+  ok('coming online marks the day', doc.seen.days.includes(M.dayStamp(now)) && doc.seen.first === now);
+  M.offline(doc, now + 20 * 6e4);
+  M.flush();
+  ok('a sitting is counted with how long it was', doc.seen.sessions === 1 && Math.round(doc.seen.playMs / 6e4) === 20, JSON.stringify(doc.seen));
+  M.online(doc, now + 30 * 6e4); M.offline(doc, now + 31 * 6e4); M.online(doc, now + 31.5 * 6e4);
+  ok('back within a minute and a half: the same sitting', M._open.has('p1') && doc.seen.sessions === 1);
+  M.flush();
+  await st.close();
+}
+
 // --------------------------------------------------- saddles, tricks, reports
 // Riding needs a saddle (shared/saddles.js): five pieces of a family, hunted;
 // tricks for the pet (shared/tricks.js) are checked and told to the room;
