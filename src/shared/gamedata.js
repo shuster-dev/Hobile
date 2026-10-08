@@ -2,6 +2,8 @@ import { NPC_QUESTS } from './story.js';
 import { SAGA_QUESTS, SAGA_SPECIES } from './saga.js';
 import { natureMul } from './traits.js';
 import { MORE_MOVES, MORE_SPAWNS, MORE_SPECIES, MORE_TEMPER } from './species-more.js';
+import { STATUS_MOVES, withStatusMoves } from './moves-status.js';
+import { disabledBy, isBad } from './status.js';
 var ELEMENTS = {
     ember: {
       name: "Ember",
@@ -619,7 +621,9 @@ var MOVES = {
       power: 0,
       cd: 9e3,
       cost: 0,
-      heal: 0.35
+      heal: 0.35,
+      // and it takes away what is ailing it — burns, poison, sleep, ice
+      cure: !0
     },
     rally: {
       id: "rally",
@@ -2673,6 +2677,10 @@ var MOVES = {
     Object.assign(MOVES, MORE_MOVES), Object.assign(SPECIES, MORE_SPECIES), Object.assign(TEMPER, MORE_TEMPER);
     // the rift's guardian and the little one it leaves behind (shared/saga.js)
     Object.assign(SPECIES, SAGA_SPECIES);
+    // the third wave of moves (shared/moves-status.js): into MOVES, and into
+    // every learnset but a boss's
+    Object.assign(MOVES, STATUS_MOVES);
+    for (const sp of Object.values(SPECIES)) withStatusMoves(sp);
     for (const [z, rows] of Object.entries(MORE_SPAWNS)) ZONES[z] && (ZONES[z].spawns = [...(ZONES[z].spawns || []), ...rows]);
     return !0;
   })(),
@@ -3583,8 +3591,11 @@ function captureChance(i, e = "sphere_basic") {
     a = (RARITY[o?.rarity] ?? 0.7) * Math.max(0.5, 1 - (i.level || 1) / 120),
     l = a + (1 - a) * s,
     c = Object.prototype.hasOwnProperty.call(ITEMS, e) ? ITEMS[e] : null,
-    h = (i.effects || []).some(u => ["stun", "slow", "burn", "poison"].includes(u.kind || u)),
-    d = r * l * (c?.rate || 1) * (h ? 1.25 : 1);
+    // something on it helps: anything bad a little, asleep or frozen a lot
+    fx = (i.effects || []).map(u => ({ kind: u.kind || u, until: u.until ?? Infinity })),
+    stopped = disabledBy(fx),
+    h = stopped === "sleep" || stopped === "freeze" ? 1.6 : fx.some(u => isBad(u.kind)) ? 1.25 : 1,
+    d = r * l * (c?.rate || 1) * h;
   return Math.max(0.01, Math.min(0.99, d));
 }
 
@@ -3684,9 +3695,26 @@ function powerOf(i) {
   return Math.round(e.hp * 0.5 + e.atk + e.spa + e.def * 0.8 + e.spd * 0.8 + e.spe * 0.6);
 }
 
-function skillsFor(i, e) {
-  let n = SPECIES[i].learn.filter(([r]) => r <= e).map(([, r]) => r);
-  return [...new Set(n)].slice(-4);
+/** Every move a creature of this species knows by this level, in the order it learnt them. */
+function learnedMoves(i, e) {
+  return [...new Set((SPECIES[i]?.learn || []).filter(([r]) => r <= e).map(([, r]) => r))].filter(m => MOVES[m]);
+}
+
+/** The four a creature takes into a fight. `picked` — the ones its trainer
+ *  chose on its card — come first, as long as it still knows them. Left to
+ *  itself, a creature takes its three newest moves that hit and its newest
+ *  one that does something else (a shield, a powder), so it always has
+ *  things to hit with; short of either, the newest of the rest. */
+function skillsFor(i, e, picked = null) {
+  let n = learnedMoves(i, e),
+    out = [];
+  if (Array.isArray(picked)) for (let m of picked) n.includes(m) && !out.includes(m) && out.length < 4 && out.push(m);
+  let newest = [...n].reverse(),
+    hits = newest.filter(m => MOVES[m].kind !== "status"),
+    util = newest.filter(m => MOVES[m].kind === "status");
+  if (!out.length) out.push(...hits.slice(0, 3)), util.length && out.push(util[0]);
+  for (let m of [...newest]) out.length < 4 && !out.includes(m) && out.push(m);
+  return n.filter(m => out.includes(m));
 }
 
 function weightedPick(i, e = Math.random) {
@@ -3740,4 +3768,4 @@ function avatarLook(a = {}) {
   };
 }
 
-export { clinicCost, questGold, ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+export { clinicCost, questGold, ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

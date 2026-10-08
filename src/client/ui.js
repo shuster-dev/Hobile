@@ -17,6 +17,7 @@ import { DYES, HATS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
+import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -96,6 +97,9 @@ var STRINGS = {
     unknown_skill: "כישור לא מוכר",
     not_learned: "היצור לא למד את הכישור הזה",
     stunned: "היצור מסוחרר ולא יכול לפעול",
+    asleep: "היצור ישן — מכה, שיקוי או החלפה יעזרו",
+    frozen_solid: "היצור קפוא — אש או שיקוי יפשירו אותו",
+    bad_moves: "אי אפשר לבחור את המהלכים האלה",
     cooldown: "עוד לא מוכן",
     stamina: "אין מספיק מרץ",
     no_target: "אין מטרה",
@@ -825,7 +829,9 @@ var UI = class {
     let moves = el("div", "chips");
     for (let [lv, m] of sp.learn || []) {
       let mv = MOVES[m];
-      mv && moves.appendChild(el("span", "chip", `${ltr(lv)} · ${ELEMENTS[mv.type]?.icon || "◆"} ${Ze(loc(mv))}`));
+      if (!mv) continue;
+      let chip = el("span", "chip", `${ltr(lv)} · ${ELEMENTS[mv.type]?.icon || "◆"} ${Ze(loc(mv))}${mv.foe && moveStatus(mv) ? ` ${STATUS[moveStatus(mv)].icon}` : ""}`);
+      chip.title = [mv.power ? `עוצמה ${mv.power}` : "", ...moveTags(mv)].filter(Boolean).join(" · "), moves.appendChild(chip);
     }
     host.appendChild(moves);
   }
@@ -1676,12 +1682,7 @@ var UI = class {
       abl && (tr.innerHTML += `<div class="trait ${abl.rare ? "rare" : ""}"><span class="k">יכולת${abl.rare ? " · נדירה" : ""}</span><b>${abl.icon} ${Ze(abl.he)}</b><small>${Ze(abl.text)}</small></div>`);
       r.appendChild(tr);
     }
-    let h = el("div", "chips");
-    for (let x of t.skills || []) {
-      let g = MOVES[x];
-      g && h.appendChild(el("span", "chip", `${ELEMENTS[g.type]?.icon || "◆"} ${Ze(loc(g))}`));
-    }
-    if (r.appendChild(h), e.appendChild(r), t.training) {
+    if (e.appendChild(r), this.movePicker(e, t), t.training) {
       let x = el("div", "list-item");
       x.innerHTML = `<div class="grow"><b>🧪 בתא אימון בחווה → <span class="stars">${starLabel(t.training.star)}</span></b>
         <span class="mono" dir="ltr" data-countdown="${t.training.readyAt}">${formatClock(t.training.readyAt - Date.now())}</span></div>`, e.appendChild(x), this.startCountdowns();
@@ -1709,6 +1710,50 @@ var UI = class {
     f.innerHTML = `היצור יעבור לתא אימון בחווה שלך לעוד ${ltr(`${t.next.hours} שעות`)} (ממשיך גם כשהמשחק סגור), ויחזור חזק יותר ועם מראה חדש`, e.appendChild(f);
     let p = el("button", "btn primary", t.next.ready ? "התחל אימון" : "חסרים חומרים");
     p.disabled = !t.next.ready, p.onclick = () => this.hooks.baseTrain?.(t.uid), e.appendChild(p);
+  }
+  /** The four moves a creature fights with, out of all it knows (checklist
+   *  c2): tap to take one in or out, then keep. Every move says what it does
+   *  — its power, and what it leaves behind or feeds on (shared/status.js). */
+  movePicker(host, t) {
+    let learned = (t.learned || t.skills || []).filter(m => MOVES[m]);
+    if (!learned.length) return;
+    let need = Math.min(4, learned.length),
+      st = this._movePick?.uid === t.uid && this._movePick.from === (t.skills || []).join() ? this._movePick : this._movePick = { uid: t.uid, from: (t.skills || []).join(), list: [...(t.skills || [])] },
+      head = section("מהלכים לקרב", `${st.list.length}/${need}`),
+      wrap = el("div", "move-pick"),
+      row = el("div", "row move-pick-actions"),
+      save = el("button", "btn primary small", "שמור מהלכים"),
+      auto = el("button", "btn small", "שהיצור יבחר"),
+      sync = () => {
+        head.querySelector(".count, .pill, span:last-child") && (head.lastElementChild.textContent = `${st.list.length}/${need}`);
+        for (let b of wrap.children) {
+          let on = st.list.includes(b.dataset.move);
+          b.classList.toggle("on", on), b.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+        let changed = st.list.join() !== st.from;
+        save.disabled = !changed || st.list.length !== need;
+      };
+    host.appendChild(head);
+    host.appendChild(el("div", "hint", learned.length > 4 ? "היצור מכיר יותר מארבעה מהלכים — בחר את הארבעה שהוא לוקח לקרב" : "המהלכים שהיצור מכיר"));
+    for (let m of learned) {
+      let mv = MOVES[m],
+        tags = moveTags(mv),
+        b = el("button", "mv");
+      b.type = "button", b.dataset.move = m;
+      b.innerHTML = `<span class="ico">${ELEMENTS[mv.type]?.icon || "✦"}</span><b>${Ze(loc(mv))}</b><span class="mono pw">${mv.power ? ltr(mv.power) : mv.foe && moveStatus(mv) ? STATUS[moveStatus(mv)].icon : "✦"}</span><small>${Ze(tags.length ? tags.join(" · ") : mv.kind === "physical" ? "פגיעה במגע" : mv.kind === "special" ? "פגיעה מרחוק" : "")}</small>`;
+      b.onclick = () => {
+        let i = st.list.indexOf(m);
+        if (i >= 0) st.list.splice(i, 1);
+        else if (st.list.length >= 4) return this.toast("ארבעה מהלכים לכל היותר — הוצא אחד קודם", "bad");
+        else st.list.push(m);
+        sync();
+      }, wrap.appendChild(b);
+    }
+    host.appendChild(wrap);
+    save.onclick = () => this.hooks.setMoves?.(t.uid, learned.filter(m => st.list.includes(m)));
+    auto.onclick = () => this.hooks.setMoves?.(t.uid, []);
+    learned.length > 4 && (row.append(save), t.picked && row.append(auto), host.appendChild(row));
+    sync();
   }
   startCountdowns() {
     clearInterval(this._cdTimer);
@@ -2550,7 +2595,7 @@ var UI = class {
         foe = d.side !== r?.side,
         owner = d.ownerId && d.ownerId !== me && this.battlePlayers?.[d.ownerId],
         f = row(d.id, `combat-row ${foe ? "foe" : ""} ${foe && foes.length > 1 && aim?.id === d.id ? "aimed" : ""} ${!foe && owner ? "ally" : ""}`, foe ? s : ss);
-      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, (d.effects || []).map(x => `<span class="e">${Pb(x.kind)}</span>`).join(""));
+      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, [...new Set((d.effects || []).map(x => x.kind))].map(k => `<span class="e ${STATUS[k]?.disable ? "stop" : ""}">${Pb(k)}</span>`).join(""));
       // two foes: tap one to aim at it
       f.onclick = foe && foes.length > 1 ? () => {
         this.battleTarget = d.id, this.hooks.aim?.(d.id);
@@ -2558,7 +2603,12 @@ var UI = class {
     }
     c && fill(row(`trainer:${c.id}`, `combat-row self ${h ? "shielded" : "exposed"}`, ss), Ze(c.name), rangeLabel(c.hp, c.maxHp, "/"), c.hp / Math.max(1, c.maxHp) * 100, null, `<span class="e">${h ? "🛡 היצורים שלך מגנים עליך" : "⚠ אתה בחזית"}</span>`);
     for (let [k, f] of rows) keep.has(k) || (f.remove(), rows.delete(k));
-    (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this._effFor = null, this.buildBattleButtons(r, n)), this.battleYou = r, this.battleFoe = aim || foes[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
+    (!this._battleSkillsFor || this._battleSkillsFor !== t) && (this._battleSkillsFor = t, this._effFor = null, this.buildBattleButtons(r, n));
+    // asleep, frozen or dizzy: the moves wait, and the bar says why and what helps
+    let held = r && disabledBy(r.effects),
+      bar = $("#battle-skills");
+    bar && (bar.classList.toggle("held", !!held), bar.dataset.held = held ? `${STATUS[held].icon} ${STATUS[held].he}${held === "sleep" ? " — מכה תעיר אותו, או שיקוי" : held === "freeze" ? " — אש או שיקוי יפשירו" : ""}` : "");
+    this.battleYou = r, this.battleFoe = aim || foes[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
   }
   /** ▲ on a move that hits this foe hard, ▼ on one it shrugs off. Ten
    *  elements is more than anyone keeps in their head mid-fight, and the
@@ -2573,6 +2623,8 @@ var UI = class {
       let m = MOVES[b.dataset.skill],
         e = b.querySelector(".eff"),
         mult = types && m?.type && m.kind !== "status" ? typeMultiplier(m.type, types) : 1;
+      // a powder or a song on one whose element shrugs it off
+      m?.foe && types && immuneTo(types, moveStatus(m)) && (mult = 0);
       if (!e) continue;
       e.className = `eff ${mult > 1 ? "up" : mult < 1 ? mult === 0 ? "none" : "down" : ""}`, e.textContent = mult > 1 ? "▲" : mult === 0 ? "✕" : mult < 1 ? "▼" : "";
       let name = loc(m) || b.dataset.skill;
@@ -2589,7 +2641,7 @@ var UI = class {
         <span class="eff" aria-hidden="true"></span>
         <span class="ico">${ELEMENTS[a?.type]?.icon || "✦"}</span>
         <span>${Ze(loc(a))}</span>
-        <span class="mono" style="opacity:.7">${a?.power ? ltr(a.power) : ""}</span>`, l.onclick = () => this.hooks.useSkill?.(o), n.appendChild(l);
+        <span class="mono" style="opacity:.7">${a?.power ? ltr(a.power) : a?.foe && moveStatus(a) ? STATUS[moveStatus(a)].icon : ""}</span>`, l.onclick = () => this.hooks.useSkill?.(o), n.appendChild(l);
     }
     let s = $("#battle-trainer");
     s.innerHTML = "";
@@ -2756,17 +2808,7 @@ function bp(i) {
 }
 
 function Pb(i) {
-  return {
-    burn: "🔥 כוויה",
-    poison: "☠ רעל",
-    slow: "🐌 האטה",
-    stun: "💫 מסוחרר",
-    shield: "🛡 מגן",
-    atkUp: "⚔ התקפה+",
-    defUp: "🛡 הגנה+",
-    defDown: "🛡 הגנה−",
-    hasteUp: "💨 זריזות+"
-  }[i] || i;
+  return statusLabel(i);
 }
 
 function Ze(i) {

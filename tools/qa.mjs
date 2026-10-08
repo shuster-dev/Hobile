@@ -1927,6 +1927,127 @@ section('the guide for the first ten minutes');
   ok('skipping ends it for good', s2.tutorial.skipped === true && s2.tutorial.steps.length === 0);
 }
 
+// --------------------------------------------------- statuses and the four moves
+// Checklist c2: sleep, freeze, burn, poison (shared/status.js), twenty-one
+// moves about them (shared/moves-status.js), and a trainer choosing the four
+// a creature fights with.
+section('statuses and the four moves');
+{
+  const ST = await import('../src/shared/status.js');
+  const MS = await import('../src/shared/moves-status.js');
+  ok('twenty-one new moves, at least two for every element, all real', Object.keys(MS.STATUS_MOVES).length === 21
+    && Object.keys(G.ELEMENTS).every((el) => Object.values(MS.STATUS_MOVES).filter((m) => m.type === el).length >= 2)
+    && Object.keys(MS.STATUS_MOVES).every((id) => G.MOVES[id]?.id === id && G.MOVES[id].he && G.MOVES[id].cd > 0));
+  ok('every creature but a boss knows at least six moves by the end',
+    Object.values(G.SPECIES).filter((s) => s.rarity !== 'boss').every((s) => new Set(s.learn.map(([, m]) => m)).size >= 6),
+    Object.values(G.SPECIES).filter((s) => s.rarity !== 'boss' && new Set(s.learn.map(([, m]) => m)).size < 6).map((s) => s.id).join(','));
+  ok('a boss keeps the four it was made with', G.SPECIES.tehomon.learn.length === 4 && G.SPECIES.magmadon.learn.length === 4);
+  ok('learnsets stay in level order', Object.values(G.SPECIES).every((s) => s.learn.every(([lv], i) => !i || s.learn[i - 1][0] <= lv)));
+  ok('nobody is put to sleep in the first zones (sleep moves from level 24)',
+    Object.values(G.SPECIES).every((s) => s.learn.every(([lv, m]) => !G.MOVES[m]?.effect?.sleep || lv >= 20)));
+  ok('every element shrugs off one thing', ['ember', 'frost', 'metal', 'volt', 'verdant'].every((el) => Object.values(ST.STATUS).some((x) => x.immune === el)));
+  ok('a move card says what it leaves', ST.moveTags(G.MOVES.sleepspore).some((t) => t.includes('💤')) && ST.moveTags(G.MOVES.hex).some((t) => t.includes('פי 2')));
+
+  const fight = (a, b, rand = () => 0.1, lv = 30) => {
+    const sim = new C.Combat({ mode: 'pve', rand }), ev = [];
+    sim.onEvent = (e) => ev.push(e);
+    const ca = C.makeCreature(a, lv, { iv: 0.5, nature: 'steady', ability: 'surge' });
+    const cb = C.makeCreature(b, lv, { iv: 0.5, nature: 'steady', ability: 'surge' });
+    const A = sim.add(new C.Combatant({ side: 'a', kind: 'creature', name: 'a', creature: ca, ownerId: 'pa' }));
+    const B = sim.add(new C.Combatant({ side: 'b', kind: 'wild', name: 'b', creature: cb }));
+    return { sim, A, B, ev };
+  };
+  const now = Date.now();
+  {
+    const { sim, A, B, ev } = fight('cindcub', 'pebblin');
+    A.skills = ['willowisp', 'scorch', 'tackle', 'emberjab'];
+    const hp0 = B.hp;
+    // it can miss (85%): a few tries
+    for (let k = 0; k < 8 && !B.effects.some((e) => e.kind === 'burn'); k++) A.cooldowns = {}, A.stamina = 99, sim.useSkill(A.id, 'willowisp', B.id);
+    ok('a powder or a flame aimed at them: no damage, only the status', B.hp === hp0 && B.effects.some((e) => e.kind === 'burn') && ev.some((e) => e.kind === 'cast') && ev.some((e) => e.kind === 'status' && e.status === 'burn'));
+    sim.inflict(B, 'burn', 0.1, 8000, now);
+    ok('one of each: a second burn renews, it does not burn twice', B.effects.filter((e) => e.kind === 'burn').length === 1);
+    const had = B.effects; B.effects = [];
+    const plain = sim.computeDamage(A, B, G.MOVES.scorch, now).dmg;
+    B.effects = had;
+    const fed = sim.computeDamage(A, B, G.MOVES.scorch, now);
+    ok(`a move that feeds on it hits harder (${plain} -> ${fed.dmg})`, fed.vs && fed.dmg > plain * 1.6);
+    ok('fire is not burned', sim.inflict(A, 'burn', 0.1, 4000, now) === false && ev.some((e) => e.kind === 'immune' && e.target === A.id));
+  }
+  {
+    const { sim, A, B, ev } = fight('cindcub', 'pebblin');
+    sim.inflict(A, 'sleep', 1, 4000, now);
+    const r = sim.useSkill(A.id, A.skills[0], B.id);
+    ok('asleep, it cannot act — and the reason says so', r.ok === false && r.reason === 'asleep' && A.isStunned(now));
+    ok('and the wild\'s turn is skipped the same way', (() => { sim.inflict(B, 'freeze', 1, 3000, now); B.aiNext = 0; const n = ev.length; sim.runAI(B, now + 10); return ev.length === n; })());
+    ok('frozen, the reason is the ice', sim.useSkill(B.id, B.skills[0], A.id).reason === 'frozen_solid');
+    ok('just stopped, it cannot be stopped again for a while', sim.inflict(A, 'stun', 1, 1000, now) === false && ev.some((e) => e.kind === 'resist'));
+    sim.afterLanded(B, A, G.MOVES.tackle, now);
+    ok('a hit may wake a sleeper', !A.disabled(now) && ev.some((e) => e.kind === 'cured' && e.why === 'wake'));
+    sim.afterLanded(A, B, G.MOVES.emberjab, now);
+    ok('fire breaks the ice', !B.disabled(now) && ev.some((e) => e.kind === 'cured' && e.why === 'thaw'));
+  }
+  {
+    const { sim, A, B } = fight('cindcub', 'pebblin');
+    const T = sim.add(new C.Combatant({ side: 'a', kind: 'trainer', name: 'T', ownerId: 'pa', level: 10 }));
+    sim.inflict(A, 'poison', 0.1, 5000, now), sim.inflict(A, 'slow', 0.3, 5000, now);
+    sim.trainerAction(T.id, 'potion');
+    ok('the trainer\'s potion takes the bad ones away', !A.effects.some((e) => ST.isBad(e.kind)));
+    ok('a trainer is never put to sleep', sim.inflict(T, 'sleep', 1, 4000, now) === false);
+    const boss = sim.add(new C.Combatant({ side: 'b', kind: 'boss', name: 'boss', creature: C.makeCreature('pebblin', 30) }));
+    sim.inflict(boss, 'sleep', 1, 4000, now);
+    ok('a boss sleeps for less than half as long', boss.effects[0].until - now <= 4000 * ST.BOSS_DISABLE + 1);
+    const ally = sim.add(new C.Combatant({ side: 'a', kind: 'creature', name: 'x', creature: C.makeCreature('bubbit' in G.SPECIES ? 'bubbit' : 'cindcub', 30), ownerId: 'pa', benched: false }));
+    sim.inflict(A, 'burn', 0.1, 5000, now);
+    A.skills = ['purify'], A.stamina = 99, A.cooldowns = {};
+    sim.useSkill(A.id, 'purify');
+    ok('a cleansing move takes them off', !A.effects.some((e) => e.kind === 'burn'));
+  }
+  {
+    const w = { species: 'pebblin', level: 30, hp: 50, maxHp: 100 };
+    const plain = captureChance(w), asleep = captureChance({ ...w, effects: [{ kind: 'sleep', until: Infinity }] }), burnt = captureChance({ ...w, effects: [{ kind: 'burn' }] });
+    ok(`asleep or frozen is easier to catch than burnt, burnt than nothing (${plain.toFixed(2)} < ${burnt.toFixed(2)} < ${asleep.toFixed(2)})`, plain < burnt && burnt < asleep);
+  }
+  {
+    // the AI: a powder is worth throwing when it would land, not when it would not
+    const { sim, A, B, ev } = fight('cindcub', 'sproutle', Math.random);
+    B.skills = ['sleepspore', 'tackle'], B.stamina = 99, B.aiNext = 0;
+    sim.runAI(B, now);
+    ok('a wild puts you to sleep when it can', ev.some((e) => (e.kind === 'cast' || e.kind === 'miss') && e.skill === 'sleepspore'));
+    A.disabled(now) || sim.inflict(A, 'sleep', 1, 4000, now);
+    const n = ev.length; B.cooldowns = {}, B.aiNext = 0, B.ai = { pick: 'best', gap: 1, jitter: 0 };
+    sim.runAI(B, now + 1);
+    ok('and does not throw it at one already asleep or resisting', !ev.slice(n).some((e) => e.kind === 'cast'));
+  }
+  {
+    // the four: chosen on the card, kept through a level, handed back on request
+    const d = C.createPlayerDoc('qa-moves', 'QA', {}, 'cindcub');
+    C.normalizeDoc(d);
+    const c = Object.values(d.creatures)[0];
+    C.grantXpTo(c, G.PROGRESSION.xpToLevel(30) - c.xp, d);
+    const card = C.creatureCard(d, c.uid);
+    ok('the card lists every move it knows', card.learned.length > 4 && card.skills.every((m) => card.learned.includes(m)));
+    const pick = card.learned.slice(0, 4);
+    const out = [], ctx = { doc: d, zone: G.ZONES.aetherport, zoneId: 'aetherport', colliders: [], self: () => ({ x: 0, z: 0 }), net: { emit: (k, v) => out.push([k, v]), save() {} } };
+    WM.handleWorldMessage(ctx, 'setMoves', { uid: c.uid, skills: pick });
+    ok('a trainer chooses the four', c.skills.join() === pick.join() && out.some(([k, v]) => k === 'card' && v.picked));
+    WM.handleWorldMessage(ctx, 'setMoves', { uid: c.uid, skills: ['railgun'] });
+    ok('not a move it does not know', c.skills.join() === pick.join() && out.some(([k, v]) => k === 'error' && v.code === 'bad_moves'));
+    WM.handleWorldMessage(ctx, 'setMoves', { uid: c.uid, skills: [...pick, card.learned[4]] });
+    ok('and not five', c.skills.join() === pick.join());
+    const ev = C.grantXpTo(c, G.PROGRESSION.xpToLevel(40) - c.xp, d);
+    const knownNow = G.learnedMoves(c.species, c.level);
+    ok('the choice is kept through levels; a new move waits on the card', pick.filter((m) => knownNow.includes(m)).every((m) => c.skills.includes(m))
+      && ev.some((e) => e.kind === 'skill') && ev.filter((e) => e.kind === 'skill').every((e) => e.equipped === c.skills.includes(e.skill)), `${c.species} ${c.skills} ${JSON.stringify(ev.filter((e) => e.kind === 'skill'))}`);
+    WM.handleWorldMessage(ctx, 'setMoves', { uid: c.uid, skills: [] });
+    ok('an empty choice hands it back to the creature', !c.picked && c.skills.length === 4);
+    ok('left to itself, a creature keeps three moves that hit (when it knows three)', Object.keys(G.SPECIES).every((id) => {
+      const hits = G.learnedMoves(id, 60).filter((m) => G.MOVES[m].kind !== 'status').length;
+      return G.skillsFor(id, 60).filter((m) => G.MOVES[m].kind !== 'status').length === Math.min(3, hits) + (hits > 3 && G.learnedMoves(id, 60).every((m) => G.MOVES[m].kind !== 'status') ? 1 : 0);
+    }));
+  }
+}
+
 // --------------------------------------------------- saddles, tricks, reports
 // Riding needs a saddle (shared/saddles.js): five pieces of a family, hunted;
 // tricks for the pet (shared/tricks.js) are checked and told to the room;

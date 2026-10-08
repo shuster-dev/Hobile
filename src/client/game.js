@@ -24,6 +24,7 @@ import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
 import { cosmeticById } from '../shared/cosmetics.js';
+import { STATUS } from '../shared/status.js';
 const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -796,6 +797,9 @@ var Game = class {
           info = c && abilityInfo(t.ability, SPECIES[c.species]?.types || []);
         info && (this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `${info.icon} ${info.he}`, "ability"), audio.sfx("buff"));
       })() : t.kind === "heal" ? (audio.sfx("heal"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), `+${t.amount}`, "heal")) : t.kind === "miss" ? (audio.sfx("miss"), this.ui.floatDamage(this.battleView.actorScreenPos(t.target), "החטאה", "")) : t.kind === "capture" && this.ui.battleBanner(t.success ? "✨ נלכד!" : `הכדור נפתח… (${t.chance}%)`, 1400);
+      // statuses (shared/status.js): what took, what was shrugged off, what went away
+      let at = t.target && this.battleView.actorScreenPos(t.target), S = STATUS[t.status];
+      t.kind === "status" && S ? (this.ui.floatDamage(at, `${S.icon} ${S.he}!`, `status ${S.disable ? "stop" : ""}`), audio.sfx(S.disable ? "alert" : "resisted"), S.disable && this.battle.combatants?.find(c => c.id === t.target)?.ownerId === this.profile?.id && vibrate([30, 40, 30])) : t.kind === "immune" && S ? this.ui.floatDamage(at, `חסין ל${S.he}`, "status") : t.kind === "resist" && S ? this.ui.floatDamage(at, "עמיד לרגע", "status") : t.kind === "cured" ? (this.ui.floatDamage(at, t.why === "wake" ? "⏰ התעורר!" : t.why === "thaw" ? "💧 הפשיר!" : "✨ נרפא", "status good"), audio.sfx("buff")) : t.kind === "cast" ? audio.sfx("attack", { element: MOVES[t.skill]?.type }) : t.kind === "hit" && t.vs && this.ui.battleBanner("מנצל את המצב — פגיעה כפולה!", 800);
       t.actor && this.battle.youId === t.actor && t.skill && MOVES[t.skill] && (this.cooldowns[t.skill] = Date.now() + MOVES[t.skill].cd);
     }), e.on("actionRejected", t => {
       let secs = Math.ceil((t.wait || 0) / 1e3);
@@ -811,6 +815,8 @@ var Game = class {
         dead: "היצור מעולף",
         stamina: "אין מספיק מרץ",
         stunned: "הדמות מסוחררת",
+        asleep: "💤 ישן — מכה תעיר אותו, או שיקוי / החלפה",
+        frozen_solid: "🧊 קפוא — אש או שיקוי יפשירו אותו",
         no_sphere: "אין כדורי לכידה",
         no_item: "אין שיקויים",
         cannot_flee: "אי אפשר לברוח",
@@ -825,7 +831,7 @@ var Game = class {
       // An evolution gets its own scene (gfx/evolve.js) after the result, so
       // it is not also a line in the summary.
       let evo = (t.events || []).filter(r => r.kind === "evolve" && SPECIES[r.from] && SPECIES[r.into]);
-      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "skill" && n.push(`למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
+      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "skill" && n.push(r.equipped === !1 ? `למד ${loc(MOVES[r.skill])} — אפשר להכניס אותו בכרטיס היצור` : `למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
       for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level"));
       // the story moved: an anchor broken, the rift's guardian down
@@ -1146,6 +1152,8 @@ var Game = class {
           uid: t
         }), this.ui.openPanel("card");
       },
+      // the four moves it fights with, chosen on its card
+      setMoves: (uid, skills) => e("setMoves", { uid, skills }),
       baseOpen: () => e("baseOpen"),
       baseBuild: t => e("baseBuild", {
         id: t

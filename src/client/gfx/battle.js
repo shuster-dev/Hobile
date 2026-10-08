@@ -7,6 +7,8 @@ import { EvolveCeremony } from './evolve.js';
 import { hitStop, signature } from './movefx.js';
 import { KINDS, personAct } from './people.js';
 import { ELEMENTS, MOVES, SPECIES } from '../../shared/gamedata.js';
+import { STATUS, disabledBy } from '../../shared/status.js';
+import { emojiSprite } from './pettricks.js';
 import { MEADOW, flowerBase, flowerHead, meadowTuft, thinMaterial } from './world.js';
 
 var audio = new Audio();
@@ -59,6 +61,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
   })(),
   // One for every star; `shared` keeps fadeTree off it.
   STAR_MAT = Object.assign(new MeshBasicMaterial({ color: 0xffd84a, side: DoubleSide, depthWrite: !1, transparent: !0 }), { userData: { shared: !0 } }),
+  STATUS_COLOR = { burn: 0xff6b3d, poison: 0xa04fd1, slow: 0x8fa0b0, stun: 0xffd23d, sleep: 0x9fb4ff, freeze: 0x9fe8ff },
   dizzyStars = () => {
     let g = new Group();
     for (let k = 0; k < 3; k++) {
@@ -539,6 +542,8 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       n.benched = s === void 0 ? n.benched : s;
       let r = this.roleSlot.get(e.id);
       n.slot = r === void 0 ? n.slot : r;
+      // what is on it (shared/status.js): asleep, frozen or dizzy first, then a burn or poison
+      n.status = disabledBy(e.effects) || (e.effects || []).find(x => x.kind === "burn" || x.kind === "poison")?.kind || null;
       let o = e.hp <= 0;
       return o !== n.downed && (n.downed = o, o ? this.onFaint?.(n) : this.puff(nt.copy(n.holder.position).setY(0.8), 10223561, 10)), n.kind === "trainer" && e.side === "a" && this.claimTrainer(n), n;
     }
@@ -735,7 +740,25 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
             }), this.stopFor = Math.max(this.stopFor || 0, hitStop({ crit: !!e.crit, eff: e.eff || 1, power: s?.power || 40 })), (e.crit || s?.power >= 80) && this.camPunch(t, e.crit ? 0.7 : 0.45);
           }
         });
-      } else e.kind === "heal" && t ? (this.column(t, 7334042, 1), this.sparkle(t, 10223561, 1.2)) : e.kind === "buff" && t ? (this.column(t, 10147839, 1.2), this.rally(t.side, 0.5)) : e.kind === "miss" && t ? this.puff(nt.copy(t.holder.position).setY(1.2), 12568532, 10) : e.kind === "faint" && t && this.fall(t);
+      } else if (e.kind === "cast" && t) {
+        // a powder or a song: it flies over and settles, with nothing to hurt
+        let s = MOVES[e.skill],
+          o = s?.type ? ELEMENTS[s.type].color : 14477055,
+          a = fxFor(s?.type || null);
+        n && (this.telegraph(n, o, a), this.effects.push({
+          kind: "delayed",
+          t: 0,
+          at: 0.16,
+          fn: () => this.projectile(n, t, o, a, s?.aoe)
+        })), this.effects.push({
+          kind: "delayed",
+          t: 0,
+          at: 0.42,
+          fn: () => this.sparkle(t, o, 0.8)
+        });
+      } else if (e.kind === "status" && t) this.column(t, STATUS_COLOR[e.status] || 10223561, 0.9);
+      else if (e.kind === "cured" && t) this.column(t, 7334042, 0.8);
+      else e.kind === "heal" && t ? (this.column(t, 7334042, 1), this.sparkle(t, 10223561, 1.2)) : e.kind === "buff" && t ? (this.column(t, 10147839, 1.2), this.rally(t.side, 0.5)) : e.kind === "miss" && t ? this.puff(nt.copy(t.holder.position).setY(1.2), 12568532, 10) : e.kind === "faint" && t && this.fall(t);
     }
     rally(e, t = 1) {
       for (let n of this.actors.keys()) {
@@ -1184,7 +1207,12 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
         // one language every player of this genre already reads.
         o.downK > 0.5 && !o.stars ? (o.stars = dizzyStars(), o.stars.position.y = (o.height || 1.2) * 0.7 + 0.2, o.holder.add(o.stars)) : o.downK <= 0.5 && o.stars && (o.holder.remove(o.stars), o.stars.traverse(q => q.geometry?.dispose()), o.stars = null);
         o.stars && (o.stars.rotation.y += e * 2.6, o.stars.children.forEach(q => q.lookAt(this.camera.position)));
-        if (Math.abs(o.downK - o.downApplied) > 0.01 && (o.downApplied = o.downK, this.fade(o, 1 - o.downK * 0.42)), o.react > 0 && (o.react = Math.max(0, o.react - e * 2.6)), o.downK > 0.02) o.group.rotation.z = o.downK * 1.35 * (o.side === "a" ? 1 : -1), o.group.rotation.x = 0, o.group.position.y = -o.downK * 0.16;else if (!n) if (o.group.rotation.z = 0, o.group.userData.baseY = 0, animateCreature(o.group, t, o.walking > 0, o.walking > 0 ? 1.1 : 1), o.react > 0) {
+        // its status over its head — 💤, 🧊, 💫, 🔥, ☠ — and asleep or frozen, it holds still
+        let ico = !o.downed && o.status && STATUS[o.status] ? STATUS[o.status].icon : null;
+        ico !== o.statusIco && (o.statusFx && (o.holder.remove(o.statusFx), o.statusFx.material.dispose(), o.statusFx = null), o.statusIco = ico, ico && (o.statusFx = emojiSprite(ico, STATUS[o.status].disable ? 0.75 : 0.5), o.holder.add(o.statusFx)));
+        o.statusFx && (o.statusFx.position.y = (o.height || 1.2) * 0.9 + 0.3 + Math.sin(this.time * (o.status === "sleep" ? 1.6 : 3)) * 0.08);
+        let still = o.status === "sleep" || o.status === "freeze";
+        if (Math.abs(o.downK - o.downApplied) > 0.01 && (o.downApplied = o.downK, this.fade(o, 1 - o.downK * 0.42)), o.react > 0 && (o.react = Math.max(0, o.react - e * 2.6)), o.downK > 0.02) o.group.rotation.z = o.downK * 1.35 * (o.side === "a" ? 1 : -1), o.group.rotation.x = 0, o.group.position.y = -o.downK * 0.16;else if (still) o.group.rotation.z = o.status === "sleep" ? 0.12 * (o.side === "a" ? 1 : -1) : 0, o.group.position.y = 0;else if (!n) if (o.group.rotation.z = 0, o.group.userData.baseY = 0, animateCreature(o.group, t, o.walking > 0, o.walking > 0 ? 1.1 : 1), o.react > 0) {
           let c = o.react * o.react;
           o.group.rotation.x = -c * 0.28, o.group.position.y += c * 0.14;
         } else o.group.rotation.x !== 0 && (o.group.rotation.x = 0);
