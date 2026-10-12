@@ -20,6 +20,7 @@ import { itemIcon } from './icons.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
 import { face, faceNow, lazyFaces } from './faces.js';
+import { questGuide } from './questguide.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -418,15 +419,15 @@ var UI = class {
       <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם — אסוף את הפרס" : "המשימה הנוכחית"}</div>
       <div class="q-title">${Ze(loc(l))}</div>
       <div class="q-meter">${r(a.progress, c, h)}
-        <span class="mono">${h ? "✓" : rangeLabel(Math.min(a.progress || 0, c), c, "/")}</span></div>`, d.onclick = () => this.openPanel("quests"), e.appendChild(d);
-    for (let [, u, f] of t.slice(1, 4)) {
+        <span class="mono">${h ? "✓" : rangeLabel(Math.min(a.progress || 0, c), c, "/")}</span></div>`, d.onclick = () => (this._questOpen = o, this.openPanel("quests")), e.appendChild(d);
+    for (let [qid, u, f] of t.slice(1, 4)) {
       let p = f.goal.count || 1,
         x = !!u.done,
         g = el("div", `q ${f.chain} ${x ? "done" : ""}`);
       g.innerHTML = `
         <div class="q-row"><span class="q-name">${Ze(loc(f))}</span>
           <span class="mono">${x ? "✓" : rangeLabel(Math.min(u.progress || 0, p), p, "/")}</span></div>
-        ${r(u.progress, p, x)}`, g.onclick = () => this.openPanel("quests"), e.appendChild(g);
+        ${r(u.progress, p, x)}`, g.onclick = () => (this._questOpen = qid, this.openPanel("quests")), e.appendChild(g);
     }
   }
   /**
@@ -2012,10 +2013,28 @@ var UI = class {
             let u = el("button", "btn small primary", "קבל");
             u.onclick = () => this.hooks.claimQuest?.(o), d.appendChild(u);
           } else a.claimed && d.appendChild(el("span", "pill good", "הושלם"));
+          // a tap opens what to do and where, and a way to be shown it
+          // (questguide.js); another tap closes it
+          let open = this._questOpen === o, guided = this.guideQuestId === o;
+          d.classList.add("q-tap"), open && d.classList.add("open"), guided && d.classList.add("guided"), d.setAttribute("role", "button"), d.tabIndex = 0, d.setAttribute("aria-expanded", String(open));
+          guided && d.querySelector(".grow b")?.insertAdjacentHTML("afterbegin", "🧭 ");
+          d.onclick = f => { f.target.closest("button") || (this._questOpen = open ? null : o, this.renderPanel("quests")); };
+          d.onkeydown = f => { (f.key === "Enter" || f.key === " ") && f.target === d && (f.preventDefault(), d.onclick(f)); };
           e.appendChild(d);
+          if (open) {
+            let gd = questGuide(l, a, t, this.zone?.id),
+              box = el("div", "q-guide");
+            box.innerHTML = `<div class="q-guide-h">איך עושים את זה?</div><ol>${gd.steps.map(x => `<li>${Ze(x)}</li>`).join("")}</ol>`;
+            if (gd.canGuide) {
+              let b = el("button", `btn ${guided ? "ghost" : "primary"}`, guided ? "✕ הפסק להראות את הדרך" : "🧭 הראה לי את הדרך");
+              b.onclick = () => (this.hooks.guideQuest?.(guided ? null : o), guided && this.renderPanel("quests")), box.appendChild(b);
+            }
+            e.appendChild(box);
+          }
         }
       }
     };
+    (Object.keys(t.quests.active || {}).length || Object.keys(t.quests.dailies || {}).length) && e.appendChild(el("div", "hint", "לא בטוח מה לעשות? הקש על משימה."));
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
     // the story's scenes already seen, to watch again (client/cutscene.js)
     let seen = SCENE_ORDER.filter(id => (t.story?.seen || []).includes(id));

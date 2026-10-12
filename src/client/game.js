@@ -25,6 +25,7 @@ import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
 import { cosmeticById } from '../shared/cosmetics.js';
 import { STATUS } from '../shared/status.js';
+import { giverSpot, goalZone, route } from './questguide.js';
 const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -38,7 +39,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.coach = new Coach(this), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.guideQuestId = (() => { try { return localStorage.getItem("hobile.guide") || null; } catch { return null; } })(), this.ui.guideQuestId = this.guideQuestId, this.coach = new Coach(this), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       let k = lookSpeed().k;
       if (n *= k, s *= k, this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
@@ -1325,6 +1326,13 @@ var Game = class {
           team: [t, ...s.filter(r => r !== t)].slice(0, 6)
         });
       },
+      // "show me the way": the arrow, the radar's star and a beam of light
+      // on this quest instead of the story's (null stops it)
+      guideQuest: t => {
+        this.guideQuestId = t || null, this.ui.guideQuestId = this.guideQuestId;
+        try { t ? localStorage.setItem("hobile.guide", t) : localStorage.removeItem("hobile.guide"); } catch {}
+        t && (this.ui.closePanel?.(), this.ui.toast("🧭 עקוב אחרי החץ ואחרי עמוד האור — הכוכב במכ״ם מראה את הכיוון", "good"));
+      },
       // the team, changed by hand: into it from the box, back to the box, or
       // one from the box in place of one in it (server: setTeam)
       teamAdd: t => {
@@ -1667,13 +1675,14 @@ var Game = class {
     if (!t) return;
     let n = this.currentObjective();
     if (globalThis.__hobileQuestNpc = n?.goal?.kind === "talk" && !n.done ? n.goal.target : null, !n) {
-      this._objPoint = null, t.classList.add("hidden");
+      this._objPoint = null, t.classList.add("hidden"), this.world.setBeacon?.(null);
       return;
     }
     let s = this.world.selfPosition(),
       r = this.objectivePoint(n, e, s);
     // the radar shows it too (ui.drawMinimap)
-    if (this._objPoint = r || null, !r) {
+    // a guided quest also gets a beam of light where it points (world.setBeacon)
+    if (this.world.setBeacon?.(n.quest ? r : null), this._objPoint = r || null, !r) {
       t.classList.add("hidden");
       return;
     }
@@ -1776,6 +1785,22 @@ var Game = class {
   }
   currentObjective() {
     let e = this.profile?.quests?.active || {};
+    // the quest the player asked to be shown the way to (ui: quest guide)
+    let gid = this.guideQuestId, gq = gid && QUESTS[gid], gl = gq && (e[gid] || this.profile?.quests?.dailies?.[gid]);
+    if (gq && gl && !gl.claimed && !(gl.done && gq.chain !== "npc")) {
+      let g = gq.goal || {},
+        // where it is actually finished: back to whoever gave it, at the
+        // clinic, or at the base
+        goal = gl.done || g.kind === "deliver" ? { kind: "talk", target: gq.giver }
+          : g.kind === "heal" ? { kind: "spot", target: "clinic" }
+          : ["craft", "star", "train", "saddle"].includes(g.kind) ? { kind: "craft" }
+          : g;
+      return { label: `🧭 ${loc(gq)}`, goal: { ...goal, zone: goalZone(gq, gl) || goal.zone }, done: gl.done, quest: gid };
+    }
+    if (gid && this.profile?.quests) {
+      this.guideQuestId = null, this.ui.guideQuestId = null;
+      try { localStorage.removeItem("hobile.guide"); } catch {}
+    }
     for (let t of Object.values(QUESTS)) {
       if (t.chain !== "main") continue;
       let n = e[t.id];
@@ -1795,6 +1820,32 @@ var Game = class {
         z: c,
         y: this.world.heightAt(l, c)
       });
+    // A guided quest somewhere else: the next portal on the way there, even
+    // two or three zones off (questguide.js route).
+    if (e.quest) {
+      let want = s.kind === "talk" ? giverSpot(s.target)?.zone || s.zone : s.zone;
+      if (want && this.zone?.id && want !== this.zone.id) {
+        let way = route(this.zone.id, want), l = way && r.find(c => c.kind === "portal" && c.to === way[1]);
+        return l ? o(l.x, l.z) : null;
+      }
+      if (s.kind === "talk" && !this.world.npcPosition?.(s.target)) {
+        let at = giverSpot(s.target)?.landmark;
+        if (at) return o(at.x, at.z);
+      }
+      if (s.kind === "spot") {
+        let l = r.find(c => c.kind === s.target);
+        return l ? o(l.x, l.z) : null;
+      }
+      if (s.kind === "capture" && s.species) {
+        let best = null;
+        this.worldState()?.wilds?.forEach((w) => {
+          if (w.engagedBy || w.species !== s.species) return;
+          let d = dist2d(w, n);
+          (!best || d < best.d) && (best = { d, w });
+        });
+        if (best) return o(best.w.x, best.w.z);
+      }
+    }
     if (s.kind === "talk") {
       let l = this.world.npcPosition?.(s.target);
       if (l) return o(l.x, l.z);

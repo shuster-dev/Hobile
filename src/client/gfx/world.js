@@ -4991,6 +4991,30 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       for (let e of this._plates?.values() || []) e.remove();
       this._plates?.clear();
     }
+    /**
+     * A beam of light standing where a guided quest points (game.js
+     * guideQuest): seen over roofs and trees from across the zone, a ring on
+     * the ground under it. Null puts it away.
+     */
+    setBeacon(p) {
+      let b = this._beacon;
+      if (!p) return b && (b.visible = !1), void 0;
+      if (!b) {
+        b = this._beacon = new Group();
+        let m = new MeshBasicMaterial({ color: 0xffd34d, transparent: !0, opacity: 0.32, blending: AdditiveBlending, depthWrite: !1, side: DoubleSide, fog: !1 }),
+          core = new MeshBasicMaterial({ color: 0xfff3c4, transparent: !0, opacity: 0.5, blending: AdditiveBlending, depthWrite: !1, side: DoubleSide, fog: !1 }),
+          ring = new MeshBasicMaterial({ color: 0xffd34d, transparent: !0, opacity: 0.7, blending: AdditiveBlending, depthWrite: !1, side: DoubleSide });
+        let outer = new Mesh(new CylinderGeometry(0.9, 1.3, 46, 20, 1, !0), m), inner = new Mesh(new CylinderGeometry(0.28, 0.4, 46, 12, 1, !0), core), floor = new Mesh(new RingGeometry(1.3, 1.75, 40), ring);
+        outer.position.y = inner.position.y = 23, floor.rotation.x = -Math.PI / 2, floor.position.y = 0.08;
+        for (let x of [outer, inner, floor]) x.renderOrder = 5, x.frustumCulled = !1, b.add(x);
+        b.userData = { floor, m, core, ring }, this.scene.add(b);
+      }
+      b.visible = !this._inside, b.position.set(p.x, p.y ?? this.heightAt(p.x, p.z), p.z);
+      // fades as you reach it, so it never stands in front of the one you came to see
+      let me = this.selfPosition?.(), near = me ? Math.max(0.12, Math.min(1, (Math.hypot(me.x - p.x, me.z - p.z) - 3) / 12)) : 1,
+        k = Math.sin(this.time * 2.4);
+      b.userData.m.opacity = (0.26 + k * 0.07) * near, b.userData.core.opacity = 0.5 * near, b.userData.floor.scale.setScalar(1 + (this.time * 0.6 % 1) * 0.5), b.userData.ring.opacity = 0.75 * (1 - this.time * 0.6 % 1);
+    }
     npcPosition(e) {
       let t = this.npcs.get(e);
       return t && t.holder.visible ? t.holder.position : null;

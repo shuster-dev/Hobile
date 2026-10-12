@@ -2584,5 +2584,23 @@ section('from the phone');
   ok('and none of it for anyone else', d.gold === g1 && out.pop()?.[1]?.code === 'forbidden');
 }
 
+{
+  // tapping a quest says what to do and where (client/questguide.js)
+  section('quest guide');
+  const QG = await import('../src/client/questguide.js');
+  const zs = Object.keys(ZONES);
+  ok('every zone can be walked to from every other, portal by portal',
+    zs.every((a) => zs.every((b) => { const r = QG.route(a, b); return r && r[0] === a && r.at(-1) === b; })));
+  ok('the way to the Umbral Grove from the port goes through each zone between',
+    JSON.stringify(QG.route('aetherport', 'umbral_grove')) === JSON.stringify(['aetherport', 'tidal_hollow', 'frostpeak_ridge', 'umbral_grove']));
+  const blank = Object.values(QUESTS).filter((q) => !QG.questGuide(q, { progress: 0 }, { inventory: {} }, 'aetherport').steps.some((x) => x && x.length > 8));
+  ok('every quest has steps to follow', !blank.length, blank.map((q) => q.id).join(','));
+  const far = QG.questGuide(QUESTS.q_umbral_grove_hunt || Object.values(QUESTS).find((q) => q.goal.zone === 'umbral_grove'), { progress: 1 }, {}, 'aetherport');
+  ok('a quest far off names the way there and where it is', far.zone === 'umbral_grove' && far.steps[0].includes('←'), far.steps[0]);
+  const npcDone = Object.values(QUESTS).find((q) => q.chain === 'npc');
+  const back = QG.questGuide(npcDone, { progress: 99, done: true }, {}, 'verdant_meadow');
+  ok('a finished errand says to go back to who gave it', back.canGuide && back.zone === QG.giverSpot(npcDone.giver)?.zone, back.steps.join(' / '));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
