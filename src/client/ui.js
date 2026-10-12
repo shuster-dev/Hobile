@@ -11,6 +11,7 @@ import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
 import { familyMembers, familyOf, materialName, saddleCost } from '../shared/saddles.js';
 import { TRICKS, TRICK_IDS } from '../shared/tricks.js';
 import { CELL, planFor } from '../shared/worldplan.js';
+import { CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, SIDEWALK, gridOffset, plazaOf, propsFor } from '../shared/props.js';
 import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
 import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
 import { DYES, HATS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
@@ -428,60 +429,154 @@ var UI = class {
         ${r(u.progress, p, x)}`, g.onclick = () => this.openPanel("quests"), e.appendChild(g);
     }
   }
-  drawMinimap(e, t, n) {
+  /**
+   * The radar, top left: seventy metres around you (sixty in town), turned
+   * with the camera — what is ahead of you is up, as in the games a player
+   * already knows; north (the same north as the zone's map) is the pill that
+   * moves round the rim.
+   * The zone's own ground under it — the wild zones' plan (zoneArt), the
+   * town's streets, squares and roofs (cityArt) — and on it, as small badges
+   * with their own sign, what is worth walking to; the wild creatures and
+   * the other players as dots; you as an arrow, with a soft cone for where
+   * the camera looks. What matters most and is out of range — your errand,
+   * the boss, someone with a "!" for you, your party — waits on the rim,
+   * pointing the way. Drawn sharp for the phone's screen, twenty-five times
+   * a second rather than every frame. Tapping it opens the zone's map.
+   */
+  drawMinimap(e, t, n, extra = {}) {
     // The panel draws from the same numbers on its own timer, so keep the last
     // frame's view of the world rather than plumbing it through a second path.
-    this._live = {
-      world: e,
-      state: t,
-      me: n
-    };
-    let s = this.minimapCtx,
-      r = 208,
-      o = 70,
-      c = r / 2;
-    // The zone's own ground, washed light, so the radar is a little window on
-    // the meadow and not a hole in it — and two zones do not look alike.
-    s.clearRect(0, 0, r, r), s.save(), s.beginPath(), s.arc(c, c, c - 2, 0, Math.PI * 2), s.clip();
-    let wash = s.createRadialGradient(c, c, c * 0.1, c, c, c);
-    wash.addColorStop(0, pastel(this.zone?.ground ?? 6531422, 0.62)), wash.addColorStop(1, pastel(this.zone?.ground ?? 6531422, 0.38)), s.fillStyle = wash, s.fillRect(0, 0, r, r);
-    let a = e.selfPosition(),
-      l = (h, d) => [c + (h - a.x) / o * c, c + (d - a.z) / o * c];
-    let art = zoneArt(this.zone);
+    this._live = { world: e, state: t, me: n };
+    let now = performance.now();
+    if (now - (this._mmAt || 0) < 40) return;
+    this._mmAt = now;
+    let cv = this._mmEl || (this._mmEl = $("#minimap")), s = this.minimapCtx;
+    if (!cv || !s) return;
+    let css = cv.clientWidth || 116, dpr = Math.min(3, window.devicePixelRatio || 1), px = Math.round(css * dpr);
+    (cv.width !== px || cv.height !== px) && (cv.width = cv.height = px);
+    s.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // the zone as the game knows it (the server's zone message leaves some out)
+    let z = this.zone && ZONES[this.zone.id] ? { ...ZONES[this.zone.id], ...this.zone } : this.zone, c = css / 2, R = c, range = z?.urban ? 60 : 70, k = R / range,
+      a = e.selfPosition(),
+      yaw = e.camYaw || 0, sy = Math.sin(yaw), cy = Math.cos(yaw),
+      // ahead (where the camera looks) is up; a rotation of the view from above
+      at = (x, y) => { let dx = x - a.x, dz = y - a.z; return [c + (-dx * cy + dz * sy) * k, c - (dx * sy + dz * cy) * k]; },
+      north = Math.atan2(cy, -sy),
+      inside = (x, y, m = 0) => Math.hypot(x - c, y - c) < R - m,
+      rim = (x, y, m) => {
+        let dx = x - c, dy = y - c, d = Math.hypot(dx, dy) || 1, r = R - m;
+        if (d <= r) return { x, y, out: !1 };
+        // north's pill sits on the rim: what would land on it moves aside
+        let ang = Math.atan2(dy, dx), off = Math.atan2(Math.sin(ang - north), Math.cos(ang - north));
+        Math.abs(off) < 0.3 && (ang = north + (off < 0 ? -0.3 : 0.3));
+        return { x: c + Math.cos(ang) * r, y: c + Math.sin(ang) * r, out: !0, ang };
+      };
+    s.clearRect(0, 0, css, css), s.save(), s.beginPath(), s.arc(c, c, R, 0, Math.PI * 2), s.clip();
+    // the ground: the zone's own colour, then its drawn plan
+    s.fillStyle = pastel(z?.ground ?? 6531422, 0.5), s.fillRect(0, 0, css, css);
+    let art = zoneArt(z) || cityArt(z);
     if (art) {
-      let sc = art.scale;
-      s.globalAlpha = 0.85, s.drawImage(art.canvas, (a.x - o + art.size / 2) * sc, (a.z - o + art.size / 2) * sc, o * 2 * sc, o * 2 * sc, 0, 0, r, r), s.globalAlpha = 1;
+      // the plan is drawn north-up; turned here with the view. Only the part
+      // around you, and never a source rectangle past the picture's edge
+      // (Safari then draws nothing at all).
+      let sc = art.scale, half = art.size / 2, reach = range * 1.45,
+        x0 = Math.max(-half, a.x - reach), x1 = Math.min(half, a.x + reach),
+        z0 = Math.max(-half, a.z - reach), z1 = Math.min(half, a.z + reach);
+      if (x1 > x0 && z1 > z0) {
+        s.save(), s.translate(c, c), s.transform(-cy * k, -sy * k, sy * k, -cy * k, 0, 0), s.translate(-a.x, -a.z);
+        s.imageSmoothingEnabled = !0, s.drawImage(art.canvas, (x0 + half) * sc, (z0 + half) * sc, (x1 - x0) * sc, (z1 - z0) * sc, x0, z0, x1 - x0, z1 - z0);
+        s.restore();
+      }
     }
-    // The edge of the world, when it is close enough to matter. Without it the
-    // radar has no frame and every zone reads the same.
-    if (this.zone?.size) {
-      let [h, d] = l(0, 0),
-        u = (this.zone.size / 2 - 3) / o * c;
-      s.strokeStyle = "rgba(42,47,77,.4)", s.lineWidth = 2, s.setLineDash([6, 5]), s.beginPath(), s.arc(h, d, u, 0, Math.PI * 2), s.stroke(), s.setLineDash([]);
+    // the edge of a wild zone, when it is close enough to matter
+    if (z?.size && !z.urban) {
+      let [h, d] = at(0, 0), u = (z.size / 2 - 3) * k;
+      s.strokeStyle = "rgba(42,47,77,.45)", s.lineWidth = 1.5, s.setLineDash([5, 4]), s.beginPath(), s.arc(h, d, u, 0, Math.PI * 2), s.stroke(), s.setLineDash([]);
     }
-    if (this.zone) for (let h of this.zone.landmarks) {
-      let [d, u] = l(h.x, h.z);
-      s.fillStyle = MAP_PIN[h.kind] || MAP_PIN._, s.strokeStyle = "rgba(42,47,77,.55)", s.lineWidth = 2, s.beginPath(), s.arc(d, u, h.r ? 9 : 5, 0, Math.PI * 2), s.fill(), s.stroke();
+    // a ring at half the range, to judge distance by
+    s.strokeStyle = "rgba(255,255,255,.55)", s.lineWidth = 1, s.setLineDash([2, 4]), s.beginPath(), s.arc(c, c, R * 0.5, 0, Math.PI * 2), s.stroke(), s.setLineDash([]);
+    // where the camera looks — always up: a soft cone
+    let ang = -Math.PI / 2, spread = 0.62,
+      cone = s.createRadialGradient(c, c, 2, c, c, R * 0.72);
+    cone.addColorStop(0, "rgba(255,255,255,.7)"), cone.addColorStop(1, "rgba(255,255,255,0)");
+    s.fillStyle = cone, s.beginPath(), s.moveTo(c, c), s.arc(c, c, R * 0.72, ang - spread, ang + spread), s.closePath(), s.fill();
+    // places: a badge with its own sign; a way out waits on the rim
+    let badge = (x, y, r, ring, glyph, fill = "#fff") => {
+      s.beginPath(), s.arc(x, y + 0.8, r, 0, Math.PI * 2), s.fillStyle = "rgba(20,24,46,.28)", s.fill();
+      s.beginPath(), s.arc(x, y, r, 0, Math.PI * 2), s.fillStyle = fill, s.fill(), s.lineWidth = 1.6, s.strokeStyle = ring, s.stroke();
+      glyph && (s.font = `${Math.round(r * 1.25)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui`, s.textAlign = "center", s.textBaseline = "middle", s.fillStyle = "#2a2f4d", s.fillText(glyph, x, y + 0.5));
+    };
+    let pointer = (p, color) => {
+      // a small wedge on the rim, pointing outwards: "that way"
+      let a2 = p.ang, tx = c + Math.cos(a2) * (R - 1.5), ty = c + Math.sin(a2) * (R - 1.5);
+      s.beginPath(), s.moveTo(tx, ty), s.lineTo(c + Math.cos(a2 - 0.09) * (R - 7), c + Math.sin(a2 - 0.09) * (R - 7)), s.lineTo(c + Math.cos(a2 + 0.09) * (R - 7), c + Math.sin(a2 + 0.09) * (R - 7)), s.closePath(), s.fillStyle = color, s.fill();
+    };
+    let onRim = [];
+    for (let h of z?.landmarks || []) {
+      let [x, y] = at(h.x, h.z), col = MAP_PIN[h.kind] || MAP_PIN._, way = h.kind === "portal" || h.kind === "dungeon";
+      if (inside(x, y, 6)) badge(x, y, h.r ? 6.2 : 5.4, col, MAP_GLYPH[h.kind] || "", way ? col : "#fff");
+      else if (way) {
+        // a cluster of ways out in one direction is one pointer, not four
+        let p = rim(x, y, 9);
+        if (onRim.some((q) => Math.abs(Math.atan2(Math.sin(q - p.ang), Math.cos(q - p.ang))) < 0.32)) continue;
+        onRim.push(p.ang), badge(p.x, p.y, 4.4, "#fff", "", col), pointer(p, col);
+      }
     }
-    if (t?.wilds?.forEach(h => {
-      let [d, u] = l(h.x, h.z),
-        // one coming for someone is the dot worth seeing first
-        hot = h.alert === "!";
-      s.fillStyle = hot ? "#e0202a" : "#ff6a45", s.strokeStyle = "#fff", s.lineWidth = hot ? 2 : 1.5, s.beginPath(), s.arc(d, u, hot ? 5.2 : 3.6, 0, Math.PI * 2), s.fill(), s.stroke();
-    }), t?.players?.forEach((h, d) => {
+    // someone with something for you
+    let marks = e.npcMarks || {};
+    for (let np of e.npcs?.values?.() || []) {
+      let mk = marks[np.id];
+      if (!mk || mk === "…" || !np.holder) continue;
+      let [x, y] = at(np.holder.position.x, np.holder.position.z), p = rim(x, y, 8), gold = mk === "!" ? "#ffb21a" : "#2fb7a3";
+      badge(p.x, p.y, p.out ? 5 : 5.6, "#fff", "", gold);
+      s.font = "900 8px system-ui", s.textAlign = "center", s.textBaseline = "middle", s.fillStyle = "#fff", s.fillText(mk, p.x, p.y + 0.5);
+      p.out && pointer(p, gold);
+    }
+    // the wild ones: dots; one coming for someone is bigger, red, and rings
+    t?.wilds?.forEach((h) => {
+      let [x, y] = at(h.x, h.z);
+      if (!inside(x, y, 2)) return;
+      let hot = h.alert === "!";
+      hot && (s.beginPath(), s.arc(x, y, 5 + (now / 120 % 4), 0, Math.PI * 2), s.strokeStyle = "rgba(224,32,42,.45)", s.lineWidth = 1.2, s.stroke());
+      s.fillStyle = hot ? "#e0202a" : "#ff7a4d", s.strokeStyle = "#fff", s.lineWidth = 1.2, s.beginPath(), s.arc(x, y, hot ? 3.4 : 2.5, 0, Math.PI * 2), s.fill(), s.stroke();
+    });
+    // other players; your party also from beyond the range
+    t?.players?.forEach((h, d) => {
       if (d === n) return;
-      let [u, f] = l(h.x, h.z);
-      s.fillStyle = h.partyId && h.partyId === this.party?.id ? "#22b86c" : "#4d86f0", s.strokeStyle = "#fff", s.lineWidth = 1.5, s.beginPath(), s.arc(u, f, 4, 0, Math.PI * 2), s.fill(), s.stroke();
-    }), t?.boss?.active) {
-      let [h, d] = l(t.boss.x, t.boss.z);
-      s.fillStyle = "#ff5f56", s.beginPath(), s.arc(h, d, 6, 0, Math.PI * 2), s.fill();
+      let [x, y] = at(h.x, h.z), mine = h.partyId && h.partyId === this.party?.id, p = mine ? rim(x, y, 5) : { x, y };
+      if (!mine && !inside(x, y, 2)) return;
+      s.fillStyle = mine ? "#22b86c" : "#4d86f0", s.strokeStyle = "#fff", s.lineWidth = 1.3, s.beginPath(), s.arc(p.x, p.y, 3.2, 0, Math.PI * 2), s.fill(), s.stroke();
+    });
+    // the world boss, wherever it is
+    if (t?.boss?.active) {
+      let [x, y] = at(t.boss.x, t.boss.z), p = rim(x, y, 9);
+      badge(p.x, p.y, 6, "#fff", "☠", "#ff5f56"), p.out && pointer(p, "#ff5f56");
     }
-    // A dot says where you are; a wedge also says which way you are looking,
-    // which is the half of "where am I" a north-up map otherwise leaves out.
-    drawYou(s, c, c, e.camYaw || 0, 12);
+    // your errand: a gold star, or the way to it on the rim
+    let obj = extra.objective;
+    if (obj) {
+      let [x, y] = at(obj.x, obj.z), p = rim(x, y, 9);
+      badge(p.x, p.y, 6, "#fff", "", "#ffc233");
+      s.font = "900 9px system-ui", s.textAlign = "center", s.textBaseline = "middle", s.fillStyle = "#fff", s.fillText("★", p.x, p.y + 0.5);
+      p.out && pointer(p, "#ffb21a");
+    }
+    // you, facing up
+    drawYou(s, c, c, Math.PI, 8.5);
+    // the glass: darker toward the rim, a little light at the top
+    let edge = s.createRadialGradient(c, c, R * 0.62, c, c, R);
+    edge.addColorStop(0, "rgba(20,30,50,0)"), edge.addColorStop(1, "rgba(20,30,50,.22)"), s.fillStyle = edge, s.fillRect(0, 0, css, css);
+    let shine = s.createLinearGradient(0, 0, 0, css * 0.55);
+    shine.addColorStop(0, "rgba(255,255,255,.22)"), shine.addColorStop(1, "rgba(255,255,255,0)"), s.fillStyle = shine, s.beginPath(), s.ellipse(c, c * 0.42, R * 0.82, R * 0.44, 0, Math.PI, 0), s.fill();
     s.restore();
-    // North, so the map is orientable at a glance.
-    s.font = "800 14px system-ui", s.textAlign = "center", s.lineWidth = 3, s.strokeStyle = "rgba(255,255,255,.9)", s.strokeText("N", c, 17), s.fillStyle = "#2a2f4d", s.fillText("N", c, 17);
+    // the compass: ticks round the rim, turning with the map, and north
+    s.strokeStyle = "rgba(42,47,77,.35)", s.lineWidth = 1.2;
+    for (let i = 1; i < 8; i++) {
+      let q = north + i * Math.PI / 4, l = i % 2 ? 3 : 5;
+      s.beginPath(), s.moveTo(c + Math.cos(q) * (R - 1), c + Math.sin(q) * (R - 1)), s.lineTo(c + Math.cos(q) * (R - 1 - l), c + Math.sin(q) * (R - 1 - l)), s.stroke();
+    }
+    let nx = c + Math.cos(north) * (R - 9.5), ny = c + Math.sin(north) * (R - 9.5);
+    s.beginPath(), s.arc(nx, ny, 6.5, 0, Math.PI * 2), s.fillStyle = "#2a2f4d", s.fill(), s.lineWidth = 1.2, s.strokeStyle = "#fff", s.stroke();
+    s.font = "900 8.5px system-ui", s.textAlign = "center", s.textBaseline = "middle", s.fillStyle = "#fff", s.fillText("N", nx, ny + 0.5);
   }
 
   /** The whole zone, drawn from the same live numbers, on its own clock. */
@@ -516,8 +611,10 @@ var UI = class {
     // panel it sits in is warm white now — so two zones do not look alike.
     o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.fillStyle = pastel(t.ground ?? 6531422, 0.5), o.fill(), o.strokeStyle = "rgba(42,47,77,.28)", o.lineWidth = 1.5, o.stroke();
     o.save(), o.beginPath(), o.arc(l, l, l - 8, 0, Math.PI * 2), o.clip();
-    // a planned zone draws its own ground: rivers, woods, roads, what is built
-    let art = zoneArt(t);
+    // a planned zone draws its own ground: rivers, woods, roads, what is built;
+    // the town its streets and roofs
+    let full = ZONES[t.id] ? { ...ZONES[t.id], ...t } : t,
+      art = zoneArt(full) || cityArt(full);
     art && o.drawImage(art.canvas, l - a * c, l - a * c, a * 2 * c, a * 2 * c);
     // Pins first, then labels, so a label can never be painted under a disc
     // drawn after it.
@@ -2901,6 +2998,77 @@ var MAP_PIN = {
   _: "#d9cdb4"
 };
 
+// And the sign on each place's badge, on the radar.
+var MAP_GLYPH = {
+  portal: "🌀", gate: "🚪", dungeon: "⚔️", shop: "🛒", npc: "💬", clinic: "➕", archive: "📜",
+  workshop: "🔨", base: "🏡", plaza: "⛲", town: "🏘", camp: "⛺", pier: "⚓", garden: "🌷"
+};
+
+/**
+ * The town drawn from above, for the radar and the map: the streets on their
+ * grid with kerbs and pavements, the square's flagstones, the gardens between,
+ * the sea past the quay, and every roof and tree in its place — once per
+ * town, from the same props the world is built from (shared/props.js).
+ */
+var CITY_ART = new Map();
+function cityArt(zone) {
+  if (!zone?.urban) return null;
+  if (CITY_ART.has(zone.id)) return CITY_ART.get(zone.id);
+  let P = propsFor(zone), half = zone.size / 2, k = 3, n = Math.round(zone.size * k),
+    cv = document.createElement("canvas");
+  cv.width = cv.height = n;
+  let c = cv.getContext("2d"), img = c.createImageData(n, n),
+    plaza = plazaOf(zone) || zone.landmarks.find((l) => l.kind === "plaza"),
+    hash = (x, y) => { let h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return h - Math.floor(h); };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    let x = -half + (i + 0.5) / k, y = -half + (j + 0.5) / k, off = Math.min(gridOffset(x), gridOffset(y)), d = Math.hypot(x, y),
+      g = hash(Math.floor(x), Math.floor(y)) * 10 - 5, col;
+    if (y < EDGE_Y) col = [120 + g, 178 + g, 222];
+    else if (plaza && Math.hypot(x - plaza.x, y - plaza.z) < plaza.r) col = Math.hypot(x - plaza.x, y - plaza.z) < 3.4 ? [196, 186, 170] : [236 + g * 0.5, 226 + g * 0.5, 204];
+    else if (d > half - 2 || (d > SIDEWALK && off > CURB_OUT)) col = [150 + g, 196 + g, 120];
+    else if (off < CURB_IN) col = off < 0.18 && hash(Math.floor(x / 3), Math.floor(y / 3)) > 0.5 ? [238, 238, 230] : [132 + g * 0.4, 140 + g * 0.4, 156];
+    else if (off < CURB_OUT) col = [214, 210, 202];
+    else if (off < LAMP_SPACING) col = [232 + g * 0.4, 226 + g * 0.4, 214];
+    else col = [168 + g, 210 + g, 138];
+    img.data.set([col[0] | 0, col[1] | 0, col[2] | 0, 255], (j * n + i) * 4);
+  }
+  c.putImageData(img, 0, 0);
+  let toPx = (x, y) => [(x + half) * k, (y + half) * k],
+    hex = (v) => `rgb(${v >> 16 & 255},${v >> 8 & 255},${v & 255})`,
+    lite = (v, t) => `rgb(${[v >> 16 & 255, v >> 8 & 255, v & 255].map((q) => Math.round(q + (255 - q) * t)).join(",")})`;
+  // trees, then roofs (with a shadow to the south-east), so a roof is never under a tree
+  for (let tr of P.trees || []) {
+    let [px, py] = toPx(tr.x, tr.z);
+    c.beginPath(), c.arc(px + 1.5, py + 1.5, 1.9 * k * (tr.s || 1), 0, Math.PI * 2), c.fillStyle = "rgba(30,50,30,.25)", c.fill();
+    c.beginPath(), c.arc(px, py, 1.9 * k * (tr.s || 1), 0, Math.PI * 2), c.fillStyle = "#5f9d52", c.fill();
+  }
+  let roof = (b, color) => {
+    if (!Number.isFinite(b.x) || !b.w || !b.d) return;
+    let [px, py] = toPx(b.x, b.z), w = b.w * k, d = b.d * k;
+    c.save(), c.translate(px, py), c.rotate(-(b.rot || 0));
+    c.fillStyle = "rgba(30,34,52,.28)", c.fillRect(-w / 2 + 2.5, -d / 2 + 2.5, w, d);
+    c.fillStyle = color, c.fillRect(-w / 2, -d / 2, w, d);
+    c.strokeStyle = "rgba(30,34,52,.35)", c.lineWidth = 1, c.strokeRect(-w / 2 + 0.5, -d / 2 + 0.5, w - 1, d - 1);
+    c.fillStyle = "rgba(255,255,255,.18)", c.fillRect(-w / 2, -d / 2, w, Math.max(1, d * 0.35));
+    c.restore();
+  };
+  for (let b of P.buildings || []) roof(b, lite(b.roof ?? 0x6a5a50, 0.38));
+  for (let st of P.structures || []) {
+    if (st.kind === "fence" || st.kind === "trough" || st.kind === "haystack") continue;
+    st.kind === "pond" ? (() => { let [px, py] = toPx(st.x, st.z); c.beginPath(), c.ellipse(px, py, (st.w || 6) * k / 2, (st.d || 6) * k / 2, -(st.rot || 0), 0, Math.PI * 2), c.fillStyle = "#86c3ea", c.fill(); })()
+      : roof({ ...st, w: st.w || 4, d: st.d || 4 }, st.kind === "field" ? "#d8c070" : lite(st.roof ?? 0x8a5a40, 0.1));
+  }
+  // the town's own houses (the shop, the clinic…): a roof in their pin's colour
+  for (let l of zone.landmarks || []) {
+    if (!l.r || !["archive", "shop", "workshop", "clinic"].includes(l.kind)) continue;
+    roof({ x: l.x, z: l.z, w: l.r * 1.5, d: l.r * 1.3 }, MAP_PIN[l.kind] || "#d9cdb4");
+  }
+  // the quay
+  c.fillStyle = "#b08a5a", c.fillRect((-6 + half) * k, (EDGE_Y - 10 + half) * k, 12 * k, 10 * k);
+  let art = { canvas: cv, size: zone.size, scale: k };
+  return CITY_ART.set(zone.id, art), art;
+}
+
 /** Accepts a palette number (0x3a5f58) or a css hex, and gives back rgba. */
 /** A zone colour washed toward white, as a CSS colour: `k` of the way there. */
 /**
@@ -2969,11 +3137,18 @@ function rgba(i, e) {
   return `rgba(${t},${n},${s},${e})`;
 }
 
-/** You, and which way you are looking. North-up maps need the second half. */
+/** You, and which way you are looking. North-up maps need the second half:
+ *  a white arrow with a dark edge and a soft shadow, the shape every map app
+ *  uses for "you are here". */
 function drawYou(i, e, t, n, s) {
-  let r = Math.sin(n),
-    o = Math.cos(n);
-  i.fillStyle = "rgba(11,14,30,.85)", i.beginPath(), i.arc(e, t, s * 0.55, 0, Math.PI * 2), i.fill(), i.fillStyle = "#fff", i.beginPath(), i.moveTo(e + r * s, t + o * s), i.lineTo(e - o * s * 0.46 - r * s * 0.28, t + r * s * 0.46 - o * s * 0.28), i.lineTo(e + o * s * 0.46 - r * s * 0.28, t - r * s * 0.46 - o * s * 0.28), i.closePath(), i.fill();
+  let r = Math.sin(n), o = Math.cos(n),
+    pt = (f, g) => [e + r * f + o * g, t + o * f - r * g],
+    tip = pt(s, 0), l = pt(-s * 0.62, s * 0.62), m = pt(-s * 0.3, 0), q = pt(-s * 0.62, -s * 0.62);
+  i.save(), i.shadowColor = "rgba(20,24,46,.45)", i.shadowBlur = 3, i.shadowOffsetY = 1;
+  i.beginPath(), i.moveTo(...tip), i.lineTo(...l), i.lineTo(...m), i.lineTo(...q), i.closePath();
+  i.fillStyle = "#fff", i.fill(), i.restore();
+  i.beginPath(), i.moveTo(...tip), i.lineTo(...l), i.lineTo(...m), i.lineTo(...q), i.closePath();
+  i.lineJoin = "round", i.lineWidth = 1.6, i.strokeStyle = "#1d6fe0", i.stroke();
 }
 
 /** A landmark is worth a label when it has a name and room to print one. */

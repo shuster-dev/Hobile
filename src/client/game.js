@@ -1610,7 +1610,7 @@ var Game = class {
     // bent them by.
     this.world.setWeather(sky), this.world.setTimeOfDay(c), this.ui.setSky(sky), this.updateObjective(s);
     let h = Number.isFinite(this.world.night) ? this.world.night : 0;
-    Math.abs(h - (this._lastNight ?? -1)) > 0.08 && (this._lastNight = h, audio.setNight(h)), this.world.update(e, t), this.ui.drawMinimap(this.world, s, n.sessionId), this.ui.setBoss(s.boss), this.updateNameplates(s, n.sessionId), this.updatePrompt();
+    Math.abs(h - (this._lastNight ?? -1)) > 0.08 && (this._lastNight = h, audio.setNight(h)), this.world.update(e, t), this.ui.drawMinimap(this.world, s, n.sessionId, { objective: this._objPoint }), this.ui.setBoss(s.boss), this.updateNameplates(s, n.sessionId), this.updatePrompt();
   }
   underHud(e) {
     let t = performance.now();
@@ -1628,12 +1628,13 @@ var Game = class {
     if (!t) return;
     let n = this.currentObjective();
     if (globalThis.__hobileQuestNpc = n?.goal?.kind === "talk" && !n.done ? n.goal.target : null, !n) {
-      t.classList.add("hidden");
+      this._objPoint = null, t.classList.add("hidden");
       return;
     }
     let s = this.world.selfPosition(),
       r = this.objectivePoint(n, e, s);
-    if (!r) {
+    // the radar shows it too (ui.drawMinimap)
+    if (this._objPoint = r || null, !r) {
       t.classList.add("hidden");
       return;
     }
