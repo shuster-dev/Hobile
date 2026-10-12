@@ -161,9 +161,10 @@ function buildGroundMesh(i, e, t, n) {
     let M = Math.sign(fbm(T * 0.5, y * 0.5, 7, 1)) || 1,
       P = gridOffset(T) < CURB_IN ? T + M * (CURB_IN - 0.32) : T,
       A = gridOffset(T) < CURB_IN ? y : y + M * (CURB_IN - 0.32);
-    _(P - 0.28, A - 0.5, P + 0.28, A + 0.5, e.drain), n.add(xf2(new CylinderGeometry(0.42, 0.42, 0.05, 10), {
+    // a cover set into the paving, flush with it, not a plate laid on top
+    _(P - 0.28, A - 0.5, P + 0.28, A + 0.5, e.drain), n.add(xf2(new CylinderGeometry(0.42, 0.42, 0.024, 14), {
       x: T - M * 1.4,
-      y: t(T, y) + 0.03,
+      y: t(T, y) + 0.014,
       z: y + M * 1.1
     }), e.drain);
   }
