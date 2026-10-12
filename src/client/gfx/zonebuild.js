@@ -6,6 +6,7 @@
 // `part(name, pivot)`; smoke gets an emitter with `smoke(x, y, z)`. The
 // footprints that stop a walker are in shared/worldplan.js, beside the plan.
 import { Kit } from './zonekit.js';
+import { SURF } from './surfaces.js';
 
 const WOOD = 0x9A6A44, WOOD_D = 0x6E4A30, WOOD_L = 0xC49A6C, PLANK = 0xB08458;
 const STONE = 0xC2B8A8, STONE_D = 0x8E8578, SLATE = 0x5E6470, IRON = 0x4C505A;
@@ -20,12 +21,26 @@ function windows(k, g, list, w = 0.7, h = 0.8) {
   }
 }
 
+/** A tree's crown: not one ball but a cluster — the bottom and the inside
+ *  darker, the top lit — so it reads as leaves with depth, not a lollipop. */
+function canopy(k, x, y, z, r, seed = 0.5) {
+  const deep = 0x3C7F38, mid = 0x4E9A44, top = 0x6BB552;
+  k.ball(r, { x, y, z, sy: 0.82 }, mid, 10);
+  for (let i = 0; i < 4; i++) {
+    const a = i * 1.57 + seed * 6.28, d = r * 0.62;
+    k.ball(r * (0.56 + 0.1 * ((i + seed * 3) % 1)), { x: x + Math.cos(a) * d, y: y - r * 0.28, z: z + Math.sin(a) * d, sy: 0.8 }, deep, 8);
+  }
+  k.ball(r * 0.62, { x: x + r * 0.18, y: y + r * 0.42, z: z - r * 0.12, sy: 0.82 }, top, 9);
+  k.ball(r * 0.45, { x: x - r * 0.38, y: y + r * 0.25, z: z + r * 0.3, sy: 0.82 }, top, 8);
+}
+
 /** A house: walls, a door, windows, a gabled roof and maybe a chimney. */
 function house(k, g, { w, d, h, wall, roof, trim = WOOD_D, chimney = null, smoke, door = true }) {
   k.box(w + 0.3, 0.3, d + 0.3, { y: 0.15 }, STONE_D);
   k.box(w, h, d, { y: h / 2 + 0.2 }, wall);
   for (const sx of [1, -1]) for (const sz of [1, -1]) k.box(0.22, h, 0.22, { x: sx * w / 2, y: h / 2 + 0.2, z: sz * d / 2 }, trim);
-  const ridge = h + 0.2 + w * 0.42;
+  // a cottage's pitch (a little under 35°), not an A-frame's
+  const ridge = h + 0.2 + w * 0.34;
   k.gableEnds(w, d, h + 0.2, ridge, {}, wall);
   k.gable(w, d, h + 0.2, ridge, {}, roof);
   if (door) k.box(1.1, 1.9, 0.1, { y: 1.15, z: d / 2 + 0.03 }, WOOD_D);
@@ -115,11 +130,12 @@ export const BUILDERS = {
   barn(k, g, s) {
     const { w, d, h } = s;
     k.box(w + 0.3, 0.3, d + 0.3, { y: 0.15 }, STONE_D);
-    k.box(w, h, d, { y: h / 2 + 0.2 }, RED);
+    // red paint on upright boards
+    k.box(w, h, d, { y: h / 2 + 0.2 }, RED, SURF.painted, 'y');
     const ridge = h + 0.2 + w * 0.36;
-    k.gableEnds(w, d, h + 0.2, ridge, {}, RED);
+    k.gableEnds(w, d, h + 0.2, ridge, {}, RED, SURF.painted);
     k.gable(w, d, h + 0.2, ridge, {}, 0x5A4A44);
-    k.box(4, 4, 0.12, { y: 2.2, z: d / 2 + 0.04 }, 0x8A3A2E);
+    k.box(4, 4, 0.12, { y: 2.2, z: d / 2 + 0.04 }, 0x8A3A2E, SURF.painted, 'y');
     for (const sx of [1, -1]) k.box(0.18, 5.6, 0.14, { x: sx * 1, y: 2.2, z: d / 2 + 0.1, rz: sx * 0.78 }, WHITE);
     k.box(4.2, 0.2, 0.16, { y: 4.25, z: d / 2 + 0.1 }, WHITE);
     windows(k, g, [[0, h + 1.2, d / 2 + 0.05]], 1, 1);
@@ -139,9 +155,13 @@ export const BUILDERS = {
   },
   orchard(k, g, s) {
     for (let x = -s.w / 2 + 2; x <= s.w / 2 - 1.5; x += 4.2) for (let z = -s.d / 2 + 2; z <= s.d / 2 - 1.5; z += 4.2) {
-      k.cyl(0.16, 0.22, 1.6, { x, y: 0.8, z }, WOOD_D, 6);
-      k.ball(1.25, { x, y: 2.3, z, sy: 0.85 }, 0x4E9A44, 7);
-      for (let i = 0; i < 5; i++) { const a = i * 1.26 + x; k.ball(0.14, { x: x + Math.cos(a) * 1.05, y: 2.2 + (i % 2) * 0.4, z: z + Math.sin(a) * 1.05 }, i % 2 ? 0xE8503A : 0xF2A23A, 5); }
+      const r = ((x * 7.3 + z * 3.1) % 1 + 1) % 1;
+      // a trunk that flares at the root and forks under the crown
+      k.cyl(0.13, 0.24, 1.7, { x, y: 0.85, z }, WOOD_D, 7);
+      k.cyl(0.07, 0.11, 0.9, { x: x + 0.22, y: 1.85, z, rz: -0.5 }, WOOD_D, 5);
+      k.cyl(0.07, 0.11, 0.8, { x: x - 0.18, y: 1.8, z: z + 0.1, rz: 0.55, rx: 0.2 }, WOOD_D, 5);
+      canopy(k, x, 2.45, z, 1.15, r);
+      for (let i = 0; i < 6; i++) { const a = i * 1.05 + x; k.ball(0.13, { x: x + Math.cos(a) * 1.08, y: 2.15 + (i % 3) * 0.35, z: z + Math.sin(a) * 1.08 }, i % 2 ? 0xE8503A : 0xF2A23A, 6); }
     }
   },
   haystack(k) { k.cyl(1.15, 1.25, 1.2, { y: 0.6 }, THATCH, 10); k.cone(1.2, 1.1, { y: 1.75 }, 0xE6C470, 10); },

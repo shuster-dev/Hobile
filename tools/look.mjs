@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const outDir = process.argv[2] || 'shots/look';
-const PORT = 2653;
+const PORT = Number(process.env.PORT || 2653);
 const W = 430, H = 880;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -33,7 +33,9 @@ const CHROME = ['/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/head
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => fs.existsSync(p));
 const browser = await chromium.launch({ executablePath: CHROME,
   args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'] });
-const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
+const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: Number(process.env.DSF || 2) });
+// software GL draws a tier above low slowly: give every step time
+page.setDefaultTimeout(Number(process.env.STEP_MS || 30000));
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -46,15 +48,15 @@ const snap = async (name) => {
   console.log(`  ${file}`);
 };
 
-await page.goto(`http://127.0.0.1:${PORT}/solo.html${process.env.QUERY ? '?' + process.env.QUERY : ''}`, { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${PORT}/${process.env.PAGE || 'solo.html'}${process.env.QUERY ? '?' + process.env.QUERY : ''}`, { waitUntil: 'load' });
 // The front door first: the harbour turning behind the logo.
-await page.waitForSelector('#btn-play:not([disabled])', { timeout: 30000 });
+await page.waitForSelector('#btn-play:not([disabled])', { timeout: Number(process.env.STEP_MS || 30000) });
 await wait(3000);
 await snap('0-title');
-await page.click('#btn-play', { timeout: 30000 });   // the title screen, as a player taps it
-await page.waitForSelector('#btn-next', { timeout: 25000 });
+await page.click('#btn-play', { timeout: Number(process.env.STEP_MS || 30000) });   // the title screen, as a player taps it
+await page.waitForSelector('#btn-next', { timeout: Number(process.env.STEP_MS || 25000) });
 // The cards' portraits are drawn one a frame, after the stage's figure.
-await page.waitForFunction(() => document.querySelectorAll('#pick-kind .cc-kind img').length >= 7, null, { timeout: 30000 }).catch(() => {});
+await page.waitForFunction(() => document.querySelectorAll('#pick-kind .cc-kind img').length >= 7, null, { timeout: Number(process.env.STEP_MS || 30000) }).catch(() => {});
 await wait(2400);
 await snap('1-create');
 // Another kind: the stage, the name and the colour follow it.
@@ -63,7 +65,7 @@ await wait(2600);
 await snap('1a-create-mage');
 await page.click('#pick-kind .cc-kind[data-kind="catcher"]');
 await page.click('#btn-next');
-await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
+await page.waitForSelector('#pick-starter .starter', { timeout: Number(process.env.STEP_MS || 25000) });
 await page.waitForSelector('#pick-starter .portrait', { timeout: 12000 }).catch(() => {});
 await wait(2200);
 await snap('1b-partner');
@@ -71,7 +73,7 @@ await snap('1b-partner');
 await page.click('#pick-starter .starter');
 await page.fill('#in-charname', 'מאיר');
 await page.click('#btn-create');
-await page.waitForFunction(() => window.__hobile?.mode === 'world' && window.__hobile.profile, null, { timeout: 30000 });
+await page.waitForFunction(() => window.__hobile?.mode === 'world' && window.__hobile.profile, null, { timeout: Number(process.env.STEP_MS || 30000) });
 // A team of three, so the battle screen shows the team bar a real player has
 // after their first captures. The offline save is plain data in the page.
 await page.evaluate(() => {
@@ -114,7 +116,7 @@ await snap('3-town-dusk');
 // A field zone, where the creatures are.
 await page.evaluate(() => window.__hobile.net.send('travel', { zone: 'verdant_meadow' }));
 await page.waitForFunction(() => window.__hobile?.world?.zone?.id === 'verdant_meadow'
-  && window.__hobile.mode === 'world', null, { timeout: 30000 }).catch(() => {});
+  && window.__hobile.mode === 'world', null, { timeout: Number(process.env.STEP_MS || 30000) }).catch(() => {});
 await pin(0.42);
 await wait(3200);
 await snap('4-field');
