@@ -150,7 +150,7 @@ const teamCreaturesOf = (doc) => (doc.team || []).map((u) => doc.creatures?.[u])
 export function setRide(ctx, self, doc, ride) {
   ctx.ride = ride;
   doc.riding = ride?.uid || null;
-  if (self) { self.mount = ride?.species || ''; self.mountKind = ride?.kind || ''; self.mountStar = ride?.star || 1; }
+  if (self) { self.mount = ride?.species || ''; self.mountKind = ride?.kind || ''; self.mountStar = ride?.star || 1; self.alt = 0; }
 }
 
 /** Back in the world: on the one they were riding, if it can still carry them. */
@@ -208,6 +208,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
               else ctx.pace = 0;
             }
             s.x = o.x, s.z = o.z, s.rot = Number.isFinite(t.rot) ? t.rot : s.rot, s.moving = !!t.moving, keepSpot(n, ctx.zoneId, s), ctx.checkVisits(n, s);
+            // a flyer's height, as it says (shown to the others; nothing hangs on it)
+            s.alt = ctx.ride?.kind === "fly" && Number.isFinite(t.alt) ? Math.max(0, Math.min(40, Math.round(t.alt * 10) / 10)) : 0;
           }
           break;
         case "passView":

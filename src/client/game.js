@@ -702,6 +702,8 @@ var Game = class {
       q && this.ui.toast(`משימה חדשה: ${loc(q)}`, "good");
     }), e.on("error", t => {
       this.engagePending = 0, this._storyFight = null, this.ui.toast(Oc(t.code), "bad");
+      // could not land here (over the water, the chasm): back up into the air
+      t.code === "cannot_land" && (this.world.flyLanding = !1);
     }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
       if (!this.transitioning) {
         this.transitioning = !0, this.engagePending = 0, this.ambush = t.kind === "battle" && t.ambush ? { wildId: t.wildId } : null;
@@ -1068,7 +1070,16 @@ var Game = class {
   }
   bindButtons() {
     $("#btn-action").onclick = () => this.doAction();
+    // in the air two of the circles climb and dive, for as long as they are held
+    let hold = (b, v) => { this.world.flyInput = v, b.classList.toggle("held", !!v); };
+    for (let b of document.querySelectorAll(".skill-btn")) {
+      b.addEventListener("pointerdown", (ev) => { b.dataset.fly && (ev.preventDefault(), b.setPointerCapture?.(ev.pointerId), hold(b, b.dataset.fly === "up" ? 1 : -1)); });
+      for (let n of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(n, () => { b.dataset.fly && hold(b, 0); });
+    }
+    addEventListener("keydown", (ev) => { this.riding?.kind === "fly" && (ev.code === "Space" ? this.world.flyInput = 1 : (ev.code === "ShiftLeft" || ev.code === "KeyC") && (this.world.flyInput = -1)); });
+    addEventListener("keyup", (ev) => { (ev.code === "Space" || ev.code === "ShiftLeft" || ev.code === "KeyC") && (this.world.flyInput = 0); });
     for (let e of document.querySelectorAll(".skill-btn")) e.onclick = () => {
+      if (e.dataset.fly) return;
       // a trick for the one beside you, or a move at what is in front of you
       if (e.dataset.trick) return this.petTrick(e.dataset.trick);
       let t = e.dataset.skill;
@@ -1145,11 +1156,13 @@ var Game = class {
       dailyClaim: () => e("dailyClaim"),
       ride: (uid = null) => e("ride", uid ? { uid } : {}),
       rideToggle: () => {
-        // down if up; else up on the one ridden last, or the best there is
+        // down if up — from the air, by landing first; else up on the one
+        // ridden last, or the best there is
+        if (this.riding && this.riding.kind === "fly" && this.world.flightAlt() > 0.8) return this.world.flyLanding = !0, this._landAt = Date.now(), this.ui.toast("🛬 נוחת…", "");
         if (this.riding) return e("ride", {});
         let ms = mountsOf(this.profile?.team || []), last = ms.find(m => m.uid === this._lastRide);
         let m = last || ms[0];
-        m ? (this._lastRide = m.uid, e("ride", { uid: m.uid })) : saddleWanted(this.profile?.team || []).length ? (this.ui.toast("צריך אוכף — צוד 5 מהמשפחה שלו ובנה אותו בחצר", "bad"), this.ui.baseFocus = "saddles", this.openBase()) : this.ui.toast("אין ביצוות יצור שיכול לשאת אותך — יצור מפותח או בעל ★3", "bad");
+        m ? (this._lastRide = m.uid, e("ride", { uid: m.uid })) : saddleWanted(this.profile?.team || []).length ? (this.ui.toast("צריך אוכף — צוד 5 מהמשפחה שלו ובנה אותו בחצר", "bad"), this.ui.baseFocus = "saddles", this.openBase()) : this.ui.toast("אין בצוות יצור לרכוב עליו", "bad");
       },
       saddleMake: t => e("saddleMake", { uid: t }),
       arenaView: () => e("arenaView"),
@@ -1569,7 +1582,7 @@ var Game = class {
         petSpecies: d.petSpecies,
         petStar: d.petStar || 1
       });
-      u !== n.sessionId ? this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1), this.world.setMount(f, d.mount, d.mountKind, d.mountStar || 1);
+      u !== n.sessionId ? (this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving), this.world.setActorAlt(u, d.alt)) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1), this.world.setMount(f, d.mount, d.mountKind, d.mountStar || 1);
     }), s.wilds.forEach((d, u) => {
       r.add(u), this.world.ensureActor(u, {
         kind: "wild",
@@ -1601,6 +1614,8 @@ var Game = class {
       a = this.world.moveSelf(x, g, e), this.walkPhase += p * e, this.walkPhase > 1.55 && (this.walkPhase = 0, audio.sfx("step"));
     } else a = this.world.moveSelf(0, 0, e), this.walkPhase = 1.2;
     let l = Date.now();
+    // landing from the air: down first, then off (rideToggle)
+    this.world.flyLanding && this.riding && (this.world.flightAlt() < 0.4 || l - (this._landAt || 0) > 8e3) && (this.world.flyLanding = !1, this.net.send("ride", {}));
     a && l - this.lastNetSend > 1e3 / zb && (this.lastNetSend = l, this.net.send("move", a));
     let l2 = s.serverTime || Date.now(),
       c = l2 % wp / wp,

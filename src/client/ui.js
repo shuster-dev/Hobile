@@ -324,7 +324,7 @@ var UI = class {
     let ms = mountsOf(this.profile?.team || []);
     b.classList.toggle("on", !!riding);
     let k = riding?.kind || ms[0]?.kind;
-    b.textContent = riding ? "⬇" : RIDE[k]?.icon || "🐎", b.setAttribute("aria-label", riding ? "לרדת" : RIDE[k]?.he || "רכיבה");
+    b.textContent = riding ? riding.kind === "fly" ? "🛬" : "⬇" : RIDE[k]?.icon || "🐎", b.setAttribute("aria-label", riding ? riding.kind === "fly" ? "לנחות ולרדת" : "לרדת" : RIDE[k]?.he || "רכיבה");
     b.onclick = () => this.hooks.rideToggle?.();
     // shown or not by the cluster: it takes the fourth place on the arc
     this._clusterKey = null, this.syncCluster();
@@ -1671,7 +1671,7 @@ var UI = class {
     head.id = "saddles", e.appendChild(head);
     if (!all.length) {
       let h = el("div", "hint");
-      h.textContent = "יצור מפותח (או בעל ★3) שגדול מספיק — ציפור, יצור מים או בעל ארבע רגליים — יכול לשאת אותך. כשיהיה לך כזה: צוד 5 מהמשפחה שלו, וכאן תבנה לו אוכף.";
+      h.textContent = "כל יצור יכול לשאת אותך — מי שיש לו כנפיים עף, יצור מים שוחה, והשאר רצים. צוד 5 מהמשפחה שלו, וכאן תבנה לו אוכף.";
       e.appendChild(h);
     }
     all.sort((x, y) => !!x.c.saddle - !!y.c.saddle || y.team - x.team);
@@ -2646,7 +2646,9 @@ var UI = class {
    * the ride button in the fourth place when something can carry you.
    */
   syncCluster() {
-    let mode = this._clusterMode || "tricks", riding = !!this._riding,
+    let flying = this._riding?.kind === "fly",
+      // in the air the circles climb and dive, whatever is about
+      mode = flying ? "flight" : this._clusterMode || "tricks", riding = !!this._riding,
       canRide = riding || mountsOf(this.profile?.team || []).length > 0,
       rideShown = riding || canRide && mode === "tricks",
       moves = this._worldSkills || [],
@@ -2655,15 +2657,15 @@ var UI = class {
     this._clusterKey = key;
     $("#btn-ride")?.classList.toggle("hidden", !rideShown);
     document.querySelectorAll(".skill-btn").forEach((n, s) => {
-      let r = null, trick = null;
+      let r = null, trick = null, fly = mode === "flight" && s < 2 ? s ? "down" : "up" : "";
       if (mode === "moves") s === 3 && rideShown || (r = moves[s] || null);
-      else riding || s > 2 || (trick = TRICKS[TRICK_IDS[s]]);
+      else mode === "tricks" && !riding && s <= 2 && (trick = TRICKS[TRICK_IDS[s]]);
       let o = r && MOVES[r];
-      n.dataset.skill = o ? r : "", n.dataset.trick = trick ? trick.id : "", n.classList.toggle("trick", !!trick);
-      let on = !!(o || trick);
+      n.dataset.skill = o ? r : "", n.dataset.trick = trick ? trick.id : "", n.dataset.fly = fly, n.classList.toggle("trick", !!trick), n.classList.toggle("fly", !!fly);
+      let on = !!(o || trick || fly);
       n.disabled = !on, n.classList.toggle("hidden", !on);
-      n.querySelector(".ico").textContent = trick ? trick.icon : o && ELEMENTS[o.type]?.icon || "✦";
-      let label = trick ? trick.he : o ? loc(o) : `כישור ${s + 1}`;
+      n.querySelector(".ico").textContent = fly ? fly === "up" ? "▲" : "▼" : trick ? trick.icon : o && ELEMENTS[o.type]?.icon || "✦";
+      let label = fly ? fly === "up" ? "לעלות (החזק)" : "לרדת נמוך (החזק)" : trick ? trick.he : o ? loc(o) : `כישור ${s + 1}`;
       n.title = on ? label : "", n.setAttribute("aria-label", label);
     });
   }

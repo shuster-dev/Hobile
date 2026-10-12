@@ -3460,6 +3460,11 @@ function rngFromFloat(i) {
 // 1.78m, the old distance made them a figure in a crowd.)
 var CAM_DIST = 9.6,
   CAM_HEIGHT = 8.2,
+  // Flight (shared/riding.js 'fly'): the height a flyer climbs to when it
+  // takes off, the lowest and highest it goes, how fast it climbs, how
+  // quickly it gathers and loses speed (it glides on after the stick is let
+  // go), and how far the camera pulls back to show the ground going by.
+  FLY = { cruise: 9, min: 2.4, max: 34, climb: 8, accel: 2.4, drag: 0.9, camBack: 1.55, camUp: 3.5 },
   CAM_LEAD = 1.8,
   CAM_RISE_MAX = 9,
   CAM_RISE_STEPS = 6;
@@ -5228,6 +5233,49 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       };
     }
     /**
+     * Flight, every frame, for anyone on a flyer. The pair climbs to its
+     * height and holds it over the land (the ground under them is smoothed,
+     * so a hill does not jolt them up and a ditch does not drop them); it
+     * leans into a turn, dips its nose as it gathers speed and lifts it to
+     * climb; the wings beat hard to climb and to take off, and spread to
+     * glide at speed. Your own height is yours (the climb and dive buttons);
+     * everyone else's comes from the server (`alt`).
+     */
+    stepFlight(n, e, t) {
+      let M = n.mount, F = n.fly, me = n.key === this.self, ground = n.holder.position.y;
+      F.groundY += (ground - F.groundY) * Math.min(1, e * 1.6);
+      me ? F.target = this.flyLanding ? 0 : MathUtils.clamp(F.target + (this.flyInput || 0) * FLY.climb * e, FLY.min, FLY.max) : F.target = n.syncAlt ?? FLY.cruise;
+      let was = F.alt;
+      // landing comes down at a steady rate, not ever more slowly
+      me && this.flyLanding ? F.alt = Math.max(0, F.alt - Math.max(4, F.alt * 1.6) * e) : F.alt += (F.target - F.alt) * Math.min(1, e * 1.5);
+      F.rate += ((F.alt - was) / Math.max(e, 1e-3) - F.rate) * Math.min(1, e * 6);
+      // never into the hillside
+      let y = Math.max(F.groundY + F.alt, ground + Math.min(F.alt, 1.4)),
+        air = Math.min(1, F.alt / 3),
+        bob = Math.sin(this.time * 1.5 + (n.key?.length || 0)) * 0.22 * air;
+      F.h = y - ground, M.holder.position.y = F.h + bob;
+      // lean into the turn; nose down with speed, up to climb
+      let yaw = n.holder.rotation.y, turn = Math.atan2(Math.sin(yaw - F.yawPrev), Math.cos(yaw - F.yawPrev)) / Math.max(e, 1e-3);
+      F.yawPrev = yaw;
+      let sp = n._gs || 0;
+      F.bank += (MathUtils.clamp(-turn * 0.3, -0.6, 0.6) * air - F.bank) * Math.min(1, e * 4);
+      F.pitch += (MathUtils.clamp(sp * 0.02 - F.rate * 0.045, -0.38, 0.28) * air - F.pitch) * Math.min(1, e * 3);
+      M.holder.rotation.x = F.pitch, M.holder.rotation.z = F.bank;
+      M.group.userData.groundSpeed = 0, M.group.userData.baseY = 0;
+      M.group.userData.flight = { glide: air > 0.8 && sp > 3 && Math.abs(F.rate) < 0.8, beat: F.rate > 0.6 || air < 0.8, rate: F.rate };
+      animateCreature(M.group, t + 300, !1, 1);
+      n.group.userData.ridingMoving = !1;
+    }
+    /** How high another player is flying (the server's `alt`). */
+    setActorAlt(key, alt) {
+      let a = this.actors.get(key);
+      a && (a.syncAlt = Number.isFinite(alt) && alt > 0 ? alt : void 0);
+    }
+    /** Your own flight's height above the ground, or 0. */
+    flightAlt() {
+      return this.selfActor()?.fly?.alt || 0;
+    }
+    /**
      * Up on a creature (shared/riding.js): the creature under the trainer at
      * a size that can carry one, the trainer sat on its back, the pet that
      * walks behind put away. In the air the two of them ride above their
@@ -5237,7 +5285,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       species ||= "";
       if ((e.mount?.species || "") === species && (e.mount?.star || 1) === star && (e.mount?.kind || "") === (kind || "")) return;
       e.mount && (e.holder.remove(e.mount.holder), disposeTree(e.mount.holder), e.mount = null);
-      e.group.userData.riding = !1, e.group.userData.baseY = 0;
+      e.group.userData.riding = !1, e.group.userData.baseY = 0, e.fly = null, e.group.rotation.x = 0, e.group.rotation.z = 0;
       if (!species || !SPECIES[species] || !RIDE[kind]) return;
       let g = setStarLook(buildCreature(species, { outline: !0 }), star),
         box = new Box3().setFromObject(g),
@@ -5245,14 +5293,18 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         // big enough to carry a person: about a metre and a half at the back
         want = kind === "fly" ? 1.9 : kind === "swim" ? 2.1 : 2.2,
         // (a boss is brought all the way down: it is built twenty metres long)
-        k = Math.min(3, Math.max(Math.min(0.6, 3.2 / len), want / len));
+        // (and a little one grown until it can carry you: any creature can)
+        k = Math.min(5, Math.max(Math.min(0.6, 3.2 / len), want / len));
       g.scale.multiplyScalar(k);
       let holder = new Group();
       holder.add(g), e.holder.add(holder);
       // the saddle: the top of its back, a little behind the middle
       let saddle = h * k * (kind === "fly" ? 0.62 : 0.78);
-      e.mount = { species, kind, star, holder, group: g, saddle, lift: RIDE[kind].lift || 0 };
+      // in the air the height is the flight's own (FLY), not a fixed lift
+      e.mount = { species, kind, star, holder, group: g, saddle, lift: kind === "fly" ? 0 : RIDE[kind].lift || 0 };
       e.group.userData.riding = !0;
+      e.fly = kind === "fly" ? { alt: 0, target: e.key === this.self ? FLY.cruise : e.syncAlt ?? FLY.cruise, groundY: e.holder.position.y, bank: 0, pitch: 0, yawPrev: e.holder.rotation.y, rate: 0, h: 0 } : null;
+      e.key === this.self && (this._fv = { x: 0, z: 0 }, this.flyLanding = !1);
     }
     /** The height a body stands at here, for how it is travelling. */
     rideY(a, x, z) {
@@ -5294,7 +5346,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       if (!t || this._inside) return this.camYaw = prefer;
       let n = t.holder.position,
         // a rider sits higher, a flyer much higher: the camera goes with them
-        s = V_.set(n.x, n.y + 1.35 + (t.mount ? t.mount.lift + t.mount.saddle * 0.6 : 0), n.z),
+        s = V_.set(n.x, n.y + 1.35 + (t.mount ? t.mount.holder.position.y + t.mount.saddle * 0.6 : 0), n.z),
         clear = (yaw, h) => {
           let o = q_.set(-Math.sin(yaw) * this.camDist, h, -Math.cos(yaw) * this.camDist),
             a = o.length(),
@@ -5327,6 +5379,15 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     moveSelf(e, t, n) {
       let s = this.selfActor();
       if (!s) return null;
+      // In the air the stick steers a body with weight: it gathers speed, and
+      // glides on a little after the stick is let go.
+      if (s.fly) {
+        let v = this._fv || (this._fv = { x: 0, z: 0 }), push = e || t,
+          k = 1 - Math.exp(-n * (push ? FLY.accel : FLY.drag));
+        v.x += (e - v.x) * k, v.z += (t - v.z) * k;
+        Math.hypot(v.x, v.z) < 0.25 && !push && (v.x = 0, v.z = 0);
+        e = v.x, t = v.z;
+      }
       let r = (this.zone?.size || 100) / 2 - 1,
         o = s.holder.position.x + e * n,
         a = s.holder.position.z + t * n;
@@ -5338,7 +5399,9 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         x: o,
         z: a,
         rot: s.rotTarget,
-        moving: s.moving
+        moving: s.moving,
+        // how high a flyer is, for everyone else's screen
+        ...(s.fly ? { alt: Math.round(s.fly.alt * 10) / 10 } : {})
       };
     }
     reconcile(e, t) {
@@ -5406,15 +5469,15 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let dc = n.holder.position.distanceTo(this.camera.position), seen = n.key === this.self || dc < figureFar();
         n.group.visible = seen, n.pet && (n.pet.group.visible = seen), n.mount && (n.mount.holder.visible = seen);
         if (!seen) continue;
-        if (n.mount) {
-          // the creature under them walks (or swims, or beats its wings) and
-          // they sit on it; in the air the pair rides above the shadow
-          let M = n.mount, bob = M.kind === "fly" ? Math.sin(this.time * 1.6 + (n.key?.length || 0)) * 0.18 : M.kind === "swim" ? Math.sin(this.time * 2.2) * 0.05 : 0;
-          M.holder.position.y = M.lift + bob, M.group.userData.groundSpeed = n._gs, M.group.userData.baseY = 0;
-          animateCreature(M.group, t + 300, n.moving || M.kind === "fly", M.kind === "fly" ? 1.4 : 1);
+        if (n.mount && n.fly) this.stepFlight(n, e, t);
+        else if (n.mount) {
+          // the creature under them walks (or swims) and they sit on it
+          let M = n.mount, bob = M.kind === "swim" ? Math.sin(this.time * 2.2) * 0.05 : 0;
+          M.holder.position.y = M.lift + bob, M.group.userData.groundSpeed = n._gs, M.group.userData.baseY = 0, M.group.userData.flight = null;
+          animateCreature(M.group, t + 300, n.moving, 1);
           n.group.userData.ridingMoving = n.moving;
         }
-        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = n.mount ? n.mount.lift + n.mount.saddle - (n.group.userData.height || 1.4) * 0.36 + (n.mount.holder.position.y - n.mount.lift) : 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.pet && (n.pet.holder.visible = !n.mount), n.pet && !n.mount && !(n.pet.trick && this.tricks?.drive(n, e, t, animateCreature))) {
+        if (n.holder.rotation.y = s + r * Math.min(1, e * 11), n.group.userData.baseY = n.mount ? n.mount.lift + n.mount.saddle - (n.group.userData.height || 1.4) * 0.36 + (n.mount.holder.position.y - n.mount.lift) : 0, setCreatureLod(n.group, dc), animateCreature(n.group, t, n.moving), n.fly && (n.group.rotation.z = n.fly.bank * 0.85, n.group.rotation.x = n.fly.pitch * 0.85), n.pet && (n.pet.holder.visible = !n.mount), n.pet && !n.mount && !(n.pet.trick && this.tricks?.drive(n, e, t, animateCreature))) {
           let o = new Vector3(-1.35, 0, -1.45);
           n.pet._lp ||= n.pet.lag.clone();
           let pv;
@@ -5527,7 +5590,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       }
       if (this.viewMode === "first") {
         t.holder.visible = !1;
-        let f = new Vector3(n.x, n.y + 1.62 + (t.mount ? t.mount.lift + t.mount.saddle * 0.8 : 0), n.z);
+        let f = new Vector3(n.x, n.y + 1.62 + (t.mount ? t.mount.holder.position.y + t.mount.saddle * 0.8 : 0), n.z);
         f.x -= Math.sin(this.camYaw) * 0.16, f.z -= Math.cos(this.camYaw) * 0.16, this.camera.position.lerp(f, Math.min(1, e * 22));
         // Look the way the stick walks: forward is (sin yaw, cos yaw) in both
         // views. This used to look back along the third-person camera's arm,
@@ -5537,9 +5600,15 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         return;
       }
       t.holder.visible = !0;
+      // on a mount the camera rides at the rider's height; in the air it
+      // also pulls back and up, to show the ground going by underneath
+      let rise = t.mount ? t.mount.holder.position.y + t.mount.saddle * 0.7 : 0,
+        air = t.fly ? Math.min(1, t.fly.alt / 4) : 0,
+        camDist = this.camDist * (1 + (FLY.camBack - 1) * air),
+        camHeight = this.camHeight + FLY.camUp * air;
       let fx = Math.sin(this.camYaw),
         fz = Math.cos(this.camYaw),
-        s = V_.set(n.x, n.y + 1.35, n.z),
+        s = V_.set(n.x, n.y + 1.35 + rise, n.z),
         o = q_,
         a = 0,
         l = $_,
@@ -5547,7 +5616,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       // How far along the sightline from the shoulders the camera can get at a
       // given height before something is in the way.
       let probe = h => {
-        o.set(-fx * this.camDist, h, -fz * this.camDist), a = o.length(), l.copy(o).divideScalar(a || 1), c = a;
+        o.set(-fx * camDist, h, -fz * camDist), a = o.length(), l.copy(o).divideScalar(a || 1), c = a;
         for (let f of this.blockers) {
           let p = f.hw !== void 0 ? boxHit(s, l, a, f, this.heightAt(f.x, f.z)) : circleHit(s, l, a, f, this.heightAt(f.x, f.z));
           p !== null && p < c && (c = p);
@@ -5561,17 +5630,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       // frame; closing in is only the fallback for when no height clears.
       // Indoors the ceiling is the limit, so there it is the old behaviour.
       let want = 0;
-      if (!this._inside && !probe(this.camHeight)) {
+      if (!this._inside && !probe(camHeight)) {
         want = CAM_RISE_MAX;
         for (let k = 1; k <= CAM_RISE_STEPS; k++) {
           let h = CAM_RISE_MAX * k / CAM_RISE_STEPS;
-          if (probe(this.camHeight + h)) { want = h; break; }
+          if (probe(camHeight + h)) { want = h; break; }
         }
       }
       // Up quickly, so a wall never gets a frame; down slowly, so walking along
       // a row of houses does not bob.
       this._camRise += (want - this._camRise) * Math.min(1, e * (want > this._camRise ? 5 : 1.1));
-      probe(this.camHeight + this._camRise);
+      probe(camHeight + this._camRise);
       c = Math.max(this.camMin, c - 0.45), this._camReach === void 0 && (this._camReach = c);
       let h = c < this._camReach ? Math.min(1, e * 16) : Math.min(1, e * 2.6);
       this._camReach += (c - this._camReach) * h;
@@ -5605,8 +5674,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         u.x += v < 0.001 ? m : x * E, u.z += v < 0.001 ? 0 : g * E;
       }
       u.y = Math.max(u.y, this.heightAt(u.x, u.z) + 1.1), this._inside && (u.y = Math.min(u.y, this._inside.floorY + this._inside.room.dims.h - 0.35));
-      let ahead = this._inside ? 0 : CAM_LEAD;
-      this.camera.lookAt(LOOK_.set(n.x + fx * ahead, n.y + 1.1, n.z + fz * ahead));
+      let ahead = this._inside ? 0 : CAM_LEAD * (1 + air * 1.5);
+      this.camera.lookAt(LOOK_.set(n.x + fx * ahead, n.y + 1.1 + rise, n.z + fz * ahead));
     }
     /**
      * One shot of a story scene (shared/saga.js SCENES `shot`). Framed on the

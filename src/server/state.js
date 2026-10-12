@@ -18,6 +18,8 @@ defineTypes(PlayerState, {
   hat: 'string', dye: 'string',
   // riding (shared/riding.js): the creature carrying them, and how
   mount: 'string', mountKind: 'string', mountStar: 'number',
+  // how high a flyer is, for the others' screens (client world.js stepFlight)
+  alt: 'number',
 });
 
 // `alert` is what shows over its head — '!' it has seen someone and is coming,

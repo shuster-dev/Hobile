@@ -1300,14 +1300,24 @@ function animateFigurine(group, m, timeMs, moving, speed = 1) {
     if (!B[n]) continue;
     rot(B[n], Math.sin(p + ph) * amp * 0.7 + Math.sin(t * 1.7 + s) * 0.08 * idle, 0, s * (Math.sin(t * 1.2) * 0.06 * idle + 0.05 * k));
   }
-  // wings: flying things flap; the rest settle them and stretch now and then
-  const flies = m.def.flies;
-  const flap = flies ? Math.sin(t * (moving ? 9 : 5.5)) : Math.sin(t * 1.4) * 0.25 + Math.pow(Math.max(0, Math.sin(t * 0.5)), 30) * 1.2;
+  // wings: flying things flap; the rest settle them and stretch now and then.
+  // Carrying a rider through the air (world.js stepFlight): hard beats to
+  // climb and to take off, wings spread and barely moving to glide, an easy
+  // stroke to cruise.
+  const fl = group.userData.flight;
+  const flies = m.def.flies || !!fl;
+  let flap = flies ? Math.sin(t * (moving ? 9 : 5.5)) : Math.sin(t * 1.4) * 0.25 + Math.pow(Math.max(0, Math.sin(t * 0.5)), 30) * 1.2,
+    flapK = flies ? 0.55 : 0.3;
+  if (fl) {
+    if (fl.beat) flap = Math.sin(t * 11), flapK = 0.7;
+    else if (fl.glide) flap = 0.35 + Math.sin(t * 2.2) * 0.25, flapK = 0.4;
+    else flap = Math.sin(t * 6.2), flapK = 0.5;
+  }
   for (const [n, s] of [['wingL', 1], ['wingR', -1]]) {
     if (!B[n]) continue;
-    rot(B[n], 0, 0, s * flap * (flies ? 0.55 : 0.3));
+    rot(B[n], 0, 0, s * flap * flapK);
     const tip = B[n + '2'];
-    if (tip) rot(tip, 0, 0, s * flap * 0.3);
+    if (tip) rot(tip, 0, 0, s * flap * (fl?.glide ? 0.12 : 0.3));
   }
   for (const [n, s] of [['finL', 1], ['finR', -1]]) if (B[n]) rot(B[n], 0, Math.sin(t * 3 + s) * 0.18 * s, s * Math.sin(t * 2.2) * 0.12);
   if (B.crest) rot(B.crest, Math.sin(t * 1.7) * 0.05, 0, Math.sin(t * 1.1) * 0.06);
@@ -1315,10 +1325,11 @@ function animateFigurine(group, m, timeMs, moving, speed = 1) {
 
   // flying and swimming things hover
   const base = group.userData.baseY || 0;
-  if (flies || m.def.floats || group.userData.floats) group.position.y = base + H * (m.def.hover ?? 0.16) + Math.sin(t * 1.6) * H * 0.045;
+  if (fl) group.position.y = base;
+  else if (flies || m.def.floats || group.userData.floats) group.position.y = base + H * (m.def.hover ?? 0.16) + Math.sin(t * 1.6) * H * 0.045;
   else group.position.y = base;
   // the little round ones hop now and then when they are standing about
-  if (m.def.hop && idle > 0.4) {
+  if (m.def.hop && idle > 0.4 && !fl) {
     const hp = (t * 0.75) % 4.2;
     if (hp < 0.5) {
       const u = hp / 0.5;
