@@ -1,5 +1,5 @@
 import { Box3, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
-import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, xf2 } from './core.js';
+import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, watchSize, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { capHeight, setStarLook } from './starlook.js';
@@ -3495,7 +3495,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         low: 0.45,
         medium: 0.75,
         high: 1
-      }[QUALITY.tier], this.resize(), window.addEventListener("resize", () => this.resize());
+      }[QUALITY.tier], this.resize(), watchSize(this.canvas, () => this.resize());
     }
     resize() {
       let e = this.canvas.clientWidth || window.innerWidth,

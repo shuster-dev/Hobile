@@ -121,9 +121,13 @@ export function initDevice() {
     document.documentElement.style.setProperty('--vh', `${h}px`);
   };
   syncViewport();
+  // A rotation settles over a few hundred milliseconds on iOS, and the sizes
+  // read during it are the old orientation's: look again as it settles.
+  const settle = () => { syncViewport(); for (const ms of [120, 300, 650, 1100]) setTimeout(syncViewport, ms); };
   window.visualViewport?.addEventListener('resize', syncViewport);
-  window.addEventListener('orientationchange', () => setTimeout(syncViewport, 240));
-  window.addEventListener('resize', syncViewport);
+  window.addEventListener('orientationchange', settle);
+  screen.orientation?.addEventListener?.('change', settle);
+  window.addEventListener('resize', settle);
 
   holdWakeLock();
   document.addEventListener('visibilitychange', () => {

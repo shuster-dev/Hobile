@@ -1,6 +1,6 @@
 import { AdditiveBlending, BoxGeometry, DodecahedronGeometry, MeshStandardMaterial, Object3D, PlaneGeometry, Box3, BufferAttribute, BufferGeometry, Color, CylinderGeometry, DoubleSide, Shape, ShapeGeometry, DynamicDrawUsage, Float32BufferAttribute, FogExp2, Group, IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, OctahedronGeometry, PerspectiveCamera, PointLight, Points, PointsMaterial, Quaternion, RingGeometry, Scene, ShaderMaterial, SphereGeometry, TorusGeometry, Vector3 } from 'three';
 import { Audio } from '../audio.js';
-import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, xf2 } from './core.js';
+import { QUALITY, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, sizeRenderer, softShadowTexture, watchSize, xf2 } from './core.js';
 import { animateCreature, buildAvatar, buildCreature } from './creatures.js';
 import { setStarLook } from './starlook.js';
 import { EvolveCeremony } from './evolve.js';
@@ -102,7 +102,7 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           at: 0
         }, this.scene.add(l), this.pool.push(l);
       }
-      this.arena = new Group(), this.scene.add(this.arena), this.adapt = sizeRenderer(this.renderer), this.vignette = hb(), this.camera.add(this.vignette), this.scene.add(this.camera), this.resize(), window.addEventListener("resize", () => this.resize());
+      this.arena = new Group(), this.scene.add(this.arena), this.adapt = sizeRenderer(this.renderer), this.vignette = hb(), this.camera.add(this.vignette), this.scene.add(this.camera), this.resize(), watchSize(this.canvas, () => this.resize());
     }
     /**
      * A point light for an effect, from the pool.
@@ -184,6 +184,10 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
       let e = this.canvas.clientWidth || window.innerWidth,
         t = this.canvas.clientHeight || window.innerHeight;
       if (!e || !t) return;
+      // On its side the screen is short, and the same lens made the fight a
+      // small thing in the middle of a wide one: a longer lens there brings
+      // the creatures up to a size you can read, with width to spare.
+      this.camera.fov = e / t > 1.25 ? 29 : 40;
       this.renderer.setSize(e, t, !1), this.camera.aspect = e / t, this.camera.updateProjectionMatrix();
       let n = Math.tan(this.camera.fov * Math.PI / 360);
       this.vignette.scale.set(n * this.camera.aspect * 1.5, n * 1.5, 1);

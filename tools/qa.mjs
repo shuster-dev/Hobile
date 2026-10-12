@@ -1703,7 +1703,10 @@ section('daily reward and seasons');
   ok('an hour of play nets gold at every stage', em.hours.every((h) => h.net > 0), em.hours.map((h) => `${h.level}:${h.net}`).join(' '));
   ok('no upgrade is out of reach or handed out', !em.flags.length, em.flags.join(' | '));
   ok('a daily errand pays by level', G.questGold(G.QUESTS.q_daily_hunt, 1) < G.questGold(G.QUESTS.q_daily_hunt, 40));
-  ok('the clinic charges by the team', G.clinicCost([{ level: 10, hp: 5 }, { level: 10, hp: 0 }]) === 10 * 7 * 2 + 90);
+  ok('the clinic charges by the team', G.clinicCost([{ level: 10, hp: 5 }, { level: 10, hp: 0 }]) === 10 * G.ECONOMY.clinic.perLevel * 2 + G.ECONOMY.clinic.perDown);
+  // the easier tuning (8.10): a sphere is a fight or two, a potion the same
+  const win5 = G.ECONOMY.winGold[0] + 5 * G.ECONOMY.winGold[1];
+  ok(`a fight at level 5 (~${win5}⛁) buys a sphere and most of a potion`, win5 >= ITEMS.sphere_basic.price && win5 * 2 >= ITEMS.sphere_basic.price + ITEMS.potion_s.price);
 }
 
 

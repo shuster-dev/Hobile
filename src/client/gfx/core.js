@@ -39,6 +39,32 @@ function makeRenderer(i) {
   return e.setPixelRatio(Math.min(window.devicePixelRatio, t)), e.outputColorSpace = SRGBColorSpace, e.toneMapping = STYLE.toon ? LinearToneMapping : ACESFilmicToneMapping, e.toneMappingExposure = STYLE.toon ? 1.0 : 1.02, e.shadowMap.enabled = QUALITY.tier !== "low", e.shadowMap.type = QUALITY.tier === "high" ? PCFSoftShadowMap : PCFShadowMap, e.info.autoReset = !0, e;
 }
 
+/**
+ * Keep a renderer the size of its canvas. A phone turned on its side and back
+ * fires "resize" before the page has its new size — on iOS the height the
+ * page is laid out to (--vh, device.js) is settled a beat later — so a
+ * renderer sized on that event kept the other orientation's shape and the
+ * picture came back stretched. The canvas itself says when its box changes
+ * (ResizeObserver); the window's own events, and a few late looks after a
+ * rotation, are there for the browsers that do not.
+ */
+function watchSize(canvas, fn) {
+  let w = -1, h = -1;
+  const check = () => {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    (cw !== w || ch !== h) && (w = cw, h = ch, fn());
+  };
+  typeof ResizeObserver == "function" && new ResizeObserver(check).observe(canvas);
+  const later = () => { for (const ms of [0, 120, 300, 650, 1100]) setTimeout(check, ms); };
+  window.addEventListener("resize", later);
+  window.addEventListener("orientationchange", later);
+  window.visualViewport?.addEventListener("resize", later);
+  screen.orientation?.addEventListener?.("change", later);
+  // and once a second, for anything that slipped past all of the above
+  setInterval(check, 1000);
+  return check;
+}
+
 function sizeRenderer(i) {
   let e = {
       low: 1,
@@ -753,4 +779,4 @@ var HALF_PI = Math.PI / 2,
     }
   };
 
-export { STYLE, displayFrag, styleColor, toonGradient, HALF_PI, Jv, MAT_CACHE, MOODS, QUALITY, Qv, TAU, TIER, aimSun, bez2, bez4, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, jv, lathe, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, outlineMat, profile, sampleCurve, sizeRenderer, softShadowTexture, taperGeo, toNonIndexed, v0, weldGeometry, x0, xf2, y0 };
+export { STYLE, displayFrag, styleColor, toonGradient, HALF_PI, Jv, MAT_CACHE, MOODS, QUALITY, Qv, TAU, TIER, aimSun, bez2, bez4, blobGeo, capsuleGeo, eyeParts, finProfile, glowMat, jv, lathe, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, outlineMat, profile, sampleCurve, sizeRenderer, softShadowTexture, watchSize, taperGeo, toNonIndexed, v0, weldGeometry, x0, xf2, y0 };

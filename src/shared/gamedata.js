@@ -2042,7 +2042,7 @@ var MOVES = {
       // Two early wins, not four: at 200 a first catch cost six to eight
       // fights of gold (tools/balance.mjs). The workshop still makes five for
       // about the price of two.
-      price: 100,
+      price: 60,
       icon: "🔵"
     },
     sphere_great: {
@@ -2051,7 +2051,7 @@ var MOVES = {
       he: "כדור פריזמה",
       kind: "sphere",
       rate: 1.6,
-      price: 700,
+      price: 450,
       icon: "🟣"
     },
     sphere_ultra: {
@@ -2060,7 +2060,7 @@ var MOVES = {
       he: "כדור נובה",
       kind: "sphere",
       rate: 2.6,
-      price: 2200,
+      price: 1500,
       icon: "🟠"
     },
     potion_s: {
@@ -2069,7 +2069,7 @@ var MOVES = {
       he: "משחה",
       kind: "heal",
       amount: 60,
-      price: 100,
+      price: 60,
       icon: "🧪"
     },
     potion_m: {
@@ -2078,7 +2078,7 @@ var MOVES = {
       he: "תרכיז",
       kind: "heal",
       amount: 180,
-      price: 450,
+      price: 300,
       icon: "🧪"
     },
     potion_l: {
@@ -2087,7 +2087,7 @@ var MOVES = {
       he: "אליקסיר",
       kind: "heal",
       amount: 480,
-      price: 950,
+      price: 650,
       icon: "🧪"
     },
     revive: {
@@ -2096,7 +2096,7 @@ var MOVES = {
       he: "נוצת גחלים",
       kind: "revive",
       ratio: 0.5,
-      price: 1800,
+      price: 1100,
       icon: "🪶"
     },
     revive_full: {
@@ -2105,7 +2105,7 @@ var MOVES = {
       he: "נוצת עוף החול",
       kind: "revive",
       ratio: 1,
-      price: 4800,
+      price: 3200,
       icon: "🕊"
     },
     ether: {
@@ -2114,7 +2114,7 @@ var MOVES = {
       he: "אבק אתר",
       kind: "stamina",
       amount: 60,
-      price: 380,
+      price: 260,
       icon: "💠"
     },
     bandage: {
@@ -2123,7 +2123,7 @@ var MOVES = {
       he: "תחבושת",
       kind: "trainerHeal",
       amount: 45,
-      price: 120,
+      price: 80,
       icon: "🩹"
     },
     medkit: {
@@ -2132,7 +2132,7 @@ var MOVES = {
       he: "ערכת עזרה",
       kind: "trainerHeal",
       amount: 160,
-      price: 520,
+      price: 360,
       icon: "⛑"
     },
     blade_iron: {
@@ -2144,7 +2144,7 @@ var MOVES = {
       bonus: {
         atk: 8
       },
-      price: 900,
+      price: 750,
       icon: "🗡"
     },
     blade_storm: {
@@ -2157,7 +2157,7 @@ var MOVES = {
         atk: 22,
         spe: 6
       },
-      price: 5200,
+      price: 4000,
       icon: "🗡"
     },
     vest_hide: {
@@ -2170,7 +2170,7 @@ var MOVES = {
         def: 9,
         hp: 20
       },
-      price: 850,
+      price: 700,
       icon: "🥋"
     },
     vest_aegis: {
@@ -2183,7 +2183,7 @@ var MOVES = {
         def: 26,
         hp: 70
       },
-      price: 5400,
+      price: 4200,
       icon: "🛡"
     },
     charm_focus: {
@@ -2196,7 +2196,7 @@ var MOVES = {
         spa: 12,
         spd: 6
       },
-      price: 1600,
+      price: 1200,
       icon: "📿"
     },
     charm_swift: {
@@ -2208,7 +2208,7 @@ var MOVES = {
       bonus: {
         spe: 18
       },
-      price: 1600,
+      price: 1200,
       icon: "📿"
     },
     mat_emberdust: {
@@ -3238,7 +3238,7 @@ var DAILY_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "daily
       return {
         crystals: [0, 4, 8, 16, 30][e],
         cores: [0, 0, 1, 3, 6][e],
-        gold: [0, 600, 1800, 5e3, 1e4][e],
+        gold: [0, 500, 1500, 4000, 7500][e],
         hours: [0, 2, 6, 16, 36][e]
       };
     }
@@ -3301,7 +3301,7 @@ var BUILDINGS = {
       descHe: "יצור שמושאר כאן עולה כוכב עם הזמן.",
       maxLevel: 5,
       cost: i => ({
-        gold: [400, 1200, 3200, 8e3, 15e3][i] ?? 0,
+        gold: [350, 1000, 2600, 6400, 11000][i] ?? 0,
         items: [{
           fiber: 6
         }, {
@@ -3334,7 +3334,7 @@ var BUILDINGS = {
       descHe: "מזקקת שברים גולמיים לגבישים.",
       maxLevel: 5,
       cost: i => ({
-        gold: [300, 900, 2600, 6500, 12e3][i] ?? 0,
+        gold: [250, 750, 2100, 5200, 9000][i] ?? 0,
         items: [{
           scrap_iron: 5
         }, {
@@ -3366,7 +3366,7 @@ var BUILDINGS = {
       descHe: "מייצרת ציוד, כדורים ושיקויים.",
       maxLevel: 5,
       cost: i => ({
-        gold: [500, 1500, 4e3, 9500, 16e3][i] ?? 0,
+        gold: [400, 1200, 3200, 7600, 12000][i] ?? 0,
         items: [{
           scrap_iron: 8,
           fiber: 4
@@ -3400,7 +3400,7 @@ var BUILDINGS = {
       descHe: "מגדלת סיבים מעצמה. אוספים בכל ביקור.",
       maxLevel: 5,
       cost: i => ({
-        gold: [200, 700, 2e3, 5200, 12e3][i] ?? 0,
+        gold: [200, 600, 1600, 4200, 9000][i] ?? 0,
         items: [{}, {
           fiber: 10
         }, {
@@ -3672,12 +3672,26 @@ function statsFor(i, e, t = 0.5, n = 1, nature = null) {
   };
 }
 
+// How generous the game is, in one place. Meir (8.10): progress should be
+// easy-going — a few fights buy a sphere, a session buys the next building.
+// Against the first tuning: a won fight pays about a third more, the
+// creatures and the trainer learn a fifth faster, a daily errand pays at
+// least 45% of its card from the first level, and the clinic costs about half.
+// Spheres and potions cost 40% less, buildings, stars, gear and saddles about
+// a quarter less (in their own tables). tools/economy.mjs measures the result.
+var ECONOMY = {
+  winGold: [20, 9],       // a won fight (or a catch): 20 + 9 per level of the foe
+  xpMul: 1.2,
+  dailyFloor: 0.45,
+  clinic: { perLevel: 4, perDown: 50, min: 20 },
+};
+
 // A daily errand pays by who is doing it: a flat 900 gold was a level-2
 // player's next three upgrades at once, and nothing to a level-40 one
 // (tools/economy.mjs). Everything else pays what its card says.
 function questGold(q, level = 1) {
   let g = q?.reward?.gold || 0;
-  return q?.chain === "daily" ? Math.round(g * Math.max(0.3, Math.min(1.25, 0.25 + (level || 1) / 40)) / 10) * 10 : g;
+  return q?.chain === "daily" ? Math.round(g * Math.max(ECONOMY.dailyFloor, Math.min(1.25, 0.25 + (level || 1) / 40)) / 10) * 10 : g;
 }
 
 // The clinic's price for the whole team. It was 14 a level, which by the
@@ -3686,7 +3700,7 @@ function questGold(q, level = 1) {
 function clinicCost(team = []) {
   let lv = 0, down = 0;
   for (const c of team) c && (lv += c.level || 1, c.hp <= 0 && down++);
-  return Math.max(40, Math.round(lv * 7 + down * 90));
+  return Math.max(ECONOMY.clinic.min, Math.round(lv * ECONOMY.clinic.perLevel + down * ECONOMY.clinic.perDown));
 }
 
 function powerOf(i) {
@@ -3768,4 +3782,4 @@ function avatarLook(a = {}) {
   };
 }
 
-export { clinicCost, questGold, ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };
+export { clinicCost, questGold, ECONOMY, ACTIONS, AVATAR, avatarLook, BUILDINGS, DAILY_QUEST_IDS, DROPS, DUNGEONS, ELEMENTS, GUILD, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MATERIALS, MOVES, PROGRESSION, QUESTS, RARITY, RECIPES, SPECIES, STARS, STARTERS, TEMPER, TYPE_CHART, WILD_TIERS, WORLD_BOSSES, ZONES, captureChance, def, hashString, powerOf, randomLevel, seededRandom, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier, weightedPick, zoneQuestChain };

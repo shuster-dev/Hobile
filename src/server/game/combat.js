@@ -8,7 +8,7 @@ import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { mountKind } from '../../shared/riding.js';
 import { AILMENTS, BAD, BOSS_DISABLE, DOT_CHANCE, STATUS, disabledBy, immuneTo, isBad, matchesVs, moveStatus } from '../../shared/status.js';
-import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
+import { questGold, ECONOMY, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
 var combatantSeq = 0,
   combatantId = () => `c${++combatantSeq}`,
@@ -844,13 +844,13 @@ function creaturePower(i, e) {
     s = n.hp + n.atk + n.def + n.spa + n.spd + n.spe,
     r = i.kind === "boss" ? 6 : 1,
     o = Math.max(0.35, Math.min(2.2, i.level / Math.max(1, e)));
-  return Math.floor(s * i.level / 34 * o * r);
+  return Math.floor(s * i.level / 34 * o * r * ECONOMY.xpMul);
 }
 
 function creatureScore(i) {
   if (!i || !Object.prototype.hasOwnProperty.call(SPECIES, i.species)) return 0;
   let e = i.kind === "boss" ? 25 : 1;
-  return Math.floor((14 + i.level * 7) * e * (0.8 + Math.random() * 0.4));
+  return Math.floor((ECONOMY.winGold[0] + i.level * ECONOMY.winGold[1]) * e * (0.85 + Math.random() * 0.3));
 }
 
 function uid() {
