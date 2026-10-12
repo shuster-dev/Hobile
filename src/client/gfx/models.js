@@ -91,6 +91,11 @@ function fetchModel(file) {
   return p;
 }
 
+/** Any model file by name (the world's buildings use this: propmodels.js). */
+export function loadModelFile(file) {
+  return fetchModel(file);
+}
+
 /** Warm the cache for species about to appear, so nothing pops in late. */
 export function preloadModels(ids) {
   const files = new Set();

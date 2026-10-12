@@ -10,6 +10,7 @@ import {
 import { softShadowTexture } from './core.js';
 import { BUILDERS } from './zonebuild.js';
 import { Kit, chunkMeshes, glowVC, toonVC } from './zonekit.js';
+import { planModels } from './propmap.js';
 
 // Houses against a 1.43m trainer. The plans give a storey's height in the
 // world's old scale — four metres of wall, seven to the ridge, five trainers
@@ -19,16 +20,20 @@ import { Kit, chunkMeshes, glowVC, toonVC } from './zonekit.js';
 // plan walks into is unchanged.
 const STOREY = { dwelling: 0.72, stonehouse: 0.72, forge: 0.75, cabin: 0.74, stilthouse: 0.78, barn: 0.8 };
 
-export function buildPlanArt(P, pal = {}) {
+export function buildPlanArt(P, pal = {}, zoneId = null) {
   const group = new Group();
   group.name = 'plan-art';
   const solid = [], nightGlow = [], litGlow = [];
   const world = new Kit(), worldGlow = new Kit(), worldLit = new Kit();
-  const parts = [], smokes = [], beacons = [];
+  const parts = [], smokes = [], beacons = [], models = [];
   for (const s of P.structures) {
     const B = BUILDERS[s.kind];
     if (!B) continue;
     const at = { x: s.x, y: s.y ?? P.height(s.x, s.z), z: s.z, rot: s.rot || 0 };
+    // a house, a forge, a windmill… is a model now (propmodels.js): the
+    // builder draws nothing for it, and the plan's footprint is unchanged
+    const pm = planModels(s, zoneId ?? P.zone?.id, at.y);
+    if (pm) { models.push(...pm); continue; }
     const k = new Kit(at), g = new Kit(at), lit = new Kit(at);
     const c = Math.cos(at.rot), sn = Math.sin(at.rot);
     const toWorld = (x, y, z) => ({ x: at.x + x * c + z * sn, y: at.y + y, z: at.z - x * sn + z * c });
@@ -106,6 +111,7 @@ export function buildPlanArt(P, pal = {}) {
 
   return {
     group,
+    models,
     update(t, night = 0) {
       // windows are dark glass by day and lit at night; embers always glow
       nightMat.color.setScalar(0.32 + night * 0.95);

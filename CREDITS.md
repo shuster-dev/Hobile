@@ -30,11 +30,28 @@ dropped (the toon material reads none of them), the base colour is resized to
 512, and vertex data is quantized — and `tools/models/rigcheck.mjs` fails loudly
 if a rig or its clips did not survive.
 
+## Buildings and props
+
+The houses, the forge, the windmill, the well, the watchtower, crates and
+barrels in the field zones and on the town's farm, and the crypt with its
+lanterns and graves in the Umbral Grove, are models from two packs by
+**Kay Lousberg** (www.kaylousberg.com), both released **CC0 1.0** — free for
+commercial use, no attribution required. Thanks to Kay all the same.
+
+- **KayKit Medieval Hexagon Pack 1.0** —
+  https://github.com/KayKit-Game-Assets/KayKit-Medieval-Hexagon-Pack-1.0
+- **KayKit Halloween Bits 1.0** —
+  https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0
+
+They are converted by `tools/models/props.mjs` (atlas down to 128px, vertex
+data quantized) into `assets/models/kk_*.glb`; `src/client/gfx/propmap.js` says
+which stands where and `propmodels.js` places them.
+
 ## Everything else
 
-The world, its props, buildings, effects, interface and every remaining piece of
-geometry are generated from code in this repository. No other third-party art,
-audio or fonts are used.
+The world's ground, trees, the town's buildings, effects, interface and every
+remaining piece of geometry are generated from code in this repository. No
+other third-party art, audio or fonts are used.
 
 ## Adding an asset
 

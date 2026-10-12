@@ -70,3 +70,26 @@ CLEAN=1 TIER=medium STEP_MS=400000 node tools/zone-tour.mjs shots/tour frostpeak
 
 `CLEAN=1` hides the HUD; `PAGE=other.html` tours another build in `dist/`
 (for a before/after); `PORT` and `DSF` as named.
+
+## Buildings as models (v0.45)
+
+Houses, the forge, the windmill (its sails turn), the well, the watchtower,
+the crates, and the grove's crypt are KayKit models (CREDITS.md):
+`src/client/gfx/propmap.js` maps a planned structure's kind to models and a
+footprint to fit, `propmodels.js` loads each once and draws every copy as an
+InstancedMesh per part, through the game's cel ramp with the grounding's foot
+shading. The plan's footprints are unchanged, and a model is fitted inside
+them: as large as fits, never taller than its `maxH`, with a little give in
+width.
+
+Left to their builders on purpose: the barn (no model fills 10×14 without
+towering, and an unfilled footprint is an invisible wall), the mine (its
+footprint is two posts with the way in open between them), the mesa's tents
+(the pack's tent is a market canopy), and the town's blocks — the KayKit City
+Builder pack was tried there and put back: the town is narrow lots of up to
+nine floors, the pack's buildings two or three on wide ones, and fitted,
+stretched or stacked they read as a jumble of roofs from the street camera.
+
+To add or change one: `node tools/models/props.mjs <dir with the packs>`
+(clone them from the links in CREDITS.md), then a key in `PROP_MODELS` and a
+line in `propmap.js`.

@@ -2623,5 +2623,35 @@ section('from the phone');
   ok('the grain turns with the part', Math.abs(Math.abs(t.getZ(0)) - 1) < 1e-3 && Math.abs(t.getX(0)) < 1e-3, `${t.getX(0).toFixed(2)},${t.getZ(0).toFixed(2)}`);
 }
 
+{
+  // the world's buildings as models (client/gfx/propmap.js, propmodels.js)
+  section('building models');
+  const PM = await import('../src/client/gfx/propmap.js');
+  const PR = await import('../src/client/gfx/propmodels.js');
+  const fs = await import('node:fs');
+  const missing = Object.values(PR.PROP_MODELS).filter((f) => !fs.existsSync(`assets/models/${f}`));
+  ok('every model the world asks for is in assets/models', !missing.length, missing.join(','));
+  const used = new Set();
+  const W = await import('../src/shared/worldplan.js');
+  let outside = [];
+  for (const z of Object.values(ZONES)) {
+    if (z.urban) continue;
+    for (const st of W.planFor(z)?.structures || []) {
+      const list = PM.planModels(st, z.id, 0);
+      if (!list) continue;
+      for (const m of list) {
+        used.add(m.key);
+        // fitted inside the footprint the plan walks into, never past it
+        if (m.fit && st.w && st.d && (m.fit.w > st.w + 1e-6 || m.fit.d > st.d + 1e-6)) outside.push(`${z.id}:${st.kind}`);
+      }
+    }
+  }
+  ok('a model is fitted to its footprint, not past it', !outside.length, outside.join(','));
+  ok('every key a structure asks for has a model', [...used].every((k) => PR.PROP_MODELS[k]), [...used].filter((k) => !PR.PROP_MODELS[k]).join(','));
+  ok('the barn, the mine and the tents stay built (their footprints fit no model)', ['barn', 'mine', 'tent'].every((k) => !PM.MODELLED.has(k)));
+  const turned = PM.planModels({ kind: 'crates', x: 10, z: 0, rot: Math.PI / 2 }, 'verdant_meadow', 0);
+  ok('a part off-centre turns with its structure', Math.abs(turned[0].x - 10) < 1e-6 && Math.abs(turned[0].z - 0.5) < 1e-6, `${turned[0].x},${turned[0].z}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
