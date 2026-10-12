@@ -715,7 +715,7 @@ var Game = class {
         }
       }
     }), e.on("battleInit", t => {
-      this.battle.players = t.players || [], this.battle.duel = !!t.duel, this.battle.side = t.side || null, this.applyBattlePlayers(),
+      this.battle.players = t.players || [], this.battle.duel = !!t.duel, this.battle.side = t.side || null, this.applyBattlePlayers(), this.ui.battleBoxOk = !t.duel,
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = t.side || this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
       let zd = ZONES[this.zone?.id] || {};
@@ -728,7 +728,7 @@ var Game = class {
     }), e.on("dungeonInit", t => {
       // a run with a party in it is a fight with players in it: the same
       // seat-finding as battleInit (game/party-dungeon.js)
-      this.battle.players = t.players || [], this.battle.duel = !1, this.battle.side = "a", this.applyBattlePlayers(),
+      this.battle.players = t.players || [], this.battle.duel = !1, this.battle.side = "a", this.applyBattlePlayers(), this.ui.battleBoxOk = !1,
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = null, this.battle.mySide = "a", this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let first = !this._dungeonThemed;
       this._dungeonThemed = !0, first && this.battleView.setTheme(t.dungeon.element, !0), first && this.ui.battleBanner(t.dungeon.endless ? `🗼 ${loc(t.dungeon)}` : `${loc(t.dungeon)}${t.dungeon.tier && t.dungeon.tier !== "normal" ? ` · ${loc(tierOf(t.dungeon.tier))}` : ""}`, 1800);
@@ -890,13 +890,13 @@ var Game = class {
     }), e.on("gm", t => this.onGm(t)), e.on("gmGift", t => {
       // Someone with the keys sent you something (or you sent it to yourself).
       audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
-      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})${t.merged ? " — זה שכבר היה לך" : ""}` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : "משאבים בלי סוף";
+      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})${t.merged ? " — זה שכבר היה לך" : ""}` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : t.what === "base" ? "🏗 שדרוג לבסיס" : "משאבים בלי סוף";
       this.ui.celebrate(t.from ? "🎁 מתנה!" : "🎁 נוסף!", "quest"), this.ui.toast(t.from ? `${t.from} (GM) שלח לך: ${what}` : `נוסף לך: ${what}`, "good"), t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmTake", t => {
       // a GM took something back (a mistake fixed) — or gave back what was taken
       let back = t.undo === "take",
         n = Math.abs(Number(t.amount ?? t.qty ?? 0)),
-        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : t.what === "saddle" ? `🐎 האוכף של ${loc(SPECIES[t.species])}` : "";
+        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : t.what === "saddle" ? `🐎 האוכף של ${loc(SPECIES[t.species])}` : t.what === "reset" ? "הכל — מתחילים מחדש" : "";
       what && this.ui.toast(back ? `${t.from ? `${t.from} (GM) החזיר לך` : "הוחזר לך"}: ${what}` : `${t.from ? `${t.from} (GM) הוריד לך` : "הוסר לך"}: ${what}`, back ? "good" : "");
       t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmBring", t => {
@@ -988,7 +988,7 @@ var Game = class {
       audio.sfx("ui"), this.ui.toast(`✔ ${this.ui.gmSummary(t.op, t.detail, t.to)}`, "good");
       t.op !== "teleport" && this.net.send("gm", { op: "log" });
       // a creature came or went: the list shown is out of date
-      (t.op === "take" || t.op === "undo" || t.op === "saddle" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
+      (t.op === "take" || t.op === "undo" || t.op === "reset" || t.op === "saddle" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
       return;
     }
     t.kind === "error" && (audio.sfx("deny"), this.ui.toast({
@@ -1324,6 +1324,30 @@ var Game = class {
         e("setTeam", {
           team: [t, ...s.filter(r => r !== t)].slice(0, 6)
         });
+      },
+      // the team, changed by hand: into it from the box, back to the box, or
+      // one from the box in place of one in it (server: setTeam)
+      teamAdd: t => {
+        let n = this.profile;
+        if (!n) return;
+        let team = n.team.map(r => r?.uid ?? r);
+        if (team.includes(t)) return;
+        if (team.length >= 6) return this.ui.toast("הצוות מלא — החלף יצור במקום אחד מהצוות", "bad");
+        e("setTeam", { team: [...team, t] });
+      },
+      teamRemove: t => {
+        let n = this.profile;
+        if (!n) return;
+        let team = n.team.map(r => r?.uid ?? r).filter(r => r !== t);
+        if (!team.length) return this.ui.toast("צריך להשאיר לפחות יצור אחד בצוות", "bad");
+        e("setTeam", { team });
+      },
+      teamSwap: (t, out) => {
+        let n = this.profile;
+        if (!n) return;
+        let team = n.team.map(r => r?.uid ?? r), k = team.indexOf(out);
+        if (k < 0 || team.includes(t)) return;
+        team[k] = t, e("setTeam", { team });
       },
       leaderboard: (k = "level") => this.net.leaderboard(k).catch(() => []),
       logout: () => {
@@ -1973,9 +1997,12 @@ var Game = class {
   }
   liveTeam(e) {
     let t = new Map((this.battle.team || []).map(n => [n.id, n]));
-    let me = this.profile?.id;
+    let me = this.profile?.id,
+      // one called in from the box is not in the roster sent at the start:
+      // it is yours, and you have one of each, so its species says which
+      own = new Map([...(this.profile?.team || []), ...(this.profile?.box || [])].map(c => [c?.species, c?.uid]));
     return e.filter(n => n.kind === "creature" && n.side === this.battle.mySide && (!me || !n.ownerId || n.ownerId === me)).sort((n, s) => (n.slot ?? 0) - (s.slot ?? 0)).map(n => ({
-      uid: t.get(n.id)?.uid || n.id,
+      uid: t.get(n.id)?.uid || own.get(n.species) || n.id,
       id: n.id,
       species: n.species,
       level: n.level,

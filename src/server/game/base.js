@@ -1,4 +1,4 @@
-import { Combat, Combatant, takeIn, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { Combat, Combatant, takeIn, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, recruitFromBox, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
@@ -637,7 +637,8 @@ var StoreBase = class {
         // Manual switching: the client sends a creature uid, Combat wants a
         // combatant id. Without this the UI's swap button did nothing at all —
         // switches only ever happened automatically, on a faint.
-        let s = swapToUid(this.sim, this.you, t.uid);
+        // ...and one from the box, called into the fight (combat.js recruitFromBox)
+        let s = swapToUid(this.sim, this.you, t.uid, uid => recruitFromBox(this.sim, n, this.you, uid, { roster: this.roster }));
         s.ok || this.net.emit("actionRejected", {
           reason: s.reason,
           uid: t.uid,

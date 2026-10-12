@@ -17,7 +17,7 @@ import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
   takeIn, settleHp, fieldCreature, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
-  statsOf, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
+  statsOf, sumStats, swapToUid, recruitFromBox, syncQuests, takeItem, teamCreatures,
 } from './combat.js';
 import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES, skillsFor, statsFor } from '../../shared/gamedata.js';
 import { ARENA } from '../../shared/endgame.js';
@@ -95,7 +95,7 @@ export class PartyBattle {
     const trainer = this.sim.add(new Combatant({
       side, kind: 'trainer', name: doc.name, ownerId: doc.id, level: doc.level, benched: !!anchor, gearBonus: gear,
     }));
-    const part = { id: doc.id, doc, side, emit, roster, anchor, trainer, left: false, capture: null };
+    const part = { id: doc.id, doc, side, emit, roster, anchor, trainer, left: false, capture: null, guildBonus };
     this.parts.set(doc.id, part);
     this.scaleFoe();
     this.sync();
@@ -222,7 +222,10 @@ export class PartyBattle {
     if (this.phase !== 'active') return;
     const doc = part.doc, you = this.you(part);
     if (type === 'swap') {
-      const r = swapToUid(this.sim, you, t.uid);
+      // a duel fights with copies of the team: no calling in from the box
+      const recruit = this.mode === 'pvp' ? null
+        : (uid) => recruitFromBox(this.sim, doc, you, uid, { roster: part.roster, gearBonus: sumStats(doc), guildBonus: part.guildBonus });
+      const r = swapToUid(this.sim, you, t.uid, recruit);
       r.ok || part.emit('actionRejected', { reason: r.reason, uid: t.uid, wait: r.wait });
       this.sync();
       return;

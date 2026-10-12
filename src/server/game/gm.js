@@ -13,8 +13,8 @@
 // ctx.gm is the online room's reach beyond one player: everyone online in any
 // zone, the log, a broadcast to the whole server. The single-player build has
 // no ctx.gm and no GMs.
-import { ITEMS, PROGRESSION, SPECIES, ZONES } from '../../shared/gamedata.js';
-import { activeCreature, addCreature, creatureCard, dexRecord, familyOwned, giveItem, grantXpTo, healTeam, isWorker, makeCreature, publicProfile, takeItem, unassignWorker } from './combat.js';
+import { BUILDINGS, HOME_ZONE, ITEMS, PROGRESSION, SPECIES, STARS, STARTERS, ZONES, learnedMoves, skillsFor, statsFor } from '../../shared/gamedata.js';
+import { activeCreature, addCreature, baseOf, createPlayerDoc, creatureCard, dexRecord, familyOwned, giveItem, grantXpTo, healTeam, isWorker, makeCreature, normalizeDoc, publicProfile, takeItem, unassignWorker } from './combat.js';
 import { hpRatio } from './player.js';
 import { earn, economyReport, spend } from './economy.js';
 import { setSaddle } from './saddles.js';
@@ -32,7 +32,11 @@ export const GM_LIMITS = {
 };
 
 // What the log can undo.
-const UNDOABLE = new Set(['give', 'fill', 'take']);
+const UNDOABLE = new Set(['give', 'fill', 'take', 'creatureSet', 'base', 'reset']);
+
+// What a reset leaves of a player: who they are, not what they have. Their
+// friends and guild are other people's too (those lists live on other docs).
+const RESET_KEEP = ['id', 'name', 'createdAt', 'appearance', 'seen', 'settings', 'friends', 'friendRequests', 'blocked', 'guildId', 'agreedAt'];
 // rows undone by this process (the log's own record of it may still be on its way)
 const UNDONE = new Set();
 
@@ -115,6 +119,91 @@ function refresh(t) {
   t.send('profile', publicProfile(t.doc));
 }
 
+/**
+ * A creature set by hand: its level up or down, its stars, shiny, a full
+ * heal. Up goes the way a creature grows (it learns, and evolves when it
+ * reaches it); down is set straight, stats and the moves it knows with it —
+ * the line it evolved into is kept. The creature as it was goes in the log,
+ * so the undo puts it back exactly.
+ */
+function setCreature(doc, t) {
+  const uid = String(t.uid || '');
+  const c = own(doc.creatures || {}, uid) ? doc.creatures[uid] : null;
+  if (!c) return { error: 'no_creature' };
+  const before = JSON.parse(JSON.stringify(c)), changed = {};
+  if (t.level != null) {
+    const level = int(t.level, 1, PROGRESSION.maxLevel, c.level);
+    if (level > c.level) grantXpTo(c, Math.max(0, PROGRESSION.xpToLevel(level) - (c.xp || 0)), doc);
+    else if (level < c.level) {
+      c.level = level;
+      c.xp = level > 1 ? PROGRESSION.xpToLevel(level) : 0;
+      // the moves it knows at that level, keeping the four it was given where it still knows them
+      c.picked = (c.picked || []).filter((m) => learnedMoves(c.species, level).includes(m));
+      c.picked.length || delete c.picked;
+      c.skills = skillsFor(c.species, level, c.picked);
+    }
+    changed.level = c.level;
+  }
+  if (t.star != null) {
+    c.star = int(t.star, 1, STARS.max, c.star || 1);
+    changed.star = c.star;
+  }
+  if (t.shiny != null) { c.shiny = !!t.shiny; changed.shiny = c.shiny; }
+  // stats follow the level and the stars; HP keeps its share unless healed
+  const st = statsFor(c.species, c.level, c.iv, c.star || 1, c.nature), share = (before.hp || 0) / Math.max(1, before.maxHp || 1);
+  c.maxHp = st.hp;
+  c.hp = t.heal ? st.hp : Math.max(before.hp > 0 ? 1 : 0, Math.min(st.hp, Math.round(st.hp * share)));
+  t.heal && (c.stamina = PROGRESSION.staminaMax, changed.heal = true);
+  if (!Object.keys(changed).length) return { error: 'nothing_to_change' };
+  return { detail: { what: 'creature', uid, species: c.species, from: { level: before.level, star: before.star || 1, shiny: !!before.shiny, species: before.species }, ...changed, before } };
+}
+
+/** The base's buildings set by hand: one to a level, or all to their top (or 0). */
+function setBase(doc, t) {
+  const base = baseOf(doc), before = { ...base.buildings }, set = {};
+  const ids = t.building === 'all' ? Object.keys(BUILDINGS) : own(BUILDINGS, t.building) ? [t.building] : null;
+  if (!ids) return { error: 'bad_building' };
+  for (const id of ids) {
+    const max = BUILDINGS[id].maxLevel;
+    const lv = t.level === 'max' ? max : int(t.level, 0, max, null);
+    if (lv == null) return { error: 'bad_amount' };
+    base.buildings[id] = lv, set[id] = lv;
+  }
+  return { detail: { what: 'base', set, before } };
+}
+
+/**
+ * A player back to the first minute: a fresh save around who they are
+ * (RESET_KEEP), with a starter, as if they had just made the character. The
+ * doc is changed in place — the room holds it — and the whole of it as it
+ * was goes in the log, for the undo.
+ */
+function resetDoc(doc, starter) {
+  const snapshot = JSON.parse(JSON.stringify(doc));
+  const fresh = createPlayerDoc(doc.id, doc.name, doc.appearance || {}, STARTERS.includes(starter) ? starter : STARTERS[0]);
+  for (const k of RESET_KEEP) if (doc[k] !== undefined) fresh[k] = doc[k];
+  replaceDoc(doc, fresh);
+  normalizeDoc(doc);
+  return snapshot;
+}
+
+/** Everything in `doc` swapped for `next`, keeping the object (others hold it). */
+function replaceDoc(doc, next) {
+  for (const k of Object.keys(doc)) delete doc[k];
+  Object.assign(doc, JSON.parse(JSON.stringify(next)));
+}
+
+/** A player whose whole save changed: off any mount, and back into the world
+ *  from its new start, so everything they see is drawn again. */
+function reload(target) {
+  const tc = target.ctx?.(), p = target.self?.();
+  tc && (tc.ride = null, tc.warping = true);
+  p && (p.mount = '', p.mountKind = '', p.mountStar = 1, p.level = target.doc.level || 1);
+  target.save?.();
+  target.send('ride', null);
+  target.send('goto', { kind: 'world', zone: target.doc.zone || HOME_ZONE });
+}
+
 /** Take back gold, an item or a creature. Returns { detail } or { error }. */
 function takeFrom(target, t) {
   const doc = target.doc, what = String(t.what || '');
@@ -179,6 +268,22 @@ function undoRow(target, row) {
     }
     return { detail: { what: 'fill', gold: -gold, items } };
   }
+  if (row.op === 'creatureSet') {
+    if (!doc.creatures?.[d.uid] || !d.before) return { error: 'no_creature' };
+    doc.creatures[d.uid] = JSON.parse(JSON.stringify(d.before));
+    return { detail: { what: 'creature', species: d.before.species, level: d.before.level, reverted: true } };
+  }
+  if (row.op === 'base') {
+    if (!d.before) return { error: 'cannot_undo' };
+    baseOf(doc).buildings = { ...d.before };
+    return { detail: { what: 'base', reverted: true } };
+  }
+  if (row.op === 'reset') {
+    if (!d.snapshot || d.snapshot.id !== doc.id) return { error: 'cannot_undo' };
+    replaceDoc(doc, d.snapshot);
+    normalizeDoc(doc);
+    return { detail: { what: 'reset', reverted: true, level: doc.level }, reload: true };
+  }
   if (row.op === 'take') {
     if (d.what === 'gold') return { detail: { what: 'gold', amount: earn(doc, d.amount || 0, 'gm') } };
     if (d.what === 'item' && own(ITEMS, d.item)) { giveItem(doc, d.item, d.qty || 0); return { detail: { what: 'item', item: d.item, qty: d.qty || 0 } }; }
@@ -192,12 +297,19 @@ function undoRow(target, row) {
 
 function who(doc) { return doc ? { id: doc.id, name: doc.name } : null; }
 
+/** A row for the panel: a whole save (a reset's) stays in the log, not on the phone. */
+function slim(row) {
+  if (!row?.detail?.snapshot) return row;
+  const { snapshot, ...detail } = row.detail;
+  return { ...row, detail: { ...detail, undoable: true } };
+}
+
 export function handleGm(ctx, t = {}) {
   if (!ctx.admin || !ctx.gm) return ctx.net.emit('error', { code: 'forbidden' });
   const op = String(t.op || '');
   const done = (detail, target = null) => {
     ctx.gm.audit({ op, to: who(target), detail });
-    ctx.net.emit('gm', { kind: 'done', op, to: target && target.id !== ctx.doc.id ? target.name : null, detail });
+    ctx.net.emit('gm', { kind: 'done', op, to: target && target.id !== ctx.doc.id ? target.name : null, detail: slim({ detail }).detail });
   };
   const fail = (code) => ctx.net.emit('gm', { kind: 'error', op, code });
 
@@ -217,7 +329,7 @@ export function handleGm(ctx, t = {}) {
 
     case 'log':
       Promise.resolve(ctx.gm.recent(40))
-        .then((rows) => ctx.net.emit('gm', { kind: 'log', rows }))
+        .then((rows) => ctx.net.emit('gm', { kind: 'log', rows: (rows || []).map(slim) }))
         .catch(() => fail('log_unavailable'));
       return;
 
@@ -335,10 +447,46 @@ export function handleGm(ctx, t = {}) {
         if (r.error) return fail(r.error);
         UNDONE.add(id);
         refresh(target);
+        r.reload && reload(target);
         target.send('gmTake', { from: target.me ? null : ctx.doc.name, undo: row.op, ...r.detail });
         done({ ref: id, of: row.op, ...r.detail }, target.doc);
       }).catch(() => fail('log_unavailable'));
       return;
+    }
+
+    case 'creatureSet': {
+      // a creature's level (up or down), stars, shiny, a full heal
+      const target = targetOf(ctx, t.to);
+      if (!target) return fail('player_offline');
+      const r = setCreature(target.doc, t);
+      if (r.error) return fail(r.error);
+      refresh(target);
+      const { before, ...told } = r.detail;
+      target.me || target.send('gmGift', { from: ctx.doc.name, ...told, card: creatureCard(target.doc, told.uid) });
+      return done(r.detail, target.doc);
+    }
+
+    case 'base': {
+      // the base's buildings, to any level (game/base.js reads them)
+      const target = targetOf(ctx, t.to);
+      if (!target) return fail('player_offline');
+      const r = setBase(target.doc, t);
+      if (r.error) return fail(r.error);
+      refresh(target);
+      target.me || target.send('gmGift', { from: ctx.doc.name, what: 'base' });
+      return done(r.detail, target.doc);
+    }
+
+    case 'reset': {
+      // everything back to the start, as if they had just joined
+      const target = targetOf(ctx, t.to);
+      if (!target) return fail('player_offline');
+      const was = { level: target.doc.level || 1, creatures: Object.keys(target.doc.creatures || {}).length, gold: target.doc.gold || 0 };
+      const snapshot = resetDoc(target.doc, String(t.starter || ''));
+      refresh(target);
+      target.me || target.send('gmTake', { from: ctx.doc.name, what: 'reset' });
+      done({ what: 'reset', was, starter: activeCreature(target.doc)?.species || null, snapshot }, target.doc);
+      return reload(target);
     }
 
     case 'heal': {

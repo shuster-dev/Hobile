@@ -116,23 +116,28 @@ ok('every quest reward item exists',
 ok('every dungeon names a real zone element', Object.values(DUNGEONS).every((d) => ELEMENTS[d.element]));
 
 // ---------------------------------------------------------------- capture curve
-section('capture curve (docs/battle-v2.md: 5 / 51 / 99)');
-const curve = (species, level) => {
+section('capture curve (docs/battle-v2.md: the share of HP taken — 3 / 50 / 95)');
+const curve = (species, level, sphere = 'sphere_basic') => {
   const st = statsFor(species, level, 0.5, 1);
-  const at = (hp) => captureChance({ species, level, hp, maxHp: st.hp }, 'sphere_basic');
-  return { full: at(st.hp), half: at(Math.round(st.hp / 2)), one: at(1) };
+  const at = (hp) => captureChance({ species, level, hp, maxHp: st.hp }, sphere);
+  return { full: at(st.hp), tenth: at(Math.round(st.hp * 0.9)), half: at(Math.round(st.hp / 2)), quarter: at(Math.round(st.hp / 4)), one: at(1) };
 };
 const common = curve('mossnail', 6);
-ok('common lv6 at full hp ~5%', near(common.full * 100, 5, 1.5), (common.full * 100).toFixed(1));
-ok('common lv6 at half hp ~51%', near(common.half * 100, 51, 6), (common.half * 100).toFixed(1));
-ok('common lv6 at 1 hp ~99%', near(common.one * 100, 99, 1), (common.one * 100).toFixed(1));
+ok('common lv6 at full hp ~3%', near(common.full * 100, 3, 1), (common.full * 100).toFixed(1));
+ok('common: a tenth of its hp gone is ~10%', near(common.tenth * 100, 10, 3), (common.tenth * 100).toFixed(1));
+ok('common: half its hp gone is ~50% with a plain sphere', near(common.half * 100, 50, 4), (common.half * 100).toFixed(1));
+ok('common: three quarters gone is ~75%, not a sure thing', near(common.quarter * 100, 75, 4), (common.quarter * 100).toFixed(1));
+ok('common lv6 at 1 hp ~95%', near(common.one * 100, 95, 1), (common.one * 100).toFixed(1));
 const rare = Object.values(SPECIES).find((s) => s.rarity === 'rare');
 const rareCurve = curve(rare.id, 40);
-ok('rare lv40 is much harder at full hp', rareCurve.full < common.full, (rareCurve.full * 100).toFixed(1));
-ok('rare lv40 still ~99% at 1 hp', near(rareCurve.one * 100, 99, 2), (rareCurve.one * 100).toFixed(1));
+ok('rare lv40 is harder at half hp', rareCurve.half < common.half, (rareCurve.half * 100).toFixed(1));
+ok('rare lv40 still ~95% at 1 hp', near(rareCurve.one * 100, 95, 2), (rareCurve.one * 100).toFixed(1));
+const ultra = curve('mossnail', 6, 'sphere_ultra');
+ok('a better sphere helps, and still never makes a quarter of the HP a sure thing',
+  ultra.tenth > common.tenth && ultra.half > common.half && curve('mossnail', 6, 'sphere_ultra').tenth < 0.6, `${(ultra.tenth * 100).toFixed(0)} / ${(ultra.half * 100).toFixed(0)}`);
 ok('the anchor holds for every species at 1 hp',
   Object.values(SPECIES).filter((s) => s.rarity !== 'boss')
-    .every((s) => curve(s.id, 30).one > 0.95));
+    .every((s) => curve(s.id, 30).one > 0.9));
 
 // ---------------------------------------------------------------- world bounds
 section('world bounds');
@@ -2449,6 +2454,27 @@ section('from the phone');
   bs.resolve({ kind: 'end', outcome: 'a' });
   ok('each creature takes its own health home (not the lead: 423 of 86)', lead.hp === leadHp && big.hp === Math.min(400, big.maxHp) && lead.hp <= lead.maxHp, `${lead.hp}/${lead.maxHp} ${big.hp}/${big.maxHp}`);
   ok('the one that finished the fight earns its XP', big.xp > bigXp && lead.xp === leadXp);
+  {
+    // any creature can fight: one in the box is called in, not only the six
+    const d3 = C.createPlayerDoc('qa-box', 'QA', {}, 'cindcub');
+    C.normalizeDoc(d3);
+    for (const s of Object.values(G.SPECIES).filter((x) => x.rarity === 'common')) {
+      if (d3.team.length >= 6) break;
+      C.familyOwned(d3, s.id) || s.id === 'stormcaller' || C.addCreature(d3, C.makeCreature(s.id, 10));
+    }
+    const boxed = C.makeCreature('stormcaller', 20);
+    C.addCreature(d3, boxed);
+    const inBox = d3.box.includes(boxed.uid);
+    const bs3 = new B.BattleSim({ doc: d3, guilds: [], emit: () => {}, save: () => {}, pendingRooms: new Map() }, { zoneId: 'verdant_meadow', wild: { species: 'sparkit', level: 5 } });
+    const r3 = C.swapToUid(bs3.sim, bs3.anchor, boxed.uid, (u) => C.recruitFromBox(bs3.sim, d3, bs3.anchor, u, { roster: bs3.roster }));
+    const on = [...bs3.sim.combatants.values()].find((c) => c.creature?.uid === boxed.uid);
+    ok('a creature in the box can be called into a fight', inBox && r3.ok && on && r3.in === on.id, JSON.stringify(r3));
+    ok('and is on your side, as yours', on?.side === bs3.anchor.side && C.ownerKey(on) === C.ownerKey(bs3.anchor));
+    const twice = C.recruitFromBox(bs3.sim, d3, bs3.anchor, boxed.uid);
+    ok('but only once', twice === null);
+    const stranger = C.recruitFromBox(bs3.sim, d3, bs3.anchor, 'not-a-creature');
+    ok('and only one of yours', stranger === null);
+  }
   // what is already wrong in a save is put right on load
   const d2 = C.createPlayerDoc('qa-phone2', 'QA', {}, 'cindcub');
   C.normalizeDoc(d2);
@@ -2518,6 +2544,40 @@ section('from the phone');
   ok('a trainer level set by mistake goes back', d.level === lv);
   GM.handleGm(ctx, { op: 'creatures' });
   ok('the GM can see a player\'s creatures to pick one', Array.isArray(last()?.list) && last().list.every((c) => c.uid && c.where));
+  // a creature's level, either way, its stars, shiny — and the undo
+  const pet = C.makeCreature('pebblin', 30);
+  C.addCreature(d, pet);
+  const petWas = JSON.parse(JSON.stringify(pet));
+  GM.handleGm(ctx, { op: 'creatureSet', uid: pet.uid, level: 12 });
+  ok('a GM can bring a creature down a level or twenty', d.creatures[pet.uid].level === 12 && d.creatures[pet.uid].xp === G.PROGRESSION.xpToLevel(12) && d.creatures[pet.uid].maxHp < petWas.maxHp && d.creatures[pet.uid].hp <= d.creatures[pet.uid].maxHp);
+  GM.handleGm(ctx, { op: 'creatureSet', uid: pet.uid, level: 40, star: 3, shiny: true, heal: true });
+  const up = d.creatures[pet.uid];
+  ok('or up (it grows as it would), with its stars and shiny', up.level === 40 && up.star === 3 && up.shiny && up.hp === up.maxHp);
+  GM.handleGm(ctx, { op: 'undo', id: log.find((r) => r.op === 'creatureSet' && r.detail?.level === 12).id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('and the undo puts it back as it was', d.creatures[pet.uid].level === 30 && d.creatures[pet.uid].species === petWas.species && d.creatures[pet.uid].maxHp === petWas.maxHp);
+  // the base
+  GM.handleGm(ctx, { op: 'base', building: 'all', level: 'max' });
+  ok('the base, every building to its top', Object.entries(G.BUILDINGS).every(([k, b]) => C.baseOf(d).buildings[k] === b.maxLevel));
+  GM.handleGm(ctx, { op: 'base', building: 'pod', level: 99 });
+  ok('a level past the top is the top', C.baseOf(d).buildings.pod === G.BUILDINGS.pod.maxLevel);
+  GM.handleGm(ctx, { op: 'undo', id: log.find((r) => r.op === 'base' && r.detail?.set?.garden != null).id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('and that undone too', C.baseOf(d).buildings.garden === 1);
+  // everything back to the start
+  d.gold = 123456; d.level = 33;
+  const had = Object.keys(d.creatures).length, name = d.name, friends = (d.friends = ['someone']);
+  GM.handleGm(ctx, { op: 'reset', starter: 'puddlet' });
+  const resetRow = log.find((r) => r.op === 'reset');
+  ok('a reset starts them over: level 1, the starter alone, the first gold', d.level === 1 && d.team.length === 1 && Object.keys(d.creatures).length === 1 && C.creatureOf(d, d.team[0]).species === 'puddlet' && d.gold === 500 && d.box.length === 0);
+  ok('who they are stays (name, friends)', d.name === name && d.friends?.[0] === 'someone' && friends.length === 1);
+  ok('and they are sent back to the start of the world', out.some(([k, v]) => k === 'goto' && v.zone === d.zone));
+  GM.handleGm(ctx, { op: 'log' });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('the panel is not sent the whole save', !last()?.rows?.some((r) => r.detail?.snapshot) && last()?.rows?.find((r) => r.op === 'reset')?.detail?.undoable);
+  GM.handleGm(ctx, { op: 'undo', id: resetRow.id });
+  await new Promise((r) => setTimeout(r, 5));
+  ok('and a reset undone gives it all back', d.level === 33 && d.gold === 123456 && Object.keys(d.creatures).length === had, JSON.stringify({ lv: d.level, gold: d.gold, n: Object.keys(d.creatures).length, had, last: last() }));
   const notGm = { ...ctx, admin: false };
   const g1 = d.gold;
   GM.handleGm(notGm, { op: 'take', what: 'gold', amount: 1 });
