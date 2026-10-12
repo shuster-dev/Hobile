@@ -120,12 +120,12 @@ else { console.log('  FAIL the offline build offers an account it cannot keep ::
 // The collection panel: open it the way a player does, through the menu.
 await step('the collection panel opens', async () => {
   await page.evaluate(() => window.__hobile.ui.openPanel('dex'));
-  await page.waitForFunction(() => document.querySelectorAll('.dex-tile').length > 0, null, { timeout: 8000 });
+  await page.waitForFunction(() => document.querySelectorAll('.dcard').length > 0, null, { timeout: 8000 });
 });
 const dex = await page.evaluate(() => ({
-  tiles: document.querySelectorAll('.dex-tile').length,
-  locked: document.querySelectorAll('.dex-tile.locked').length,
-  header: document.querySelector('#panel .section h4')?.textContent || '',
+  tiles: document.querySelectorAll('.dcard').length,
+  locked: document.querySelectorAll('.dcard.locked').length,
+  header: document.querySelector('#panel .dex-count')?.textContent.replace(/\s+/g, ' ').trim() || '',
 }));
 console.log(`  dex: ${dex.tiles} tiles, ${dex.locked} locked — "${dex.header}"`);
 if (dex.tiles - dex.locked !== 1) { console.log('  FAIL exactly the starter should be unlocked'); errors.push('dex unlock count'); }
