@@ -1790,7 +1790,8 @@ section('riding');
   const G3 = await import('../src/shared/gamedata.js');
   const P3 = await import('../src/shared/props.js');
   ok('a grown bird flies, a grown water creature swims, a grown beast carries you', RD.mountKind('pyrewing') === 'fly' && RD.mountKind('torrentoad') === 'swim' && RD.mountKind('blazehound') === 'land');
-  ok('a small one carries nobody, until its third star', RD.mountKind('kindlepup') === null && RD.mountKind('kindlepup', 3) === 'land');
+  ok('every creature but a boss carries you, the small ones too (12.10)', RD.mountKind('kindlepup') === 'land' && Object.values(G3.SPECIES).every((s) => s.rarity === 'boss' ? RD.mountKind(s.id) === null : !!RD.mountKind(s.id)));
+  ok('anything with wings flies: the birds and the moths', RD.mountKind('emberfly') === 'fly' && RD.mountKind('zephyrb') === 'fly');
   ok('a boss is nobody\'s horse', RD.mountKind('rootfather') === null);
   ok('every element has something to ride', Object.keys(G3.ELEMENTS).every((e) => Object.values(G3.SPECIES).some((s) => s.types[0] === e && RD.mountKind(s.id))));
   ok('the air, the water and the land each have riders', ['fly', 'swim', 'land'].every((k) => Object.values(G3.SPECIES).filter((s) => RD.mountKind(s.id) === k).length >= 5));
@@ -1820,7 +1821,7 @@ section('riding');
   const out = [];
   const rctx = { doc: rdoc, zone: G3.ZONES.aetherport, zoneId: 'aetherport', colliders: [], self: () => self, net: { emit: (k, v) => out.push([k, v]), save() {} } };
   WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
-  ok('a cub cannot carry you', out.some(([k, v]) => k === 'error' && v.code === 'cannot_ride') && !rctx.ride);
+  ok('a cub can carry you too — once it has a saddle', out.some(([k, v]) => k === 'error' && v.code === 'need_saddle') && !rctx.ride);
   lead.species = 'blazehound'; lead.level = 25;
   WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
   ok('grown, but with no saddle: not yet', out.some(([k, v]) => k === 'error' && v.code === 'need_saddle') && !rctx.ride);
@@ -1833,6 +1834,17 @@ section('riding');
   ok('and back from a fight you are on it again', ctx2.ride?.uid === lead.uid && self2.mountKind === 'land');
   WM.handleWorldMessage(rctx, 'ride', {});
   ok('and down again', !rctx.ride && !self.mount && !rdoc.riding);
+  // in the air: the height you fly at is told to the others, and only then
+  lead.species = 'pyrewing', lead.saddle = true;
+  rctx.checkVisits = () => {};
+  WM.handleWorldMessage(rctx, 'ride', { uid: lead.uid });
+  WM.handleWorldMessage(rctx, 'move', { x: self.x + 0.5, z: self.z, rot: 0, moving: true, alt: 12.34 });
+  ok('a flyer\'s height goes to the others', rctx.ride?.kind === 'fly' && self.alt === 12.3);
+  WM.handleWorldMessage(rctx, 'move', { x: self.x, z: self.z, rot: 0, moving: false, alt: 999 });
+  ok('and never past the sky\'s limit', self.alt === 40);
+  rctx.ride = { ...rctx.ride, kind: 'land' };
+  WM.handleWorldMessage(rctx, 'move', { x: self.x, z: self.z, rot: 0, moving: false, alt: 12 });
+  ok('on the ground there is no height to tell', self.alt === 0);
 }
 
 // ---------------------------------------------- before a beta: the foundations
@@ -2127,10 +2139,11 @@ section('saddles, tricks and reports');
   ok('a second saddle on it is refused', SV.makeSaddle(d, hound.uid).error === 'already_saddled');
   const cub = d.creatures[d.team[0]];
   d.mats[SD.familyOf(cub.species)] = 9;
-  ok('a cub too small to carry you gets no saddle', SV.makeSaddle(d, cub.uid).error === 'cannot_ride');
   const ren4 = ST.NPC_QUESTS?.n_ren_4 || G4.QUESTS.n_ren_4;
   ok('Ren\'s errand asks for a saddle, and counts it from what you hold', !!ren4 && ren4.goal.kind === 'saddle' && ST.heldProgress(d, ren4) === 1
     && ST.heldProgress(C.publicProfile(d), ren4) === 1);
+  d.gold += 5000;
+  ok('a cub gets a saddle as well, and can be ridden', !SV.makeSaddle(d, cub.uid).error && cub.saddle === true);
   ok('the profile carries the pieces', typeof C.publicProfile(d).mats === 'object');
 
   // tricks: three, each with a button; the server checks and tells the room

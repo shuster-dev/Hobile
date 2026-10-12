@@ -202,7 +202,8 @@ var StoreBase = class {
         dye: wardrobeOf(e).dye || "",
         mount: "",
         mountKind: "",
-        mountStar: 1
+        mountStar: 1,
+        alt: 0
       });
       // back on whatever was carrying them (shared/riding.js)
       restoreRide(this, this.state.players.get("me"), e);

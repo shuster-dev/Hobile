@@ -1,33 +1,34 @@
-// Riding: a grown creature can carry its trainer — over land faster than a
-// run, through the water where nobody can walk, or up into the air over
-// everything. Which creature can carry you, and how, is in its body and its
-// element; the server and the client both read it here.
+// Riding: any creature can carry its trainer once it wears a saddle
+// (shared/saddles.js) — over land faster than a run, through the water where
+// nobody can walk, or up into the air over everything. How it carries you is
+// in its body and its element; a small one is made big enough to carry you
+// while you ride (client gfx/world.js setMount). The server and the client
+// both read it here. (Meir, 12.10: "every creature can be ridden".)
 import { SPECIES } from './gamedata.js';
 
 export const RIDE = {
   land: { speed: 1.75, he: 'רכיבה', icon: '🐎' },
   swim: { speed: 1.5, he: 'שחייה', icon: '🌊' },
-  fly: { speed: 2.1, he: 'תעופה', icon: '🪽', lift: 2.8 },
+  fly: { speed: 2.5, he: 'תעופה', icon: '🪽', lift: 0 },
 };
 
-/** Small ones carry nobody; a third star makes even a small one strong enough. */
-const BIG = new Set(['evolved', 'final', 'rare', 'legendary']);
-
 /**
- * How this creature carries a trainer: 'fly', 'swim', 'land', or null.
- * Birds fly; a serpent of the sky or the light flies; a creature of the
- * water swims; anything four-legged or built like a golem walks.
+ * How this creature carries a trainer: 'fly', 'swim' or 'land' — every
+ * creature but a boss carries one. Anything with wings flies (the birds, the
+ * moths and the beetles), and so does anything of the wind, a serpent of the
+ * sky or the light, and the ghosts that float; a creature of the water swims;
+ * the rest walk. (`star` is kept for callers; it no longer decides.)
  */
 export function mountKind(species, star = 1) {
   const s = SPECIES[species];
   if (!s || s.rarity === 'boss') return null;
-  if (!BIG.has(s.rarity) && star < 3) return null;
   const shape = s.model?.shape, t = s.types || [];
-  if (shape === 'avian') return 'fly';
-  if (shape === 'serpent' && (t[0] === 'gale' || t[0] === 'lumen' || t[1] === 'gale')) return 'fly';
-  if (t.includes('aqua') && (shape === 'serpent' || shape === 'quad' || shape === 'blob')) return 'swim';
-  if (shape === 'quad' || shape === 'golem') return 'land';
-  return null;
+  if (shape === 'avian' || shape === 'insect') return 'fly';
+  if (t[0] === 'gale') return 'fly';
+  if (shape === 'serpent' && (t[0] === 'lumen' || t[1] === 'gale')) return 'fly';
+  if (t[0] === 'umbra' && (shape === 'blob' || shape === 'sprite')) return 'fly';
+  if (t.includes('aqua')) return 'swim';
+  return 'land';
 }
 
 /** The creatures in a team that can be ridden — big enough, and wearing a
