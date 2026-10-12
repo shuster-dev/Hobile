@@ -7,6 +7,7 @@ import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
 import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { mountKind } from '../../shared/riding.js';
+import { familyOf } from '../../shared/saddles.js';
 import { AILMENTS, BAD, BOSS_DISABLE, DOT_CHANCE, STATUS, disabledBy, immuneTo, isBad, matchesVs, moveStatus } from '../../shared/status.js';
 import { questGold, ECONOMY, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
@@ -1136,21 +1137,102 @@ function dexRecord(doc, species, creature) {
 
 const DUPLICATE_TIER = { common: 1, starter: 1, evolved: 2, final: 3, rare: 3, legendary: 5, boss: 4 };
 
-/** What a duplicate capture pays out, in the materials star upgrades consume. */
+/**
+ * One of each (Meir, 12.10): a trainer keeps one creature of every line. A
+ * second of a line they already have — caught, given by a quest, found in a
+ * box from before — does not join; it leaves what it is worth instead: shards
+ * of its element (and a crystal now and then) for the star upgrades, fiber and
+ * scrap for the base, a core from the rare ones, experience for the one the
+ * trainer has, and its shine if it had one.
+ */
 function duplicateReward(doc, species) {
   const sp = SPECIES[species];
   if (!sp) return {};
   const element = sp.types[0];
   const tier = DUPLICATE_TIER[sp.rarity] ?? 1;
+  const caught = dexRow(doc, species).caught;
   const out = {};
-  const shards = 2 + tier;
-  if (giveItem(doc, `shard_${element}`, shards)) out[`shard_${element}`] = shards;
-  // Every third duplicate refines into a crystal, and anything above evolved
-  // always does — otherwise the rare species you can barely catch twice would
-  // pay the same as the one underfoot in the starting zone.
-  const crystals = (dexRow(doc, species).caught % 3 === 0 ? 1 : 0) + (tier >= 3 ? 1 : 0);
-  if (crystals && giveItem(doc, `crystal_${element}`, crystals)) out[`crystal_${element}`] = crystals;
+  const put = (id, n) => n > 0 && giveItem(doc, id, n) && (out[id] = (out[id] || 0) + n);
+  put(`shard_${element}`, 2 + tier);
+  // Every third refines into a crystal, and anything above evolved always
+  // does — otherwise the rare species you can barely catch twice would pay
+  // the same as the one underfoot in the starting zone.
+  put(`crystal_${element}`, (caught % 3 === 0 ? 1 : 0) + (tier >= 3 ? 1 : 0));
+  put("fiber", 2 + tier);
+  put("scrap_iron", 1 + tier);
+  put("aether_core", tier >= 4 || caught % 6 === 0 ? 1 : 0);
   return out;
+}
+
+/** The creature of this line the trainer already has (wherever it is), or null. */
+function familyOwned(doc, species) {
+  const f = familyOf(species);
+  for (const c of Object.values(doc?.creatures || {})) if (c && SPECIES[c.species] && familyOf(c.species) === f) return c;
+  return null;
+}
+
+/**
+ * A creature coming to the trainer. New to them: it joins (the team, or the
+ * box). One of a line they already have: the one they have takes what the new
+ * one brings — experience, its shine — and the trainer the materials
+ * (duplicateReward). Returns what happened, for the result screen.
+ */
+function takeIn(doc, c) {
+  const had = c && familyOwned(doc, c.species);
+  if (!had) return addCreature(doc, c), { joined: !0, creature: c };
+  const items = duplicateReward(doc, c.species),
+    xp = Math.max(1, creaturePower(c, had.level)),
+    events = grantXpTo(had, xp, doc),
+    shiny = !!c.shiny && !had.shiny;
+  shiny && (had.shiny = !0);
+  return { joined: !1, creature: had, items, xp, events, shiny };
+}
+
+/**
+ * Trainers who caught the same line more than once before there was one of
+ * each: the furthest along of them stays (in a pod first — its upgrade is
+ * paid for — then by stars, then by experience), takes the others' shine,
+ * saddle and the most experience any of them had, and stands where the first
+ * of them stood in the team. The others become what a duplicate is worth.
+ * Idempotent: with nothing to merge it changes nothing.
+ */
+function mergeDuplicates(doc) {
+  const groups = new Map();
+  for (const c of Object.values(doc.creatures || {})) {
+    if (!c || !SPECIES[c.species]) continue;
+    const f = familyOf(c.species);
+    groups.has(f) || groups.set(f, []), groups.get(f).push(c);
+  }
+  const merged = [];
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const pod = new Set((doc.base?.training || []).map((t) => t.uid)),
+      rank = (c) => (pod.has(c.uid) ? 1e12 : 0) + (c.star || 1) * 1e9 + (c.xp || 0) + (c.shiny ? 0.5 : 0);
+    list.sort((a, b) => rank(b) - rank(a));
+    const keep = list[0];
+    for (const c of list.slice(1)) {
+      (c.xp || 0) > (keep.xp || 0) && grantXpTo(keep, c.xp - (keep.xp || 0), doc);
+      c.shiny && (keep.shiny = !0), c.saddle && (keep.saddle = !0), !keep.nickname && c.nickname && (keep.nickname = c.nickname);
+      isWorker(doc, c.uid) && unassignWorker(doc, c.uid);
+      const team = doc.team || (doc.team = []), ti = team.indexOf(c.uid);
+      if (ti >= 0) {
+        if (team.includes(keep.uid) || pod.has(keep.uid)) team.splice(ti, 1);
+        else isWorker(doc, keep.uid) && unassignWorker(doc, keep.uid), team[ti] = keep.uid, doc.box = (doc.box || []).filter((u) => u !== keep.uid);
+      }
+      doc.box = (doc.box || []).filter((u) => u !== c.uid);
+      doc.base && (doc.base.training = (doc.base.training || []).filter((t) => t.uid !== c.uid));
+      doc.riding === c.uid && (doc.riding = keep.saddle && mountKind(keep.species, keep.star || 1) ? keep.uid : null);
+      delete doc.creatures[c.uid];
+      merged.push({ species: c.species, level: c.level, into: keep.uid, intoSpecies: keep.species, items: duplicateReward(doc, c.species) });
+    }
+  }
+  // a team is never left empty
+  if (doc.team && !doc.team.length) {
+    const k = (doc.box || []).findIndex((u) => !isWorker(doc, u));
+    k >= 0 && doc.team.push(doc.box.splice(k, 1)[0]);
+  }
+  merged.length && (doc.merged = { at: Date.now(), list: merged });
+  return merged;
 }
 
 /** Everything the dex panel needs, without shipping the whole species table. */
@@ -1211,6 +1293,8 @@ function normalizeDoc(i) {
     const placed = new Set([...(i.team || []), ...(i.box || []), ...((i.base?.training || []).map(t => t.uid))]);
     for (const u of Object.keys(i.creatures)) placed.has(u) || (i.box ||= []).push(u);
   }
+  // One of each (12.10): a line caught more than once is folded into one.
+  i.creatures && mergeDuplicates(i);
   // Creatures from before natures and abilities get theirs now — from their
   // uid, so the same creature is the same on every server and every load.
   for (const c of Object.values(i.creatures || {})) {
@@ -1311,7 +1395,9 @@ function claimNpcQuest(i, t) {
   let r = grantXp(i, t.reward.xp || 0),
     c = null;
   if (t.reward.creature && SPECIES[t.reward.creature.species]) {
-    c = makeCreature(t.reward.creature.species, t.reward.creature.level || 5), addCreature(i, c), dexRecord(i, c.species, c);
+    c = makeCreature(t.reward.creature.species, t.reward.creature.level || 5), dexRecord(i, c.species, c);
+    let got = takeIn(i, c);
+    got.joined || (r.push(...got.events), c = null);
   }
   return { reward: t.reward, events: r, creature: c ? creatureCard(i, c.uid) : null };
 }
@@ -1340,7 +1426,9 @@ function claimQuest(i, e) {
   // a story step may end with someone joining you (shared/saga.js)
   if (t.reward.creature && SPECIES[t.reward.creature.species]) {
     let c = makeCreature(t.reward.creature.species, t.reward.creature.level || 5);
-    addCreature(i, c), dexRecord(i, c.species, c), gift = creatureCard(i, c.uid);
+    dexRecord(i, c.species, c);
+    let got = takeIn(i, c);
+    got.joined ? gift = creatureCard(i, c.uid) : r.push(...got.events);
   }
   if (t.chain === "main") {
     delete i.quests.active[e], i.quests.done.includes(e) || i.quests.done.push(e);
@@ -1404,6 +1492,8 @@ function publicProfile(i) {
     pass: passView(i),
     // pieces toward saddles, by family (shared/saddles.js)
     mats: { ...(i.mats || {}) },
+    // the last time duplicates were folded together (mergeDuplicates)
+    merged: i.merged || null,
     // the first ten minutes' guide (shared/tutorial.js)
     tutorial: { steps: [...(i.tutorial?.steps || [])], done: !!i.tutorial?.done, skipped: !!i.tutorial?.skipped }
   };
@@ -2008,4 +2098,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { WEATHER_BOOST, setMoves, settleHp, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, familyOwned, mergeDuplicates, setMoves, settleHp, takeIn, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

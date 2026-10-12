@@ -536,6 +536,8 @@ var Game = class {
     e.on("profile", t => {
       // the first ten minutes' guide follows what the server says is done (client/coach.js)
       t.tutorial && this.coach.set(t.tutorial);
+      // duplicates folded into one (server mergeDuplicates): said once
+      this.sayMerged(t.merged);
       this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t), this.storyWorld();
@@ -827,7 +829,7 @@ var Game = class {
     }), e.on("battleEnd", async t => {
       t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile));
       let n = [];
-      t.captured && n.push(`נלכד ${loc(SPECIES[t.captured.species])}!`), t.xp && n.push(`+${t.xp} XP`), t.gold && (n.push(`${t.gold > 0 ? "+" : ""}${t.gold}⛁`), t.gold > 0 && setTimeout(() => audio.sfx("coin"), 620)), t.items?.length && setTimeout(() => audio.sfx("loot"), 820);
+      t.captured && !t.dupInto && n.push(`נלכד ${loc(SPECIES[t.captured.species])}!`), t.xp && n.push(`+${t.xp} XP`), t.gold && (n.push(`${t.gold > 0 ? "+" : ""}${t.gold}⛁`), t.gold > 0 && setTimeout(() => audio.sfx("coin"), 620)), t.items?.length && setTimeout(() => audio.sfx("loot"), 820);
       // An evolution gets its own scene (gfx/evolve.js) after the result, so
       // it is not also a line in the summary.
       let evo = (t.events || []).filter(r => r.kind === "evolve" && SPECIES[r.from] && SPECIES[r.into]);
@@ -841,9 +843,12 @@ var Game = class {
       this.ui.battleBanner(t.outcome === "cancelled" ? "הקרב בוטל — לא כולם הגיעו" : t.pvp ? t.won ? "ניצחתם! 🏆" : t.outcome === "draw" ? "תיקו" : t.forfeit ? "פרשת" : "הפסדתם — בפעם הבאה" : t.won ? t.coop ? "ניצחון משותף!" : "ניצחון!" : t.outcome === "captured" ? "נלכד!" : t.outcome === "fled" ? "ברחת" : "הובסת", 1600), t.blackout && n.push("התעוררת במחנה, הצוות הבריא"), t.pvp && !t.won && t.outcome !== "cancelled" && n.push("בדו‑קרב לא מאבדים כלום");
       // A first catch of a species opens its card; a duplicate says what it
       // refined into. Catching the same thing twice should not feel identical.
-      if (t.captured && t.duplicate && Object.keys(t.duplicate).length) {
-        let parts = Object.entries(t.duplicate).map(([id, count]) => `${ITEMS[id]?.icon || ""} ${loc(ITEMS[id]) || id} ×${count}`);
-        n.push(`כפול — ${parts.join(" · ")}`);
+      // One of each: a line you already have leaves what it is worth
+      // instead of a second — experience for yours, materials for you.
+      if (t.dupInto) {
+        let parts = Object.entries(t.duplicate || {}).map(([id, count]) => `${ITEMS[id]?.icon || ""} ${loc(ITEMS[id]) || id} ×${count}`);
+        n.unshift(`כבר יש לך ${loc(SPECIES[t.dupInto.species])} — הוא קיבל +${t.dupInto.xp} XP${t.dupInto.shiny ? " והברק ✨" : ""}`);
+        parts.length && n.push(`השאיר: ${parts.join(" · ")}`);
       }
       // a piece toward a saddle for its family (shared/saddles.js)
       if (t.mat) {
@@ -857,6 +862,7 @@ var Game = class {
         s = 1500;
       }
       n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), Math.max(0, s - 1400)), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
+      t.dupInto && t.newSpecies && n.push(`${loc(SPECIES[t.captured.species])} נרשם באוסף`);
       if (t.captured && t.newSpecies && t.card) setTimeout(() => {
         audio.sfx("quest"), this.ui.celebrate(`${loc(SPECIES[t.captured.species])} — קלף חדש!`, "quest");
         this.ui.card = t.card;
@@ -882,7 +888,7 @@ var Game = class {
     }), e.on("gm", t => this.onGm(t)), e.on("gmGift", t => {
       // Someone with the keys sent you something (or you sent it to yourself).
       audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
-      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : "משאבים בלי סוף";
+      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})${t.merged ? " — זה שכבר היה לך" : ""}` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : "משאבים בלי סוף";
       this.ui.celebrate(t.from ? "🎁 מתנה!" : "🎁 נוסף!", "quest"), this.ui.toast(t.from ? `${t.from} (GM) שלח לך: ${what}` : `נוסף לך: ${what}`, "good"), t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmTake", t => {
       // a GM took something back (a mistake fixed) — or gave back what was taken
@@ -918,6 +924,18 @@ var Game = class {
    * has finished (or been tapped through). A guard timer ends it regardless,
    * so a fight is never left on a dark stage.
    */
+  /** Once, after duplicates were folded into one: what came of them. */
+  sayMerged(m) {
+    if (!m?.at || !m.list?.length) return;
+    let key = "hobile.merged", seen = null;
+    try { seen = localStorage.getItem(key); } catch {}
+    if (String(m.at) === seen) return;
+    try { localStorage.setItem(key, String(m.at)); } catch {}
+    let got = {};
+    for (let r of m.list) for (let [id, q] of Object.entries(r.items || {})) got[id] = (got[id] || 0) + q;
+    let parts = Object.entries(got).map(([id, q]) => `${ITEMS[id]?.icon || ""} ${loc(ITEMS[id]) || id} ×${q}`);
+    setTimeout(() => this.ui.toast(`יצור אחד מכל סוג: ${m.list.length} כפולים אוחדו — החזקים נשארו${parts.length ? `, וקיבלת ${parts.join(" · ")}` : ""}`, "good"), 2500);
+  }
   playEvolutions(list) {
     return new Promise(res => {
       let ov = $("#ceremony"), done = !1, guard = 0, c = null;

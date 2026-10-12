@@ -2051,6 +2051,49 @@ section('statuses and the four moves');
   }
 }
 
+// --------------------------------------------------- one of each
+// Meir (12.10): a trainer keeps one creature of each line. A second of a line
+// they have leaves materials and experience instead (combat.js takeIn), and
+// collections from before are folded into one (mergeDuplicates).
+section('one of each');
+{
+  const SD = await import('../src/shared/saddles.js');
+  const d = C.createPlayerDoc('qa-one', 'QA', {}, 'cindcub');
+  C.normalizeDoc(d);
+  const start = Object.keys(d.creatures).length, mine = Object.values(d.creatures)[0];
+  const fresh = C.takeIn(d, C.makeCreature('pebblin', 6));
+  ok('a new line joins', fresh.joined && Object.keys(d.creatures).length === start + 1);
+  const inv0 = { ...d.inventory }, xp0 = mine.xp;
+  const again = C.takeIn(d, C.makeCreature('cindcub', 8, { shiny: true }));
+  ok('a second of a line you have does not join', !again.joined && Object.keys(d.creatures).length === start + 1);
+  ok('the one you have takes its experience and its shine', mine.xp > xp0 && mine.shiny === true && again.xp > 0 && again.shiny);
+  ok('and you get what it leaves: shards for stars, fiber and scrap for the base',
+    Object.keys(again.items).some((k) => k.startsWith('shard_')) && again.items.fiber > 0 && again.items.scrap_iron > 0
+    && (d.inventory.fiber || 0) > (inv0.fiber || 0));
+  const evolved = Object.values(G.SPECIES).find((s) => s.evolve?.into && SD.familyOf(s.evolve.into) === s.id);
+  ok('the line counts, not just the species: the grown one is the same line', !!evolved && SD.familyOf(evolved.evolve.into) === evolved.id);
+  // a collection from before: two of a line, one in a pod
+  const o = C.createPlayerDoc('qa-old-dupes', 'Old', {}, 'cindcub');
+  const a = C.makeCreature('mossnail', 12), b = C.makeCreature('mossnail', 30), z = C.makeCreature('mossnail', 4, { shiny: true });
+  for (const c of [a, b, z]) C.addCreature(o, c);
+  delete o.oneEach;
+  const before = Object.keys(o.creatures).length;
+  C.normalizeDoc(o);
+  const left = Object.values(o.creatures).filter((c) => SD.familyOf(c.species) === SD.familyOf('mossnail'));
+  ok('a collection from before keeps one of a line', left.length === 1 && Object.keys(o.creatures).length === before - 2);
+  ok('the furthest along stays, and takes the shine', left[0].uid === b.uid && left[0].shiny === true);
+  ok('nothing is left pointing at the ones folded in', [...o.team, ...o.box].every((u) => o.creatures[u]) && new Set([...o.team, ...o.box]).size === o.team.length + o.box.length);
+  ok('and the player is told once, with what it came to', o.merged?.list?.length === 2 && C.publicProfile(o).merged.list.length === 2);
+  const again2 = JSON.stringify(o.creatures); C.normalizeDoc(o);
+  ok('folding again changes nothing', JSON.stringify(o.creatures) === again2);
+  // the gift of a quest, of a line you have
+  const q = C.createPlayerDoc('qa-gift', 'Gift', {}, 'cindcub');
+  C.normalizeDoc(q);
+  const n0 = Object.keys(q.creatures).length;
+  const r = C.takeIn(q, C.makeCreature('cindcub', 20));
+  ok('a gift of a line you have raises yours instead', !r.joined && Object.keys(q.creatures).length === n0 && Object.values(q.creatures)[0].level > 5);
+}
+
 // --------------------------------------------------- saddles, tricks, reports
 // Riding needs a saddle (shared/saddles.js): five pieces of a family, hunted;
 // tricks for the pet (shared/tricks.js) are checked and told to the room;

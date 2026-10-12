@@ -1,4 +1,4 @@
-import { Combat, Combatant, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { Combat, Combatant, takeIn, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
@@ -599,14 +599,16 @@ var StoreBase = class {
         }
         if (r && this.pendingCapture) {
           let c = makeCreature(this.pendingCapture.species, this.pendingCapture.level, this.pendingCapture.traits);
-          addCreature(t, c), t.stats.captures += 1, o.captured = c, o.mat = huntMaterial(t, c.species);
-          // The first of a species opens its card; the rest refine into the
-          // materials a star upgrade costs.
-          let dex = dexRecord(t, c.species, c);
+          t.stats.captures += 1, o.mat = huntMaterial(t, c.species);
+          // One of each (combat.js takeIn): new to the trainer, it joins and
+          // its card opens; one of a line they have, it leaves materials and
+          // experience for the one they have instead of a second.
+          let dex = dexRecord(t, c.species, c),
+            got = takeIn(t, c);
           o.newSpecies = dex.isNew;
           o.dexCount = dex.caught;
-          o.card = creatureCard(t, c.uid);
-          if (!dex.isNew) o.duplicate = duplicateReward(t, c.species);
+          o.captured = { uid: got.creature.uid, species: c.species, level: c.level, shiny: !!c.shiny };
+          got.joined ? o.card = creatureCard(t, c.uid) : (o.duplicate = got.items, o.dupInto = { uid: got.creature.uid, species: got.creature.species, xp: got.xp, shiny: got.shiny }, o.events.push(...got.events));
           o.questsDone.push(...syncQuests(t, {
             kind: "capture",
             zone: this.zoneId,

@@ -8,7 +8,7 @@ import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
 import { ARENA, ARENA_TIERS, DUNGEON_TIERS, TOWER, arenaTier, canEnter, seasonEnds, weekEnds } from '../shared/endgame.js';
 import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
-import { familyMembers, materialName, saddleCost } from '../shared/saddles.js';
+import { familyMembers, familyOf, materialName, saddleCost } from '../shared/saddles.js';
 import { TRICKS, TRICK_IDS } from '../shared/tricks.js';
 import { CELL, planFor } from '../shared/worldplan.js';
 import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
@@ -745,7 +745,7 @@ var UI = class {
         let hour = foundWhere(row.id).find((f) => f.when)?.when;
         tile.innerHTML = row.caught
           ? `<span class="ico">${el0?.icon || "•"}</span><b>${row.he}</b>` +
-            `<span class="n">${row.caught > 1 ? `×${row.caught}` : "חדש"}</span>`
+            `<span class="n">${row.caught > 1 ? `${row.caught} לכידות` : "חדש"}</span>`
           : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}${hour ? ` ${HOURS[hour].icon}` : ""}</span>`;
         tile.setAttribute("aria-label", row.caught ? row.he : "יצור שעוד לא נתפס");
         tile.onclick = () => { this.speciesId = row.id; this.openPanel("species"); };
@@ -2595,7 +2595,10 @@ var UI = class {
         foe = d.side !== r?.side,
         owner = d.ownerId && d.ownerId !== me && this.battlePlayers?.[d.ownerId],
         f = row(d.id, `combat-row ${foe ? "foe" : ""} ${foe && foes.length > 1 && aim?.id === d.id ? "aimed" : ""} ${!foe && owner ? "ally" : ""}`, foe ? s : ss);
-      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, [...new Set((d.effects || []).map(x => x.kind))].map(k => `<span class="e ${STATUS[k]?.disable ? "stop" : ""}">${Pb(k)}</span>`).join(""));
+      // one of each: a wild of a line you already have says so — catching it
+      // feeds the one you have rather than adding a second
+      let mine = foe && d.kind === "wild" && this.ownsLine(d.species);
+      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}${mine ? " <small class=\"owned\">✓ יש לך</small>" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, [...new Set((d.effects || []).map(x => x.kind))].map(k => `<span class="e ${STATUS[k]?.disable ? "stop" : ""}">${Pb(k)}</span>`).join(""));
       // two foes: tap one to aim at it
       f.onclick = foe && foes.length > 1 ? () => {
         this.battleTarget = d.id, this.hooks.aim?.(d.id);
@@ -2609,6 +2612,11 @@ var UI = class {
       bar = $("#battle-skills");
     bar && (bar.classList.toggle("held", !!held), bar.dataset.held = held ? `${STATUS[held].icon} ${STATUS[held].he}${held === "sleep" ? " — מכה תעיר אותו, או שיקוי" : held === "freeze" ? " — אש או שיקוי יפשירו" : ""}` : "");
     this.battleYou = r, this.battleFoe = aim || foes[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
+  }
+  /** Does the trainer already have a creature of this line (team, box or pod)? */
+  ownsLine(species) {
+    let p = this.profile, f = species && familyOf(species);
+    return !!f && [...(p?.team || []), ...(p?.box || []), ...(p?.away || [])].some(c => c?.species && familyOf(c.species) === f);
   }
   /** ▲ on a move that hits this foe hard, ▼ on one it shrugs off. Ten
    *  elements is more than anyone keeps in their head mid-fight, and the
