@@ -25,6 +25,7 @@ import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
 import { cosmeticById } from '../shared/cosmetics.js';
 import { STATUS } from '../shared/status.js';
+import { giverSpot, goalZone, route } from './questguide.js';
 const arenaTierInfo = (id) => ARENA_TIERS.find((t) => t.id === id) || ARENA_TIERS[0];
 
 var WANT_LOGIN = "hobile.wantLogin";
@@ -38,7 +39,7 @@ var STARTER_LINES = {
 
 var Game = class {
   constructor(e) {
-    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.coach = new Coach(this), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
+    this.solo = !!e, this.net = e || new Net(Ib()), this.world = new WorldView($("#world-canvas")), this.battleView = new BattleView($("#battle-canvas")), this.ui = new UI(this.hooks()), this.guideQuestId = (() => { try { return localStorage.getItem("hobile.guide") || null; } catch { return null; } })(), this.ui.guideQuestId = this.guideQuestId, this.coach = new Coach(this), this.cutscene = { active: !1 }, this.audio = audio, this.ui.social = !this.solo, this.stick = new CameraRig($("#stick-zone"), $("#stick-base"), $("#stick-knob")), this.keys = new Keyboard(), this.look = new Joystick($("#look-zone"), (n, s) => {
       let k = lookSpeed().k;
       if (n *= k, s *= k, this.world.camYaw -= n * 0.0055, this.world.viewMode === "first") {
         this.world.camPitch = Math.max(-0.9, Math.min(0.9, this.world.camPitch - s * 0.006));
@@ -715,7 +716,7 @@ var Game = class {
         }
       }
     }), e.on("battleInit", t => {
-      this.battle.players = t.players || [], this.battle.duel = !!t.duel, this.battle.side = t.side || null, this.applyBattlePlayers(),
+      this.battle.players = t.players || [], this.battle.duel = !!t.duel, this.battle.side = t.side || null, this.applyBattlePlayers(), this.ui.battleBoxOk = !t.duel,
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = t.weather || null, this.battle.mySide = t.side || this.battle.combatants.find(s => s.id === t.you)?.side || "a", t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let n = SPECIES[this.battle.combatants.find(s => s.side !== "a")?.species]?.types?.[0];
       let zd = ZONES[this.zone?.id] || {};
@@ -728,7 +729,7 @@ var Game = class {
     }), e.on("dungeonInit", t => {
       // a run with a party in it is a fight with players in it: the same
       // seat-finding as battleInit (game/party-dungeon.js)
-      this.battle.players = t.players || [], this.battle.duel = !1, this.battle.side = "a", this.applyBattlePlayers(),
+      this.battle.players = t.players || [], this.battle.duel = !1, this.battle.side = "a", this.applyBattlePlayers(), this.ui.battleBoxOk = !1,
       this.battle.youId = t.you, this.battle.inventory = t.inventory || {}, this.battle.team = t.team || [], this.battle.trainerId = t.trainer || null, this.battle.weather = null, this.battle.mySide = "a", this.dungeon = t.dungeon, t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile), this.ui.battleTeam = t.profile.team || [], this.battleView.setTrainer(t.profile.appearance, t.trainer), this.wantFaces(t.profile.team));
       let first = !this._dungeonThemed;
       this._dungeonThemed = !0, first && this.battleView.setTheme(t.dungeon.element, !0), first && this.ui.battleBanner(t.dungeon.endless ? `🗼 ${loc(t.dungeon)}` : `${loc(t.dungeon)}${t.dungeon.tier && t.dungeon.tier !== "normal" ? ` · ${loc(tierOf(t.dungeon.tier))}` : ""}`, 1800);
@@ -890,13 +891,13 @@ var Game = class {
     }), e.on("gm", t => this.onGm(t)), e.on("gmGift", t => {
       // Someone with the keys sent you something (or you sent it to yourself).
       audio.sfx(t.what === "creature" ? "quest" : "loot"), vibrate([20, 40, 20]);
-      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})${t.merged ? " — זה שכבר היה לך" : ""}` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : "משאבים בלי סוף";
+      let what = t.what === "creature" ? `${loc(SPECIES[t.species])} ${t.shiny ? "✨ " : ""}(Lv ${t.level})${t.merged ? " — זה שכבר היה לך" : ""}` : t.what === "gold" ? `${Number(t.amount || 0).toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item])} ×${t.qty}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "saddle" ? `🐎 אוכף ל${loc(SPECIES[t.species])}` : t.what === "base" ? "🏗 שדרוג לבסיס" : "משאבים בלי סוף";
       this.ui.celebrate(t.from ? "🎁 מתנה!" : "🎁 נוסף!", "quest"), this.ui.toast(t.from ? `${t.from} (GM) שלח לך: ${what}` : `נוסף לך: ${what}`, "good"), t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmTake", t => {
       // a GM took something back (a mistake fixed) — or gave back what was taken
       let back = t.undo === "take",
         n = Math.abs(Number(t.amount ?? t.qty ?? 0)),
-        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : t.what === "saddle" ? `🐎 האוכף של ${loc(SPECIES[t.species])}` : "";
+        what = t.what === "creature" ? `${loc(SPECIES[t.species]) || t.species} (Lv ${t.level})` : t.what === "gold" ? `${n.toLocaleString("en-US")}⛁` : t.what === "item" ? `${ITEMS[t.item]?.icon || ""} ${loc(ITEMS[t.item]) || t.item} ×${n}` : t.what === "level" ? `רמת מאמן ${t.level}` : t.what === "fill" ? "המשאבים שנוספו" : t.what === "saddle" ? `🐎 האוכף של ${loc(SPECIES[t.species])}` : t.what === "reset" ? "הכל — מתחילים מחדש" : "";
       what && this.ui.toast(back ? `${t.from ? `${t.from} (GM) החזיר לך` : "הוחזר לך"}: ${what}` : `${t.from ? `${t.from} (GM) הוריד לך` : "הוסר לך"}: ${what}`, back ? "good" : "");
       t.what === "creature" && this.wantFaces(this.profile?.team);
     }), e.on("gmBring", t => {
@@ -988,7 +989,7 @@ var Game = class {
       audio.sfx("ui"), this.ui.toast(`✔ ${this.ui.gmSummary(t.op, t.detail, t.to)}`, "good");
       t.op !== "teleport" && this.net.send("gm", { op: "log" });
       // a creature came or went: the list shown is out of date
-      (t.op === "take" || t.op === "undo" || t.op === "saddle" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
+      (t.op === "take" || t.op === "undo" || t.op === "reset" || t.op === "saddle" || t.detail?.what === "creature") && this.ui.gmCreatures && this.net.send("gm", { op: "creatures", to: this.ui.gmForm?.to || "me" });
       return;
     }
     t.kind === "error" && (audio.sfx("deny"), this.ui.toast({
@@ -1325,6 +1326,37 @@ var Game = class {
           team: [t, ...s.filter(r => r !== t)].slice(0, 6)
         });
       },
+      // "show me the way": the arrow, the radar's star and a beam of light
+      // on this quest instead of the story's (null stops it)
+      guideQuest: t => {
+        this.guideQuestId = t || null, this.ui.guideQuestId = this.guideQuestId;
+        try { t ? localStorage.setItem("hobile.guide", t) : localStorage.removeItem("hobile.guide"); } catch {}
+        t && (this.ui.closePanel?.(), this.ui.toast("🧭 עקוב אחרי החץ ואחרי עמוד האור — הכוכב במכ״ם מראה את הכיוון", "good"));
+      },
+      // the team, changed by hand: into it from the box, back to the box, or
+      // one from the box in place of one in it (server: setTeam)
+      teamAdd: t => {
+        let n = this.profile;
+        if (!n) return;
+        let team = n.team.map(r => r?.uid ?? r);
+        if (team.includes(t)) return;
+        if (team.length >= 6) return this.ui.toast("הצוות מלא — החלף יצור במקום אחד מהצוות", "bad");
+        e("setTeam", { team: [...team, t] });
+      },
+      teamRemove: t => {
+        let n = this.profile;
+        if (!n) return;
+        let team = n.team.map(r => r?.uid ?? r).filter(r => r !== t);
+        if (!team.length) return this.ui.toast("צריך להשאיר לפחות יצור אחד בצוות", "bad");
+        e("setTeam", { team });
+      },
+      teamSwap: (t, out) => {
+        let n = this.profile;
+        if (!n) return;
+        let team = n.team.map(r => r?.uid ?? r), k = team.indexOf(out);
+        if (k < 0 || team.includes(t)) return;
+        team[k] = t, e("setTeam", { team });
+      },
       leaderboard: (k = "level") => this.net.leaderboard(k).catch(() => []),
       logout: () => {
         this.net.logout(), location.reload();
@@ -1643,13 +1675,14 @@ var Game = class {
     if (!t) return;
     let n = this.currentObjective();
     if (globalThis.__hobileQuestNpc = n?.goal?.kind === "talk" && !n.done ? n.goal.target : null, !n) {
-      this._objPoint = null, t.classList.add("hidden");
+      this._objPoint = null, t.classList.add("hidden"), this.world.setBeacon?.(null);
       return;
     }
     let s = this.world.selfPosition(),
       r = this.objectivePoint(n, e, s);
     // the radar shows it too (ui.drawMinimap)
-    if (this._objPoint = r || null, !r) {
+    // a guided quest also gets a beam of light where it points (world.setBeacon)
+    if (this.world.setBeacon?.(n.quest ? r : null), this._objPoint = r || null, !r) {
       t.classList.add("hidden");
       return;
     }
@@ -1752,6 +1785,22 @@ var Game = class {
   }
   currentObjective() {
     let e = this.profile?.quests?.active || {};
+    // the quest the player asked to be shown the way to (ui: quest guide)
+    let gid = this.guideQuestId, gq = gid && QUESTS[gid], gl = gq && (e[gid] || this.profile?.quests?.dailies?.[gid]);
+    if (gq && gl && !gl.claimed && !(gl.done && gq.chain !== "npc")) {
+      let g = gq.goal || {},
+        // where it is actually finished: back to whoever gave it, at the
+        // clinic, or at the base
+        goal = gl.done || g.kind === "deliver" ? { kind: "talk", target: gq.giver }
+          : g.kind === "heal" ? { kind: "spot", target: "clinic" }
+          : ["craft", "star", "train", "saddle"].includes(g.kind) ? { kind: "craft" }
+          : g;
+      return { label: `🧭 ${loc(gq)}`, goal: { ...goal, zone: goalZone(gq, gl) || goal.zone }, done: gl.done, quest: gid };
+    }
+    if (gid && this.profile?.quests) {
+      this.guideQuestId = null, this.ui.guideQuestId = null;
+      try { localStorage.removeItem("hobile.guide"); } catch {}
+    }
     for (let t of Object.values(QUESTS)) {
       if (t.chain !== "main") continue;
       let n = e[t.id];
@@ -1771,6 +1820,32 @@ var Game = class {
         z: c,
         y: this.world.heightAt(l, c)
       });
+    // A guided quest somewhere else: the next portal on the way there, even
+    // two or three zones off (questguide.js route).
+    if (e.quest) {
+      let want = s.kind === "talk" ? giverSpot(s.target)?.zone || s.zone : s.zone;
+      if (want && this.zone?.id && want !== this.zone.id) {
+        let way = route(this.zone.id, want), l = way && r.find(c => c.kind === "portal" && c.to === way[1]);
+        return l ? o(l.x, l.z) : null;
+      }
+      if (s.kind === "talk" && !this.world.npcPosition?.(s.target)) {
+        let at = giverSpot(s.target)?.landmark;
+        if (at) return o(at.x, at.z);
+      }
+      if (s.kind === "spot") {
+        let l = r.find(c => c.kind === s.target);
+        return l ? o(l.x, l.z) : null;
+      }
+      if (s.kind === "capture" && s.species) {
+        let best = null;
+        this.worldState()?.wilds?.forEach((w) => {
+          if (w.engagedBy || w.species !== s.species) return;
+          let d = dist2d(w, n);
+          (!best || d < best.d) && (best = { d, w });
+        });
+        if (best) return o(best.w.x, best.w.z);
+      }
+    }
     if (s.kind === "talk") {
       let l = this.world.npcPosition?.(s.target);
       if (l) return o(l.x, l.z);
@@ -1973,9 +2048,12 @@ var Game = class {
   }
   liveTeam(e) {
     let t = new Map((this.battle.team || []).map(n => [n.id, n]));
-    let me = this.profile?.id;
+    let me = this.profile?.id,
+      // one called in from the box is not in the roster sent at the start:
+      // it is yours, and you have one of each, so its species says which
+      own = new Map([...(this.profile?.team || []), ...(this.profile?.box || [])].map(c => [c?.species, c?.uid]));
     return e.filter(n => n.kind === "creature" && n.side === this.battle.mySide && (!me || !n.ownerId || n.ownerId === me)).sort((n, s) => (n.slot ?? 0) - (s.slot ?? 0)).map(n => ({
-      uid: t.get(n.id)?.uid || n.id,
+      uid: t.get(n.id)?.uid || own.get(n.species) || n.id,
       id: n.id,
       species: n.species,
       level: n.level,

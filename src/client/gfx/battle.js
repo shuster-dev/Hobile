@@ -660,10 +660,16 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
           d = 0;
         for (let u = 0; u < r.length; u++) {
           let f = r[u];
-          f.targetScale = this.heroScale(f), f.faceY = s === "a" ? Math.PI - FACE_TILT : -FACE_TILT, f.downed ? (f.home.set(SIDE_X[s] + (2.2 + d * 1.2) * SIDE_DIR[s], 0.35, SIDE_Z[s] - 0.6 * SIDE_DIR[s]), d++) : (f.home.set(SIDE_X[s] + (h - (l - 1) / 2) * c, 0.35, SIDE_Z[s]), h++);
+          f.hidden || (f.holder.visible = !0), f.targetScale = this.heroScale(f), f.faceY = s === "a" ? Math.PI - FACE_TILT : -FACE_TILT, f.downed ? (f.home.set(SIDE_X[s] + (2.2 + d * 1.2) * SIDE_DIR[s], 0.35, SIDE_Z[s] - 0.6 * SIDE_DIR[s]), d++) : (f.home.set(SIDE_X[s] + (h - (l - 1) / 2) * c, 0.35, SIDE_Z[s]), h++);
         }
         for (let u = 0; u < o.length; u++) {
           let f = o[u];
+          // The bench is not drawn: the ones waiting stood near the camera,
+          // under the buttons, and read as the creature that walks with you
+          // wandering into the fight. They are in the team bar; one switched
+          // in comes on with its entrance. One being recalled stays until
+          // its withdraw puts it away (below).
+          f.lock || (f.holder.visible = !1);
           slotPosition(u, nt), f.home.set(nt.x + SIDE_X[s] * 0.6, 0.35, SIDE_Z[s] + nt.z * SIDE_DIR[s]), f.targetScale = Math.min(sp * this.heroScale(f), BENCH_MAX_H / Math.max(f.height || 1.6, (f.span || 0) * 0.55)), f.faceY = (s === "a" ? Math.PI : 0) - Math.sign(nt.x) * 0.24 * SIDE_DIR[s];
         }
         a.sort((x, y) => (y.id === this.myTrainerId) - (x.id === this.myTrainerId));
@@ -1361,12 +1367,12 @@ var np = new Vector3(0.35, 0.8, 0.5).normalize(),
                   let o = r / 0.55;
                   s.holder.position.y = 0.35 + o * 0.55, s.holder.rotation.y += t * 18, s.holder.scale.setScalar(Math.max(0.05, 1 - o));
                 } else {
-                  e.placed || (e.placed = !0, s.holder.position.copy(s.home), s.holder.rotation.y = s.faceY);
+                  e.placed || (e.placed = !0, s.holder.position.copy(s.home), s.holder.rotation.y = s.faceY, s.benched && s.kind !== "trainer" && (s.holder.visible = !1));
                   let o = (r - 0.55) / 0.45;
                   s.holder.scale.setScalar(0.05 + (s.targetScale - 0.05) * Xd(o));
                 }
               } else s.holder.position.lerp(s.home, Math.min(1, t * 4.5)), s.holder.scale.setScalar(s.holder.scale.x + (s.targetScale - s.holder.scale.x) * Math.min(1, t * 4.5));
-              e.t >= e.life && (s.holder.position.copy(s.home), s.holder.scale.setScalar(s.targetScale), s.holder.rotation.y = s.faceY, s.lock--, n = !0);
+              e.t >= e.life && (s.holder.position.copy(s.home), s.holder.scale.setScalar(s.targetScale), s.holder.rotation.y = s.faceY, s.lock--, s.benched && s.kind !== "trainer" && !s.lock && (s.holder.visible = !1), n = !0);
               break;
             }
           case "entrance":

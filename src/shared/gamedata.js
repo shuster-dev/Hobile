@@ -3580,23 +3580,38 @@ var BUILDINGS = {
     legendary: 0.15
   };
 
+// How hard each kind is to catch: the chance is the share of its HP you have
+// taken, raised to this. 1 is that share exactly (half its HP → half a
+// chance); above 1 bends the curve down in the middle and still meets ~95%
+// at the bottom of the bar.
+var CATCH_CURVE = { common: 1, starter: 1, evolved: 1.15, final: 1.3, rare: 1.35, legendary: 1.8 },
+  CATCH_FLOOR = 0.03,
+  CATCH_CAP = 0.95;
+
+/**
+ * The chance a sphere holds, in step with the HP taken: a common one with
+ * half its HP gone is a 50% catch with a plain sphere, a tenth gone 10%.
+ * Rarer kinds bend that down (CATCH_CURVE). A better sphere, or one that is
+ * asleep or frozen (burnt, poisoned… a little), shortens the odds against
+ * missing rather than multiplying the chance: 1 − (1 − p)^k, so a Nova
+ * Sphere helps most early and nothing reaches a sure thing in two hits.
+ */
 function captureChance(i, e = "sphere_basic") {
   if (!i || !Number.isFinite(i.hp) || !Number.isFinite(i.maxHp)) return 0;
   let t = Math.max(1, i.maxHp),
     n = Math.max(0, Math.min(t, i.hp));
-  if (n <= 0) return 0.99;
-  let s = (t - n) / Math.max(1, t - 1),
-    r = 0.05 + 0.94 * s,
+  if (n <= 0) return CATCH_CAP;
+  let taken = (t - n) / t,
     o = Object.prototype.hasOwnProperty.call(SPECIES, i.species) ? SPECIES[i.species] : null,
-    a = (RARITY[o?.rarity] ?? 0.7) * Math.max(0.5, 1 - (i.level || 1) / 120),
-    l = a + (1 - a) * s,
+    base = Math.max(CATCH_FLOOR, Math.pow(taken, CATCH_CURVE[o?.rarity] ?? 1.15)),
     c = Object.prototype.hasOwnProperty.call(ITEMS, e) ? ITEMS[e] : null,
     // something on it helps: anything bad a little, asleep or frozen a lot
     fx = (i.effects || []).map(u => ({ kind: u.kind || u, until: u.until ?? Infinity })),
     stopped = disabledBy(fx),
     h = stopped === "sleep" || stopped === "freeze" ? 1.6 : fx.some(u => isBad(u.kind)) ? 1.25 : 1,
-    d = r * l * (c?.rate || 1) * h;
-  return Math.max(0.01, Math.min(0.99, d));
+    k = Math.max(1, (c?.rate || 1) * h),
+    d = 1 - Math.pow(1 - base, k);
+  return Math.max(0.01, Math.min(CATCH_CAP, d));
 }
 
 function starRank(i, e) {

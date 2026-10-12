@@ -2,7 +2,7 @@ import { audio } from './gfx/battle.js';
 import { cycleLookSpeed, lookSpeed, zoneMinimap } from './input.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverView, heldProgress, questState } from '../shared/story.js';
-import { ACTIONS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, clinicCost, powerOf, questGold, typeMultiplier } from '../shared/gamedata.js';
+import { ACTIONS, BUILDINGS, DUNGEONS, ELEMENTS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARS, ZONES, captureChance, clinicCost, powerOf, questGold, typeMultiplier } from '../shared/gamedata.js';
 import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
@@ -20,6 +20,7 @@ import { itemIcon } from './icons.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
 import { face, faceNow, lazyFaces } from './faces.js';
+import { questGuide } from './questguide.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -418,15 +419,15 @@ var UI = class {
       <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם — אסוף את הפרס" : "המשימה הנוכחית"}</div>
       <div class="q-title">${Ze(loc(l))}</div>
       <div class="q-meter">${r(a.progress, c, h)}
-        <span class="mono">${h ? "✓" : rangeLabel(Math.min(a.progress || 0, c), c, "/")}</span></div>`, d.onclick = () => this.openPanel("quests"), e.appendChild(d);
-    for (let [, u, f] of t.slice(1, 4)) {
+        <span class="mono">${h ? "✓" : rangeLabel(Math.min(a.progress || 0, c), c, "/")}</span></div>`, d.onclick = () => (this._questOpen = o, this.openPanel("quests")), e.appendChild(d);
+    for (let [qid, u, f] of t.slice(1, 4)) {
       let p = f.goal.count || 1,
         x = !!u.done,
         g = el("div", `q ${f.chain} ${x ? "done" : ""}`);
       g.innerHTML = `
         <div class="q-row"><span class="q-name">${Ze(loc(f))}</span>
           <span class="mono">${x ? "✓" : rangeLabel(Math.min(u.progress || 0, p), p, "/")}</span></div>
-        ${r(u.progress, p, x)}`, g.onclick = () => this.openPanel("quests"), e.appendChild(g);
+        ${r(u.progress, p, x)}`, g.onclick = () => (this._questOpen = qid, this.openPanel("quests")), e.appendChild(g);
     }
   }
   /**
@@ -1104,6 +1105,35 @@ var UI = class {
     e.appendChild(row(tl, btn("⬆ קבע רמה", "", () => (f.trainer = clampNum(tl, 1, maxLv, 1), ask("give", { to: f.to, what: "level", level: f.trainer })))));
     e.appendChild(th);
 
+    // the base's buildings (gm.js `base`)
+    e.appendChild(section("הבסיס של השחקן"));
+    let bsel = el("select", "field-input");
+    bsel.setAttribute("aria-label", "איזה מבנה");
+    bsel.appendChild(new Option("כל המבנים", "all"));
+    for (let b of Object.values(BUILDINGS)) bsel.appendChild(new Option(`${b.icon || ""} ${loc(b)} (עד ${b.maxLevel})`, b.id));
+    bsel.value = f.building || "all", bsel.onchange = () => { f.building = bsel.value; };
+    let blv = num(f.buildingLevel ?? 5, 0, 99);
+    blv.setAttribute("aria-label", "רמת מבנה"), blv.classList.add("gm-num"), blv.onchange = () => { f.buildingLevel = clampNum(blv, 0, 99, 1); };
+    e.appendChild(row(bsel, blv, btn("🏗 קבע רמה", "", () => (f.buildingLevel = clampNum(blv, 0, 99, 1), ask("base", { to: f.to, building: bsel.value, level: f.buildingLevel })))));
+    e.appendChild(row(
+      btn("⏫ הכל למקסימום", "primary", () => ask("base", { to: f.to, building: "all", level: "max" })),
+      sure("⏬ הכל לאפס", () => ask("base", { to: f.to, building: "all", level: 0 }))
+    ));
+    let bh0 = el("div", "hint");
+    bh0.textContent = "רמה מעל המקסימום של מבנה נקבעת למקסימום שלו. אפשר לבטל מהיומן.";
+    e.appendChild(bh0);
+
+    // everything back to the start (gm.js `reset`)
+    e.appendChild(section("איפוס שחקן"));
+    let ssel = el("select", "field-input");
+    ssel.setAttribute("aria-label", "יצור פתיחה");
+    for (let id of ["cindcub", "puddlet", "sproutle"]) SPECIES[id] && ssel.appendChild(new Option(`${ELEMENTS[SPECIES[id].types[0]]?.icon || ""} ${loc(SPECIES[id])}`, id));
+    ssel.value = f.starter || "sproutle", ssel.onchange = () => { f.starter = ssel.value; };
+    e.appendChild(row(ssel, sure("♻ אפס את השחקן", () => ask("reset", { to: f.to, starter: ssel.value }))));
+    let rh = el("div", "hint");
+    rh.textContent = "מוחק הכל — יצורים, זהב, חפצים, רמה, משימות, בסיס — ומתחיל מחדש עם יצור הפתיחה, כאילו הרגע נרשם. נשארים: השם, המראה, החברים והגילדה. אפשר לבטל מהיומן (↩).";
+    e.appendChild(rh);
+
     // go and mend
     e.appendChild(section("שיגור וריפוי"));
     let zone = el("select", "field-input");
@@ -1282,7 +1312,7 @@ var UI = class {
   gmUndoable(r) {
     let d = r.detail || {};
     return r.op === "give" ? d.what === "creature" ? !!d.uid : d.what === "level" ? Number.isFinite(d.from) : d.what === "gold" || d.what === "item"
-      : r.op === "fill" ? !!d.added : r.op === "take" && (d.what !== "creature" || !!d.creature);
+      : r.op === "fill" ? !!d.added : r.op === "creatureSet" || r.op === "base" ? !!d.before : r.op === "reset" ? !!d.undoable : r.op === "take" && (d.what !== "creature" || !!d.creature);
   }
   /** The chosen player's creatures, each with a way to take it back. */
   fillGmCreatures() {
@@ -1303,6 +1333,29 @@ var UI = class {
         sb.onclick = () => this.hooks.gm?.("saddle", { to: f.to, uid: c.uid, on: !c.saddle }), line.appendChild(sb);
       }
       line.appendChild(this._gmSure("🗑 הסר", () => this.hooks.gm?.("take", { to: f.to, what: "creature", uid: c.uid }))), box.appendChild(line);
+      // its level, up or down, its stars, shiny, a full heal (gm.js creatureSet)
+      let ed = el("div", "row gm-row gm-edit"),
+        lv = el("input", "field-input gm-num");
+      lv.type = "number", lv.inputMode = "numeric", lv.min = 1, lv.max = PROGRESSION.maxLevel, lv.value = c.level, lv.setAttribute("aria-label", "רמה");
+      let st = el("select", "field-input gm-num");
+      st.setAttribute("aria-label", "כוכבים");
+      for (let k = 1; k <= (STARS?.max || 5); k++) st.appendChild(new Option("★".repeat(k), k));
+      st.value = c.star || 1;
+      let set = el("button", "btn small primary", "✔ קבע");
+      set.onclick = () => {
+        let v = Math.max(1, Math.min(PROGRESSION.maxLevel, Math.round(Number(lv.value) || c.level)));
+        lv.value = v, this.hooks.gm?.("creatureSet", { to: f.to, uid: c.uid, level: v, star: Number(st.value) });
+      };
+      let up = el("button", "btn small", "+1"), down = el("button", "btn small", "−1"),
+        maxb = el("button", "btn small", "MAX"),
+        shinyB = el("button", `btn small ${c.shiny ? "primary" : ""}`, "✨"),
+        healB = el("button", "btn small", "❤");
+      up.onclick = () => this.hooks.gm?.("creatureSet", { to: f.to, uid: c.uid, level: Math.min(PROGRESSION.maxLevel, c.level + 1) });
+      down.onclick = () => this.hooks.gm?.("creatureSet", { to: f.to, uid: c.uid, level: Math.max(1, c.level - 1) });
+      maxb.onclick = () => this.hooks.gm?.("creatureSet", { to: f.to, uid: c.uid, level: PROGRESSION.maxLevel });
+      shinyB.title = "נוצץ", shinyB.onclick = () => this.hooks.gm?.("creatureSet", { to: f.to, uid: c.uid, shiny: !c.shiny });
+      healB.title = "ריפוי מלא", healB.onclick = () => this.hooks.gm?.("creatureSet", { to: f.to, uid: c.uid, heal: !0 });
+      ed.append(down, lv, up, maxb, st, set, shinyB, healB), box.appendChild(ed);
     }
     list.list.length || box.appendChild(el("div", "hint", "אין לשחקן יצורים"));
   }
@@ -1324,9 +1377,12 @@ var UI = class {
       thing = () => d.what === "creature" ? `${loc(SPECIES[d.species]) || d.species} Lv ${d.level}` : d.what === "gold" ? `${Math.abs(Number(d.amount || 0)).toLocaleString("en-US")}⛁` : d.what === "item" ? `${loc(ITEMS[d.item]) || d.item} ×${Math.abs(d.qty || 0)}` : d.what === "level" ? `רמת מאמן ${d.level}` : d.what === "fill" ? "משאבים בלי סוף" : "",
       what = {
         take: () => `🗑 הוסר: ${thing()}${d.asked > (d.amount ?? d.qty ?? 0) ? ` (היו רק ${Number(d.amount ?? d.qty).toLocaleString("en-US")})` : ""}`,
-        undo: () => `↩ ביטול ${d.of === "take" ? "הסרה — הוחזר" : d.of === "fill" ? "משאבים בלי סוף" : "מתנה"}: ${d.of === "fill" ? `${Math.abs(d.gold || 0).toLocaleString("en-US")}⛁, ${d.items || 0} סוגי חפצים` : thing()}`,
+        undo: () => d.of === "reset" ? "↩ ביטול איפוס — הכל הוחזר" : d.of === "base" ? "↩ ביטול שינוי בסיס" : d.of === "creatureSet" ? `↩ ביטול עריכת ${thing()}` : `↩ ביטול ${d.of === "take" ? "הסרה — הוחזר" : d.of === "fill" ? "משאבים בלי סוף" : "מתנה"}: ${d.of === "fill" ? `${Math.abs(d.gold || 0).toLocaleString("en-US")}⛁, ${d.items || 0} סוגי חפצים` : thing()}`,
         give: () => d.what === "creature" ? `${loc(SPECIES[d.species]) || d.species} ${d.shiny ? "✨ " : ""}Lv ${d.level}${d.where === "box" ? " (לקופסה)" : ""}` : d.what === "gold" ? `${Number(d.amount || 0).toLocaleString("en-US")}⛁` : d.what === "level" ? `רמת מאמן ${d.level}` : `${loc(ITEMS[d.item]) || d.item} ×${d.qty}`,
         fill: () => "משאבים בלי סוף",
+        creatureSet: () => `${loc(SPECIES[d.species]) || d.species}: ${[d.level != null ? `Lv ${d.from?.level ?? "?"}→${d.level}` : "", d.star != null ? `★${d.star}` : "", d.shiny != null ? (d.shiny ? "✨ נוצץ" : "לא נוצץ") : "", d.heal ? "ריפוי" : ""].filter(Boolean).join(" · ")}`,
+        base: () => `🏗 בסיס: ${Object.entries(d.set || {}).map(([k, v]) => `${loc(BUILDINGS[k]) || k} ${v}`).join(", ")}`,
+        reset: () => `♻ איפוס שחקן${d.was ? ` (היה Lv ${d.was.level}, ${d.was.creatures} יצורים)` : ""}`,
         heal: () => "ריפוי הצוות",
         teleport: () => d.beside ? `שיגור אל ${d.beside}` : `שיגור ל${loc(ZONES[d.zone]) || d.zone}`,
         saddle: () => `🐎 ${d.on ? "אוכף ל" : "הוסר אוכף מ"}${loc(SPECIES[d.species]) || d.species}`,
@@ -1565,7 +1621,24 @@ var UI = class {
           f.stopPropagation(), this.hooks.setLead?.(s.uid);
         }, acts.appendChild(u);
       }
+      // changing the team by hand: back to the box, or from it — straight in
+      // when there is room, else pick the one in the team it takes over from
+      let act = (icon, label, fn, cls = "") => {
+        let b = el("button", `cact ${cls}`, icon);
+        b.title = label, b.setAttribute("aria-label", label), b.onclick = (f) => (f.stopPropagation(), fn()), acts.appendChild(b);
+      };
+      where === "team" && team.length > 1 && act("📥", "העבר לתיבה", () => this.hooks.teamRemove?.(s.uid), "out");
+      where === "box" && (team.length < 6
+        ? act("➕", "הוסף לצוות", () => this.hooks.teamAdd?.(s.uid))
+        : act("⇄", "החלף עם יצור בצוות", () => (this.teamPick = s.uid, this.renderPanel("team"))));
       acts.children.length && c.appendChild(acts);
+      // picking which one in the team makes room: a tap on it does the swap
+      if (where === "team" && this.teamPick) {
+        c.classList.add("picking"), c.onclick = () => {
+          let t = this.teamPick;
+          this.teamPick = null, this.hooks.teamSwap?.(t, s.uid);
+        };
+      }
       return c;
     };
     let grid = (list, where) => {
@@ -1573,6 +1646,15 @@ var UI = class {
       list.forEach((s, i) => { let c = card(s, where, i); c && g.appendChild(c); });
       return g;
     };
+    // a swap waiting on a choice: which one in the team goes to the box
+    let picking = this.teamPick && box.find(c => c.uid === this.teamPick);
+    if (this.teamPick && !picking) this.teamPick = null;
+    if (picking) {
+      let bar = el("div", "roster-pick");
+      bar.innerHTML = `<span>בחר מי מהצוות יוחלף ב${Ze(picking.nickname || loc(SPECIES[picking.species]))}</span>`;
+      let x = el("button", "btn small ghost", "ביטול");
+      x.onclick = () => (this.teamPick = null, this.renderPanel("team")), bar.appendChild(x), e.appendChild(bar);
+    }
     team.length && (e.appendChild(section("הצוות", `${team.length}/6`)), e.appendChild(grid(team, "team")));
     box.length && (e.appendChild(section("בתיבה", `${box.length}`)), e.appendChild(grid(box, "box")));
     away.length && (e.appendChild(section("בחווה — באימון", `${away.length}`)), e.appendChild(grid(away, "away")), this.startCountdowns());
@@ -1931,10 +2013,28 @@ var UI = class {
             let u = el("button", "btn small primary", "קבל");
             u.onclick = () => this.hooks.claimQuest?.(o), d.appendChild(u);
           } else a.claimed && d.appendChild(el("span", "pill good", "הושלם"));
+          // a tap opens what to do and where, and a way to be shown it
+          // (questguide.js); another tap closes it
+          let open = this._questOpen === o, guided = this.guideQuestId === o;
+          d.classList.add("q-tap"), open && d.classList.add("open"), guided && d.classList.add("guided"), d.setAttribute("role", "button"), d.tabIndex = 0, d.setAttribute("aria-expanded", String(open));
+          guided && d.querySelector(".grow b")?.insertAdjacentHTML("afterbegin", "🧭 ");
+          d.onclick = f => { f.target.closest("button") || (this._questOpen = open ? null : o, this.renderPanel("quests")); };
+          d.onkeydown = f => { (f.key === "Enter" || f.key === " ") && f.target === d && (f.preventDefault(), d.onclick(f)); };
           e.appendChild(d);
+          if (open) {
+            let gd = questGuide(l, a, t, this.zone?.id),
+              box = el("div", "q-guide");
+            box.innerHTML = `<div class="q-guide-h">איך עושים את זה?</div><ol>${gd.steps.map(x => `<li>${Ze(x)}</li>`).join("")}</ol>`;
+            if (gd.canGuide) {
+              let b = el("button", `btn ${guided ? "ghost" : "primary"}`, guided ? "✕ הפסק להראות את הדרך" : "🧭 הראה לי את הדרך");
+              b.onclick = () => (this.hooks.guideQuest?.(guided ? null : o), guided && this.renderPanel("quests")), box.appendChild(b);
+            }
+            e.appendChild(box);
+          }
         }
       }
     };
+    (Object.keys(t.quests.active || {}).length || Object.keys(t.quests.dailies || {}).length) && e.appendChild(el("div", "hint", "לא בטוח מה לעשות? הקש על משימה."));
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
     // the story's scenes already seen, to watch again (client/cutscene.js)
     let seen = SCENE_ORDER.filter(id => (t.story?.seen || []).includes(id));
@@ -2803,8 +2903,12 @@ var UI = class {
       n = this.battleTeam || [];
     if (!t) return;
     again && (t.dataset.sig = "");
-    let s = n.map(r => `${r.uid}:${r.hp}:${r.benched ? "b" : "f"}`).join("|");
-    if (t.dataset.sig !== s && (t.dataset.sig = s, t.innerHTML = "", !(n.length < 2))) for (let r of n) {
+    // the box: any creature you have can be called into the fight (server:
+    // combat.js recruitFromBox) — not in a duel or a dungeon
+    let inFight = new Set(n.map(r => r.uid)),
+      spare = this.battleBoxOk ? this.boxFighters().filter(c => !inFight.has(c.uid)) : [],
+      s = n.map(r => `${r.uid}:${r.hp}:${r.benched ? "b" : "f"}`).join("|") + `#${spare.length}`;
+    if (t.dataset.sig !== s && (t.dataset.sig = s, t.innerHTML = "", spare.length && t.appendChild(this.boxChip(spare)), !(n.length < 2))) for (let r of n) {
       let o = SPECIES[r.species],
         a = r.benched === !1,
         l = r.hp <= 0,
@@ -2814,6 +2918,39 @@ var UI = class {
         <span>${Ze(loc(o))} <b class="mono" dir="ltr">${r.level}</b></span>
         <span class="hpwrap"><span class="bar hp" style="height:5px"><i style="width:${r.hp / Math.max(1, r.maxHp) * 100}%"></i></span></span>`, c.disabled = l || a, c.setAttribute("aria-label", `${loc(o)} ${l ? "מעולף" : a ? "בזירה" : "החלף"}`), c.onclick = () => this.hooks.swapCreature?.(r.uid), t.appendChild(c);
     }
+  }
+  /** Creatures in the box that could fight now: not at work, not down. */
+  boxFighters() {
+    let p = this.profile;
+    return (p?.box || []).filter(c => c && SPECIES[c.species] && c.hp > 0 && !c.job);
+  }
+  /** "📦": opens the box, to call any of it into the fight. */
+  boxChip(spare) {
+    let b = el("button", "tm box-pick");
+    return b.innerHTML = `<span class="orb box">📦</span><span>מהתיבה <b class="mono" dir="ltr">${spare.length}</b></span>`, b.setAttribute("aria-label", "קרא יצור מהתיבה לקרב"), b.onclick = () => this.openBoxPicker(), b;
+  }
+  openBoxPicker() {
+    document.querySelector(".box-picker")?.remove();
+    let list = this.boxFighters().filter(c => !(this.battleTeam || []).some(r => r.uid === c.uid)).sort((a, b) => b.level - a.level),
+      host = $("#app") || document.body,
+      wrap = el("div", "box-picker"),
+      card = el("div", "box-picker-card"),
+      head = el("div", "box-picker-head");
+    head.innerHTML = "<b>קרא יצור מהתיבה</b>";
+    let x = el("button", "btn small icon-only", "✕");
+    x.setAttribute("aria-label", "סגור"), x.onclick = () => wrap.remove(), head.appendChild(x), card.appendChild(head);
+    let grid = el("div", "box-picker-list");
+    for (let c of list) {
+      let o = SPECIES[c.species],
+        row = el("button", "box-picker-row"),
+        face = this.faces?.[c.species];
+      row.innerHTML = `${face ? `<img class="face" src="${face}" alt="">` : `<img class="face" data-face="${Ze(c.species)}" alt="">`}
+        <span class="nm">${Ze(c.nickname || loc(o))}${c.shiny ? " ✨" : ""} <b class="mono" dir="ltr">Lv ${c.level}</b></span>
+        <span class="hpwrap"><span class="bar hp" style="height:5px"><i style="width:${c.hp / Math.max(1, c.maxHp) * 100}%"></i></span></span>`;
+      row.onclick = () => (wrap.remove(), this.hooks.swapCreature?.(c.uid)), grid.appendChild(row);
+    }
+    list.length || grid.appendChild(el("div", "hint", "אין בתיבה יצור שיכול להילחם עכשיו"));
+    card.appendChild(grid), wrap.appendChild(card), wrap.onclick = f => f.target === wrap && wrap.remove(), host.appendChild(wrap); lazyFaces(card);
   }
   tickCooldowns(e, t, n = !1) {
     for (let r of document.querySelectorAll(".sk, .skill-btn")) {

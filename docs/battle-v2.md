@@ -34,19 +34,23 @@ The **team** fights; the trainer stands behind it.
 `PROGRESSION.captureWindowMs` (2400 ms) freezes **everyone**, not just the
 target — otherwise a ball lands and the wild keeps attacking through it.
 
-The anchor is absolute: 100% hp → 5%, 1 hp → 99%. Rarity and level are a
-**penalty that fades as the target weakens**, never a flat multiplier:
+The chance follows the HP taken (v0.44): take half a common creature's HP and
+a plain sphere is a 50% catch; a tenth, 10%. It used to be 5 / 51 / 99 with
+the sphere's rate multiplied on top, so two or three hits and a Nova Sphere
+read 99% — catching stopped being a choice.
 
 ```js
-const t       = (maxHp - hp) / Math.max(1, maxHp - 1);   // 0 at full, 1 at 1 hp
-const base    = 0.05 + 0.94 * t;
-const hardness = RARITY[rarity] * Math.max(0.5, 1 - level / 120);
-const applied  = hardness + (1 - hardness) * t;          // the penalty fades
+const taken = (maxHp - hp) / maxHp;                          // 0 at full
+const base  = Math.max(0.03, taken ** CATCH_CURVE[rarity]);   // common 1 … legendary 1.8
+const k     = sphere.rate * status;                           // sleep/freeze 1.6, other bad 1.25
+const p     = Math.min(0.95, 1 - (1 - base) ** k);
 ```
 
-A flat multiplier was tried first and gave 94% at 1 hp instead of 99%. The
-difficulty has to live in *getting* something rare down to 1 hp, not in the
-anchor. Measured: common lv6 → 5 / 51 / 99. Rare lv40 → 1 / 32 / 99.
+Rarity bends the curve down in the middle and still meets ~95% at 1 hp. A
+better sphere shortens the odds against missing instead of multiplying the
+chance, so it helps most early and nothing is ever a sure thing. Measured,
+plain sphere at 0 / 10 / 25 / 50 / 75 / 90% taken: common 3 / 10 / 25 / 50 /
+75 / 90, rare 3 / 4 / 15 / 39 / 68 / 87, legendary 3 / 3 / 8 / 28 / 60 / 83.
 
 **The same function runs client-side on the ball button.** The number shown to
 the player is the number the server rolls.

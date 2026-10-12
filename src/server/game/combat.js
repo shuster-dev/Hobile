@@ -2085,17 +2085,48 @@ function writeSave(i) {
  * Ownership matters: without the ownerKey check a player could switch a
  * party member's creature in, or in PvP one of the opponent's.
  */
-function swapToUid(sim, you, uid) {
+function swapToUid(sim, you, uid, recruit = null) {
   if (!sim || !you) return { ok: false, reason: "no_battle" };
   if (typeof uid !== "string" || !uid) return { ok: false, reason: "no_target" };
   const mine = ownerKey(you);
   for (const c of sim.combatants.values()) {
     if (c.side !== you.side || c.kind === "trainer") continue;
     if (ownerKey(c) !== mine) continue;
-    if (c.creature?.uid !== uid) continue;
+    // a creature called in from the box mid-fight is known to the client by
+    // its combatant id until the next profile, so either will do
+    if (c.creature?.uid !== uid && c.id !== uid) continue;
     return sim.switchTo(c.id);
   }
-  return { ok: false, reason: "no_target" };
+  // Not in the fight: one from the box, called in (recruitFromBox).
+  const c = recruit?.(uid);
+  if (!c) return { ok: false, reason: "no_target" };
+  const r = sim.switchTo(c.id);
+  // it could not come out after all (a capture in the air, a forced switch):
+  // it waits on the bench with the others, ready for the next try
+  return r;
 }
 
-export { WEATHER_BOOST, familyOwned, mergeDuplicates, setMoves, settleHp, takeIn, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+/**
+ * Any creature of yours can fight, not only the six in the team: one from
+ * the box is added to your side of the fight on the bench, then switched in
+ * like any other. Not one at the farm (training or at work) or one that is
+ * down, and never in a duel (that fights with copies of the team).
+ * Its HP and XP are written back by uid like the team's (settleHp,
+ * fieldCreature).
+ */
+function recruitFromBox(sim, doc, you, uid, { roster = null, gearBonus = null, guildBonus = null } = {}) {
+  if (!sim || !doc || !you || typeof uid !== "string") return null;
+  const cr = Object.prototype.hasOwnProperty.call(doc.creatures || {}, uid) ? doc.creatures[uid] : null;
+  if (!cr || !SPECIES[cr.species] || !(cr.hp > 0)) return null;
+  if (!(doc.box || []).includes(uid) || atFarm(doc, uid) || isWorker(doc, uid)) return null;
+  for (const c of sim.combatants.values()) if (c.creature?.uid === uid) return null;
+  const c = sim.add(new Combatant({
+    side: you.side, kind: "creature", name: SPECIES[cr.species]?.name || cr.species,
+    creature: cr, ownerId: you.ownerId || doc.id, ownerSession: you.ownerSession || null,
+    slot: 5, benched: true, gearBonus: gearBonus || sumStats(doc), guildBonus,
+  }));
+  roster?.push({ id: c.id, uid });
+  return c;
+}
+
+export { WEATHER_BOOST, familyOwned, mergeDuplicates, setMoves, settleHp, takeIn, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, recruitFromBox, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
