@@ -7,7 +7,8 @@ import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
 import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { mountKind } from '../../shared/riding.js';
-import { questGold, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
+import { AILMENTS, BAD, BOSS_DISABLE, DOT_CHANCE, STATUS, disabledBy, immuneTo, isBad, matchesVs, moveStatus } from '../../shared/status.js';
+import { questGold, ECONOMY, ACTIONS, avatarLook, BUILDINGS, DAILY_QUEST_IDS, HOME_ZONE, ITEMS, MAIN_QUEST_IDS, MOVES, PROGRESSION, QUESTS, RECIPES, SPECIES, STARS, captureChance, learnedMoves, skillsFor, starRank, statsFor, typeMultiplier } from '../../shared/gamedata.js';
 
 var combatantSeq = 0,
   combatantId = () => `c${++combatantSeq}`,
@@ -79,8 +80,13 @@ var Combatant = class {
       let t = [];
       return this.effects = this.effects.filter(n => n.until > e ? !0 : (t.push(n.kind), !1)), t;
     }
+    /** Dizzy, asleep or frozen (shared/status.js): it cannot act. */
     isStunned(e) {
-      return this.effects.some(t => t.kind === "stun" && t.until > e);
+      return !!disabledBy(this.effects, e);
+    }
+    /** Which of the three is stopping it, or null. */
+    disabled(e) {
+      return disabledBy(this.effects, e);
     }
     toJSON() {
       return {
@@ -186,15 +192,19 @@ var Combatant = class {
         // hit, so a spell turning over mid-fight cannot change what a move is
         // doing halfway through it.
         m = n.type && this.weather?.boost === n.type ? WEATHER_BOOST : 1,
+        // a move that feeds on what is already there (shared/moves-status.js):
+        // a hex on the poisoned, a shatter on the frozen
+        vx = n.effect?.vs && matchesVs(n.effect.vs, t.effects, s ?? Date.now()) ? n.effect.vsMul || 2 : 1,
         x = (2 * e.level / 5 + 2) * n.power * (o * l / Math.max(1, a * c)) / 50 + 2,
-        g = Math.floor(x * d * u * f * p * m * sg * th * (1 - h));
+        g = Math.floor(x * d * u * f * p * m * sg * th * vx * (1 - h));
       return g = Math.max(1, g), {
         dmg: g,
         eff: u,
         crit: f > 1,
         weather: m > 1,
         surge: sg > 1,
-        hide: th < 1
+        hide: th < 1,
+        vs: vx > 1
       };
     }
     /** An ability doing something: the client puts its name over the creature. */
@@ -211,7 +221,8 @@ var Combatant = class {
         eff: l,
         crit: c,
         surge: sg,
-        hide: th
+        hide: th,
+        vs: vx
       } = this.computeDamage(e, t, n, r);
       // once a fight is enough to say it: every hit would be noise
       sg && !e.surgeShown && (e.surgeShown = !0, this.abilityFired(e, "surge"));
@@ -231,6 +242,9 @@ var Combatant = class {
         eff: l,
         crit: c,
         hp: t.hp,
+        ...(vx ? {
+          vs: !0
+        } : {}),
         ...(o.trainer ? {
           trainer: !0
         } : {})
@@ -246,16 +260,12 @@ var Combatant = class {
       if (!(a > 0) || e === t) return;
       let contact = n.kind === "physical", A = ABILITIES;
       if (contact && e.alive && e.kind !== "trainer") {
-        t.ability === "flame_body" && this.rand() < A.flame_body.chance && (e.addEffect("burn", 0.06, 3e3, r), this.abilityFired(t, "flame_body"));
-        t.ability === "static" && this.rand() < A.static.chance && (e.addEffect("stun", 1, A.static.dur, r), this.abilityFired(t, "static"), this.emit({
-          kind: "status",
-          target: e.id,
-          status: "stun"
-        }));
+        t.ability === "flame_body" && this.rand() < A.flame_body.chance && this.inflict(e, "burn", 0.06, 3e3, r) && this.abilityFired(t, "flame_body");
+        t.ability === "static" && this.rand() < A.static.chance && this.inflict(e, "stun", 1, A.static.dur, r) && this.abilityFired(t, "static");
       }
       if (t.alive) {
-        contact && e.ability === "poison_touch" && this.rand() < A.poison_touch.chance && (t.addEffect("poison", A.poison_touch.value, A.poison_touch.dur, r), this.abilityFired(e, "poison_touch"));
-        e.ability === "frostbite" && this.rand() < A.frostbite.chance && (t.addEffect("slow", A.frostbite.value, A.frostbite.dur, r), this.abilityFired(e, "frostbite"));
+        contact && e.ability === "poison_touch" && this.rand() < A.poison_touch.chance && this.inflict(t, "poison", A.poison_touch.value, A.poison_touch.dur, r) && this.abilityFired(e, "poison_touch");
+        e.ability === "frostbite" && this.rand() < A.frostbite.chance && this.inflict(t, "slow", A.frostbite.value, A.frostbite.dur, r) && this.abilityFired(e, "frostbite");
       }
       if (e.ability === "vampiric" && e.alive && e.hp < e.maxHp) {
         let h = Math.max(1, Math.floor(a * A.vampiric.share));
@@ -290,13 +300,74 @@ var Combatant = class {
         this.abilityFired(c, "radiant");
       }
     }
-    applyRiders(e, t, n, s, r) {
-      let o = n.effect;
-      if (o && (o.burn && Math.random() < 0.85 && t.addEffect("burn", o.burn, o.dur, r), o.poison && Math.random() < 0.85 && t.addEffect("poison", o.poison, o.dur, r), o.slow && t.addEffect("slow", o.slow, o.dur, r), o.stun && Math.random() < o.stun && (t.addEffect("stun", 1, o.dur, r), this.emit({
+    /**
+     * Leave a status on a creature (shared/status.js), by the rules a player
+     * can learn once: its element may shrug it off, one of each (a second
+     * burn renews the first), a creature just woken or thawed cannot be
+     * stopped again for a moment, a boss is stopped for less than half as
+     * long, and a trainer is never stopped at all. True if it took.
+     */
+    inflict(t, kind, value, dur, now) {
+      if (!t?.alive) return !1;
+      let S = STATUS[kind];
+      if (!S || !AILMENTS.includes(kind)) return t.addEffect(kind, value, dur, now), !0;
+      if (S.disable && t.kind === "trainer") return !1;
+      if (immuneTo(t.types, kind)) return this.emit({
+        kind: "immune",
+        target: t.id,
+        status: kind
+      }), !1;
+      if (S.disable) {
+        if (now < (t.resistUntil || 0)) return this.emit({
+          kind: "resist",
+          target: t.id,
+          status: kind
+        }), !1;
+        t.kind === "boss" && (dur = Math.max(400, Math.round(dur * BOSS_DISABLE)));
+        t.resistUntil = now + dur + (S.resist || 0) * (t.kind === "boss" ? 2 : 1);
+      }
+      let had = t.effects.find(x => x.kind === kind && x.until > now);
+      return had ? (had.until = Math.max(had.until, now + dur), had.value = Math.max(had.value, value)) : (t.addEffect(kind, value, dur, now), this.emit({
         kind: "status",
         target: t.id,
-        status: "stun"
-      })), o.defDown && t.addEffect("defDown", o.defDown, o.dur, r), o.lifesteal)) {
+        status: kind,
+        until: now + dur
+      })), !0;
+    }
+    /** Take statuses off (a potion, a cleansing move, a sleeper woken by a
+     *  hit, ice broken by fire). Stopped early still counts as stopped: the
+     *  moment it cannot be stopped again starts now. */
+    cure(t, kinds, now, why) {
+      let gone = [];
+      t.effects = t.effects.filter(x => kinds.includes(x.kind) ? (gone.includes(x.kind) || gone.push(x.kind), !1) : !0);
+      for (let k of gone) STATUS[k]?.disable && (t.resistUntil = now + (STATUS[k].resist || 0) * (t.kind === "boss" ? 2 : 1));
+      return gone.length && this.emit({
+        kind: "cured",
+        target: t.id,
+        statuses: gone,
+        why
+      }), gone.length;
+    }
+    /** A hit has landed: a sleeper may wake (an alarm always wakes it), and
+     *  fire — or a shatter — breaks the ice. */
+    afterLanded(e, t, n, r) {
+      if (!t.alive) return;
+      let stop = t.disabled(r);
+      stop === "sleep" && (n.effect?.wake || this.rand() < STATUS.sleep.wake) ? this.cure(t, ["sleep"], r, "wake") : stop === "freeze" && (n.type === STATUS.freeze.thaw || n.effect?.thaw) && this.cure(t, ["freeze"], r, "thaw");
+    }
+    applyRiders(e, t, n, s, r) {
+      let o = n.effect;
+      if (!o) return;
+      if (t.alive) {
+        o.burn && (o.sure || this.rand() < DOT_CHANCE) && this.inflict(t, "burn", o.burn, o.dur, r);
+        o.poison && (o.sure || this.rand() < DOT_CHANCE) && this.inflict(t, "poison", o.poison, o.dur, r);
+        o.slow && this.inflict(t, "slow", o.slow, o.dur, r);
+        o.stun && this.rand() < o.stun && this.inflict(t, "stun", 1, o.dur, r);
+        o.sleep && this.rand() < o.sleep && this.inflict(t, "sleep", 1, o.dur, r);
+        o.freeze && this.rand() < o.freeze && this.inflict(t, "freeze", 1, o.dur, r);
+        o.defDown && t.addEffect("defDown", o.defDown, o.dur, r);
+      }
+      if (o.lifesteal && s > 0) {
         let a = Math.floor(s * o.lifesteal);
         e.hp = Math.min(e.maxHp, e.hp + a), this.emit({
           kind: "heal",
@@ -311,7 +382,7 @@ var Combatant = class {
       if (!s) return;
       let r = s.party ? this.alliesOf(e) : [e];
       for (let o of r) {
-        if (s.shield && o.addEffect("shield", s.shield, s.dur, n), s.atkUp && o.addEffect("atkUp", s.atkUp, s.dur, n), s.defUp && o.addEffect("defUp", s.defUp, s.dur, n), s.hasteUp && o.addEffect("hasteUp", s.hasteUp, s.dur, n), s.heal) {
+        if (s.cleanse && this.cure(o, BAD, n, "cleanse"), s.shield && o.addEffect("shield", s.shield, s.dur, n), s.atkUp && o.addEffect("atkUp", s.atkUp, s.dur, n), s.defUp && o.addEffect("defUp", s.defUp, s.dur, n), s.hasteUp && o.addEffect("hasteUp", s.hasteUp, s.dur, n), s.heal) {
           let a = Math.floor(o.maxHp * s.heal);
           o.hp = Math.min(o.maxHp, o.hp + a), this.emit({
             kind: "heal",
@@ -355,9 +426,10 @@ var Combatant = class {
         ok: !1,
         reason: "frozen"
       };
-      if (s.isStunned(o)) return {
+      let stop = s.disabled(o);
+      if (stop) return {
         ok: !1,
-        reason: "stunned"
+        reason: stop === "sleep" ? "asleep" : stop === "freeze" ? "frozen_solid" : "stunned"
       };
       if ((s.cooldowns[t] || 0) > o) return {
         ok: !1,
@@ -369,7 +441,7 @@ var Combatant = class {
         reason: "stamina"
       };
       let a = Math.min(0.4, s.modifier("hasteUp"));
-      if (s.cooldowns[t] = o + r.cd * (1 - a) * (s.ability === "swift" ? ABILITIES.swift.mul : 1) * (1 - (s.cdr || 0)), s.stamina -= r.cost, r.kind === "status") return this.applySelfBuffs(s, r, o), this.emit({
+      if (s.cooldowns[t] = o + r.cd * (1 - a) * (s.ability === "swift" ? ABILITIES.swift.mul : 1) * (1 - (s.cdr || 0)), s.stamina -= r.cost, r.kind === "status" && !r.foe) return this.applySelfBuffs(s, r, o), this.emit({
         kind: "skill",
         actor: s.id,
         skill: t,
@@ -398,8 +470,18 @@ var Combatant = class {
           }), veil && this.abilityFired(h, "shadow_veil");
           continue;
         }
+        // a powder or a song: aimed at them, no damage, only what it leaves
+        if (r.foe) {
+          this.emit({
+            kind: "cast",
+            actor: s.id,
+            target: h.id,
+            skill: t
+          }), this.applyRiders(s, h, r, 0, o);
+          continue;
+        }
         let d = this.applyHit(s, h, r, t, o);
-        this.applyRiders(s, h, r, d, o), h.alive || this.emit({
+        this.afterLanded(s, h, r, o), this.applyRiders(s, h, r, d, o), h.alive || this.emit({
           kind: "faint",
           target: h.id
         });
@@ -446,7 +528,7 @@ var Combatant = class {
           amount: d,
           hp: h.hp,
           source: "trainer"
-        }), {
+        }), r.cure && this.cure(h, BAD, o, "potion"), {
           ok: !0,
           target: h.id
         };
@@ -489,7 +571,7 @@ var Combatant = class {
       };
       return this.applyHit(s, l, c, "strike", o, {
         trainer: !0
-      }), l.alive || this.emit({
+      }), this.afterLanded(s, l, c, o), l.alive || this.emit({
         kind: "faint",
         target: l.id
       }), this.checkEnd(), {
@@ -709,6 +791,15 @@ var Combatant = class {
       else for (let c of r) {
         let h = c.type ? typeMultiplier(c.type, s.types) : 1,
           d = (c.power || 30) * h * (c.kind === "status" ? 0.4 : 1) * (0.85 + Math.random() * 0.3);
+        // the status moves (shared/moves-status.js) are worth what they would
+        // do now: nothing on a target that already has it, cannot take it or
+        // was just woken; a lot when it is free to land — and a wash when
+        // something is eating at it
+        if (c.foe) {
+          let st = moveStatus(c);
+          d = !st || s.effects.some(x => x.kind === st && x.until > t) || immuneTo(s.types, st) || STATUS[st]?.disable && t < (s.resistUntil || 0) ? 0 : 54 * (0.85 + Math.random() * 0.3);
+        } else if (c.effect?.cleanse && e.effects.some(x => isBad(x.kind) && x.until > t)) d = 75;
+        else c.effect?.vs && matchesVs(c.effect.vs, s.effects, t) && (d *= c.effect.vsMul || 2);
         d > a && (a = d, o = c);
       }
       this.useSkill(e.id, o.id, s.id);
@@ -753,13 +844,13 @@ function creaturePower(i, e) {
     s = n.hp + n.atk + n.def + n.spa + n.spd + n.spe,
     r = i.kind === "boss" ? 6 : 1,
     o = Math.max(0.35, Math.min(2.2, i.level / Math.max(1, e)));
-  return Math.floor(s * i.level / 34 * o * r);
+  return Math.floor(s * i.level / 34 * o * r * ECONOMY.xpMul);
 }
 
 function creatureScore(i) {
   if (!i || !Object.prototype.hasOwnProperty.call(SPECIES, i.species)) return 0;
   let e = i.kind === "boss" ? 25 : 1;
-  return Math.floor((14 + i.level * 7) * e * (0.8 + Math.random() * 0.4));
+  return Math.floor((ECONOMY.winGold[0] + i.level * ECONOMY.winGold[1]) * e * (0.85 + Math.random() * 0.3));
 }
 
 function uid() {
@@ -939,11 +1030,14 @@ function grantXpTo(i, e, doc = null) {
     let n = statsFor(i.species, i.level, i.iv, i.star || 1, i.nature),
       s = n.hp - i.maxHp;
     i.maxHp = n.hp, i.hp = Math.min(n.hp, i.hp + Math.max(0, s));
-    let r = new Set(i.skills);
-    i.skills = skillsFor(i.species, i.level);
-    for (let a of i.skills) r.has(a) || t.push({
+    // what it learns at this level; whether it goes straight into the four
+    // depends on whether its trainer has chosen them (creatureCard / setMoves)
+    let r = new Set(learnedMoves(i.species, i.level - 1));
+    i.skills = skillsFor(i.species, i.level, i.picked);
+    for (let a of learnedMoves(i.species, i.level)) r.has(a) || t.push({
       kind: "skill",
-      skill: a
+      skill: a,
+      equipped: i.skills.includes(a)
     });
     t.push({
       kind: "level",
@@ -955,7 +1049,7 @@ function grantXpTo(i, e, doc = null) {
       i.species = o.into;
       let l = statsFor(i.species, i.level, i.iv, i.star || 1, i.nature);
       let seen = doc ? dexRecord(doc, i.species, i) : null;
-      i.maxHp = l.hp, i.hp = l.hp, i.skills = skillsFor(i.species, i.level), t.push({
+      i.maxHp = l.hp, i.hp = l.hp, i.skills = skillsFor(i.species, i.level, i.picked), t.push({
         kind: "evolve",
         from: a,
         into: i.species,
@@ -967,7 +1061,10 @@ function grantXpTo(i, e, doc = null) {
       });
     }
   }
-  return t;
+  // a move is learnt once, and said as it ended up: in the four or waiting on
+  // the card (an evolution part-way can do either to it)
+  let known = new Set(learnedMoves(i.species, i.level)), said = new Set();
+  return t.filter(x => x.kind !== "skill" || known.has(x.skill) && !said.has(x.skill) && said.add(x.skill)).map(x => x.kind === "skill" ? { ...x, equipped: i.skills.includes(x.skill) } : x);
 }
 
 function grantXp(i, e) {
@@ -1805,6 +1902,20 @@ function baseView(i, e = Date.now()) {
   };
 }
 
+/** A trainer chooses the four moves a creature fights with (from its card).
+ *  An empty list hands the choice back to the creature: its newest four. */
+function setMoves(doc, uid, skills) {
+  let c = creatureOf(doc, uid);
+  if (!c) return { ok: !1, reason: "no_creature" };
+  if (!Array.isArray(skills) || skills.length > 4) return { ok: !1, reason: "bad_moves" };
+  let known = learnedMoves(c.species, c.level),
+    pick = [...new Set(skills.filter(m => typeof m == "string"))];
+  if (pick.length !== skills.length || pick.some(m => !known.includes(m))) return { ok: !1, reason: "bad_moves" };
+  pick.length ? c.picked = pick : delete c.picked;
+  c.skills = skillsFor(c.species, c.level, c.picked);
+  return { ok: !0, skills: c.skills };
+}
+
 function creatureCard(i, e) {
   let t = creatureOf(i, e);
   if (!t) return null;
@@ -1823,6 +1934,9 @@ function creatureCard(i, e) {
     hp: t.hp,
     maxHp: t.maxHp,
     skills: t.skills,
+    // every move it knows, for choosing its four (setMoves)
+    learned: learnedMoves(t.species, t.level),
+    picked: Array.isArray(t.picked) && t.picked.length > 0,
     types: n?.types || [],
     stats: statsFor(t.species, t.level, t.iv, t.star || 1, t.nature),
     nature: t.nature || null,
@@ -1894,4 +2008,4 @@ function swapToUid(sim, you, uid) {
   return { ok: false, reason: "no_target" };
 }
 
-export { WEATHER_BOOST, settleHp, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { WEATHER_BOOST, setMoves, settleHp, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

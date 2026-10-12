@@ -15,7 +15,7 @@ import { mountKind } from './riding.js';
 
 export const SADDLE = {
   need: 5,                                        // pieces of the family's material
-  gold: { land: 1200, swim: 1800, fly: 2600 },    // the workbench's price
+  gold: { land: 800, swim: 1200, fly: 1800 },    // the workbench's price
   keep: 99,                                       // most pieces held of one family
 };
 

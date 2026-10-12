@@ -309,7 +309,7 @@ body.is-standalone{--safe-t:env(safe-area-inset-top,0px)}
   color:var(--text)}
 #hud .vitals{backdrop-filter:blur(12px) saturate(1.4)}
 #hud .bar{background:rgba(42,47,77,.12);box-shadow:inset 0 1px 2px rgba(42,47,77,.18)}
-#minimap{background:#fff;border:3px solid #fff;box-shadow:var(--e2)}
+#minimap{background:radial-gradient(circle,#dcebd3,#bcd6b2);border:3px solid #fff;box-shadow:var(--e2)}
 #hud .icon-btn{color:var(--text)}
 #hud .icon-btn.wide{background:linear-gradient(135deg,#e2fbf6,#fffdf8 70%);border-color:#a8ece1;color:#136a5f}
 #chat-mini{background:rgba(255,252,246,.8);border-color:#fff;color:var(--text);box-shadow:var(--e1)}
@@ -638,6 +638,52 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .saddle-row .fam{font-size:var(--t-xs);color:var(--muted)}
 .saddle-row.ready{border-color:var(--aether);box-shadow:inset 3px 0 0 var(--aether)}
 .saddle-row.done{opacity:.85}
+
+/* --- statuses and the four moves (shared/status.js, checklist c2) -------- */
+.dmg.status{font-size:14px;font-weight:800;color:#fff;background:rgba(20,24,46,.82);border:1px solid rgba(160,200,255,.45);border-radius:999px;padding:2px 9px;white-space:nowrap;text-shadow:none;animation-duration:1.5s;margin-top:-26px}
+.dmg.status.stop{background:rgba(40,60,120,.9);border-color:#9fd3ff;font-size:15px}
+.dmg.status.good{border-color:var(--hp);color:#d9ffe9}
+.combat-row .fx .e.stop{color:#1d5fc4;font-weight:800}
+#battle-skills{position:relative}
+#battle-skills.held .sk{filter:grayscale(.8) blur(1.5px);opacity:.35;pointer-events:none}
+#battle-skills.held::after{content:attr(data-held);position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 var(--s3);border-radius:var(--r2);background:rgba(16,22,48,.84);color:#e8f4ff;font-weight:700;font-size:var(--t-sm);pointer-events:none;animation:held-pulse 1.6s ease-in-out infinite}
+@keyframes held-pulse{0%,100%{opacity:1}50%{opacity:.72}}
+.move-pick{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 var(--s4)}
+.move-pick .mv{display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto auto;column-gap:6px;align-items:center;text-align:start;padding:8px 10px;min-height:56px;border-radius:var(--r2);border:1px solid var(--stroke);background:var(--raise);color:var(--text);font:inherit;cursor:pointer}
+.move-pick .mv .ico{grid-row:1/3;font-size:18px}
+.move-pick .mv b{font-size:var(--t-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.move-pick .mv .pw{font-size:var(--t-xs);opacity:.75}
+.move-pick .mv small{grid-column:2/4;font-size:10.5px;color:var(--muted);line-height:1.3}
+.move-pick .mv.on{border-color:var(--aether);background:var(--aether-soft);box-shadow:inset 0 0 0 1px var(--aether)}
+.move-pick-actions{display:flex;gap:var(--s2);padding:var(--s3) var(--s4) 0}
+.creature-card + .section{margin-top:var(--s3)}
+
+/* --- a fight with the phone on its side ----------------------------------
+   The portrait layout stacked the bars, the team, four moves and five trainer
+   buttons across the whole width: on its side that was the whole screen, and
+   the fight went on behind it. Here the moves and the trainer's buttons take
+   the bottom right (under the thumb), your side's bars the bottom left, the
+   foe's bar the top right, and the arena keeps the middle. */
+@media (orientation:landscape) and (max-height:520px){
+  #battle-actions{background:none;pointer-events:none;padding:6px calc(10px + var(--safe-r)) calc(6px + var(--safe-b)) calc(10px + var(--safe-l));
+    display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);grid-template-areas:"skills self" "trainer team";column-gap:22vw;row-gap:6px;align-items:end}
+  #battle-actions>*{pointer-events:auto}
+  #battle-skills{grid-area:skills;gap:6px}
+  #battle-trainer{grid-area:trainer;grid-template-columns:repeat(5,1fr);gap:6px}
+  #combat-bars-self{grid-area:self;align-self:end}
+  #battle-team{grid-area:team}
+  #battle-skills .sk{min-height:52px;padding:2px;font-size:10px}
+  #battle-skills .sk .ico{font-size:16px}
+  #battle-trainer .tb{min-height:36px;font-size:9.5px;padding:2px 1px}
+  #battle-trainer .tb .ico{font-size:14px}
+  .combat-bars{width:min(36vw,300px);max-height:40vh}
+  .combat-bars.self{width:auto}
+  .combat-row{padding:4px 8px}
+  .combat-row .name{font-size:11.5px;margin-bottom:2px}
+  #battle-team .tm{min-height:32px;padding:3px 8px 3px 4px}
+  #battle-banner{top:22%;font-size:var(--t-xl)}
+}
+@media(prefers-reduced-motion:reduce){#battle-skills.held::after{animation:none}}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
@@ -709,10 +755,10 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
     <div id="action-cluster">
       <button class="action-main" id="btn-action">פעולה</button>
       <button class="ride-btn hidden" id="btn-ride" type="button" aria-label="רכיבה">🐎</button>
-      <button class="skill-btn s0" data-slot="0" aria-label="כישור 1"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
-      <button class="skill-btn s1" data-slot="1" aria-label="כישור 2"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
-      <button class="skill-btn s2" data-slot="2" aria-label="כישור 3"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
-      <button class="skill-btn s3" data-slot="3" aria-label="כישור 4"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
+      <button class="skill-btn s0 hidden" data-slot="0" aria-label="כישור 1"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
+      <button class="skill-btn s1 hidden" data-slot="1" aria-label="כישור 2"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
+      <button class="skill-btn s2 hidden" data-slot="2" aria-label="כישור 3"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
+      <button class="skill-btn s3 hidden" data-slot="3" aria-label="כישור 4"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
     </div>
   </div>
 

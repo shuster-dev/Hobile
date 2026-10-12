@@ -55,8 +55,8 @@ function avgBase(zone) {
 export function hourAt(level) {
   const z = zoneFor(level);
   const wl = Math.max(z.levels[0], Math.min(z.levels[1], level));
-  const goldPerFight = 14 + wl * 7;                              // creatureScore, on average
-  const xpPerFight = Math.floor(avgBase(z) * wl / 34 * Math.max(0.35, Math.min(2.2, wl / Math.max(1, level)))) * 0.6;
+  const goldPerFight = G.ECONOMY.winGold[0] + wl * G.ECONOMY.winGold[1]; // creatureScore, on average
+  const xpPerFight = Math.floor(avgBase(z) * wl / 34 * Math.max(0.35, Math.min(2.2, wl / Math.max(1, level))) * G.ECONOMY.xpMul) * 0.6;
   const fights = HOUR.fights;
   const daily = Object.values(G.QUESTS).filter((q) => q.chain === 'daily');
   const dailyGold = daily.reduce((a, q) => a + G.questGold(q, level), 0) / Math.max(1, daily.length) * HOUR.dailyQuests / DAY_HOURS;
@@ -105,7 +105,9 @@ function goals() {
 /** Everything, with judgements: an hour that loses gold, or a goal that takes
  *  more than `wall` hours of saving at its level, is flagged. */
 // The last tier of anything is meant to take a few sessions: it gets more room.
-export function measure({ wall = 6, finalWall = 10, trivial = 0.15 } = {}) {
+// Since the easier tuning (gamedata ECONOMY, 8.10) the first things are meant
+// to come within a few fights; "trivial" is now under five minutes of saving.
+export function measure({ wall = 6, finalWall = 10, trivial = 0.08 } = {}) {
   const hours = [1, 3, 5, 8, 12, 16, 20, 25, 30, 35, 40, 45].map(hourAt);
   const lh = levelHours();
   const gs = goals().map((g) => {

@@ -78,7 +78,7 @@ export class PartyBattle {
     const team = teamCreatures(doc).map((c) => {
       if (this.ranked) {
         const lv = ARENA.level, st = statsFor(c.species, lv, c.iv, c.star || 1, c.nature);
-        return { ...c, level: lv, hp: st.hp, maxHp: st.hp, skills: skillsFor(c.species, lv) };
+        return { ...c, level: lv, hp: st.hp, maxHp: st.hp, skills: skillsFor(c.species, lv, c.picked) };
       }
       return this.mode === 'pvp' ? { ...c, hp: statsOf(c).hp } : c;
     });

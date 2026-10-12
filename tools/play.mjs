@@ -13,6 +13,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as G from '../src/shared/gamedata.js';
+import * as ST from '../src/shared/status.js';
 
 const PORT = 2653;
 let pass = 0, fail = 0;
@@ -246,7 +247,10 @@ if (entered) {
       skill: b.dataset.skill, cls: b.querySelector('.eff')?.className || null, mark: b.querySelector('.eff')?.textContent ?? null })) };
   });
   const expect = (skill) => {
-    const m = G.MOVES[skill], mult = m?.type && m.kind !== 'status' ? G.typeMultiplier(m.type, G.SPECIES[marks.foe]?.types || []) : 1;
+    const m = G.MOVES[skill], types = G.SPECIES[marks.foe]?.types || [];
+    let mult = m?.type && m.kind !== 'status' ? G.typeMultiplier(m.type, types) : 1;
+    // a powder or a flame on one whose element shrugs it off (shared/status.js)
+    m?.foe && ST.immuneTo(types, ST.moveStatus(m)) && (mult = 0);
     return mult > 1 ? '▲' : mult === 0 ? '✕' : mult < 1 ? '▼' : '';
   };
   ok('every move is marked for what it does to this foe',

@@ -18,7 +18,7 @@ import { resolveCollision } from '../../shared/props.js';
 import { stepWithin } from '../../shared/worldplan.js';
 import {
   acceptQuest, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden,
-  collectTraining, creatureCard, equipGear, giveItem, healTeam, publicProfile,
+  collectTraining, creatureCard, setMoves, equipGear, giveItem, healTeam, publicProfile,
   startCraft, startTraining, syncQuests, takeItem, uid, upgradeBuilding, dexView, atFarm, assignWorker, unassignWorker, collectWork, isWorker,
 } from './combat.js';
 import { hpRatio, petOf } from './player.js';
@@ -625,6 +625,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
           {
             let o = creatureCard(n, t.uid);
             o && ctx.net.emit("card", o);
+            break;
+          }
+        case "setMoves":
+          {
+            // the four it fights with, chosen on its card (checklist c2)
+            let o = setMoves(n, t.uid, t.skills);
+            if (!o.ok) return ctx.net.emit("error", { code: o.reason });
+            ctx.net.save(), ctx.net.emit("card", creatureCard(n, t.uid)), ctx.net.emit("profile", publicProfile(n));
             break;
           }
         case "shopBuy":

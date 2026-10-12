@@ -34,7 +34,7 @@ function emojiTexture(ch) {
   EMOJI.set(ch, tex);
   return tex;
 }
-function emojiSprite(ch, size) {
+export function emojiSprite(ch, size) {
   const s = new Sprite(new SpriteMaterial({ map: emojiTexture(ch), transparent: true, depthWrite: false, depthTest: false }));
   s.scale.set(size, size, 1);
   s.renderOrder = 20;
