@@ -684,6 +684,88 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
   #battle-team .tm{min-height:32px;padding:3px 8px 3px 4px}
   #battle-banner{top:22%;font-size:var(--t-xl)}
 }
+
+/* --- my creatures and the collection, as cards (client/faces.js) --------- */
+.roster-sum{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:2px 0 var(--s2)}
+.roster-sum>span{background:#fff;border:1px solid var(--stroke);border-radius:var(--pill);padding:4px 10px;font-size:var(--t-xs);color:var(--muted);box-shadow:var(--e1)}
+.roster-sum b{color:var(--text);font-size:var(--t-sm)}
+.roster-sum .hint-inline{background:none;border:none;box-shadow:none;margin-inline-start:auto;padding:0}
+.ctile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px;margin-bottom:var(--s3)}
+.ctile{position:relative;border-radius:18px;overflow:hidden;background:#fff;cursor:pointer;
+  border:2px solid color-mix(in srgb,var(--elem) 60%,#fff);
+  box-shadow:0 1px 2px rgba(42,47,77,.12),0 8px 20px -8px color-mix(in srgb,var(--elem) 55%,transparent);
+  transition:transform .12s var(--ease),box-shadow .2s var(--ease);-webkit-tap-highlight-color:transparent}
+.ctile:active{transform:scale(.975)}
+.ctile .art{position:relative;height:136px;display:grid;place-items:end center;overflow:hidden;
+  background:radial-gradient(120% 95% at 50% 22%,color-mix(in srgb,var(--ca) 82%,#fff),var(--cb))}
+.ctile .art::before{content:"";position:absolute;inset:0;background:
+  radial-gradient(circle at 50% 58%,rgba(255,255,255,.55),transparent 58%),
+  repeating-conic-gradient(from 0deg at 50% 62%,rgba(255,255,255,.10) 0 8deg,transparent 8deg 22deg)}
+.ctile .art::after{content:"";position:absolute;left:18%;right:18%;bottom:8px;height:14px;border-radius:50%;background:rgba(20,24,46,.28);filter:blur(5px)}
+.ctile .art img,.dcard .art img{position:relative;z-index:1;opacity:0;transform:translateY(6px) scale(.96);transition:opacity .35s var(--ease),transform .35s var(--ease)}
+.ctile .art img{height:128px;width:auto;max-width:96%;object-fit:contain;filter:drop-shadow(0 6px 10px rgba(20,24,46,.28))}
+.ctile .art img.in,.dcard .art img.in{opacity:1;transform:none}
+.ctile .lv,.ctile .els,.ctile .tag{position:absolute;z-index:2;border-radius:var(--pill);font-weight:800;font-size:11px;line-height:1;
+  background:rgba(255,255,255,.92);color:var(--text);padding:5px 8px;box-shadow:0 1px 3px rgba(20,24,46,.18)}
+.ctile .lv{top:8px;inset-inline-start:8px}
+.ctile .els{top:8px;inset-inline-end:8px;font-size:12px;padding:4px 6px;letter-spacing:1px}
+.ctile .tag{bottom:8px;inset-inline-start:8px;font-size:10.5px}
+.ctile .tag.lead{background:linear-gradient(135deg,#ffe08a,#ffc044);color:#6a4300}
+.ctile .tag.pod{background:#e9f3ff;color:#1d5fc4}
+.ctile .info{padding:8px 10px 10px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.ctile .nm{font-size:15px;font-weight:900;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctile .nm .sh{font-size:12px}
+.ctile .stars{color:#d99a1e;font-size:12px;letter-spacing:1.5px;line-height:1}
+.ctile .hp{height:6px;border-radius:99px;background:rgba(42,47,77,.1);overflow:hidden;margin-top:3px}
+.ctile .hp i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#3fd98b,#20b56e);transition:width .3s}
+.ctile .hp.low i{background:linear-gradient(90deg,#ff8a7a,#e5484d)}
+.ctile .meta{font-size:10.5px;color:var(--muted)}
+.ctile .acts{position:absolute;z-index:3;top:100px;inset-inline-end:8px;display:flex;gap:6px}
+.ctile .cact{width:34px;height:34px;border-radius:50%;border:none;background:#fff;box-shadow:0 2px 6px rgba(20,24,46,.25);font-size:16px;display:grid;place-items:center;cursor:pointer;padding:0}
+.ctile .cact.on{background:var(--aether);color:#fff}
+.ctile .cact:active{transform:scale(.92)}
+.ctile.lead{border-color:#f2b938;box-shadow:0 0 0 3px rgba(255,200,68,.28),0 10px 22px -8px rgba(217,154,30,.55)}
+.ctile.down .art img{filter:grayscale(1) brightness(.85) drop-shadow(0 6px 10px rgba(20,24,46,.28))}
+.ctile.shiny{border-color:transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(120deg,#ff9ad5,#ffe36e,#7ff0d0,#8fb4ff,#ff9ad5) border-box;background-size:auto,300% 300%;animation:holo 6s linear infinite}
+@keyframes holo{to{background-position:0 0,300% 0}}
+
+.dex-head{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;background:#fff;border:1px solid var(--stroke);border-radius:16px;padding:10px 14px;box-shadow:var(--e1);margin-bottom:10px}
+.dex-count{display:flex;flex-direction:column;line-height:1.1}
+.dex-count b{font-size:26px;font-weight:900}
+.dex-count span{font-size:var(--t-xs);color:var(--muted)}
+.dex-bar{height:10px;border-radius:99px;background:rgba(42,47,77,.08);overflow:hidden}
+.dex-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2fe6d0,#5a8dff)}
+.dex-pct{font-weight:800;color:var(--muted);font-size:var(--t-sm)}
+.dex-filter{display:flex;flex-shrink:0;gap:6px;overflow-x:auto;padding:2px 0 8px;margin-bottom:4px;scrollbar-width:none}
+.dex-filter::-webkit-scrollbar{display:none}
+.dex-filter .fchip{flex:0 0 auto;min-width:40px;height:36px;border-radius:99px;border:1px solid var(--stroke);background:#fff;font:inherit;font-size:15px;font-weight:700;color:var(--text);padding:0 12px;cursor:pointer;box-shadow:var(--e1)}
+.dex-filter .fchip.on{background:var(--text);color:#fff;border-color:var(--text)}
+.dcard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-bottom:var(--s3)}
+.dcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 0 8px;border-radius:14px;overflow:hidden;cursor:pointer;
+  background:#fff;border:2px solid color-mix(in srgb,var(--elem) 55%,#fff);font:inherit;color:var(--text);
+  box-shadow:0 1px 2px rgba(42,47,77,.1),0 6px 14px -8px color-mix(in srgb,var(--elem) 60%,transparent);transition:transform .12s var(--ease)}
+.dcard:active{transform:scale(.96)}
+.dcard .no{position:absolute;z-index:2;top:5px;inset-inline-start:7px;font-size:9.5px;font-weight:800;color:rgba(20,24,46,.55)}
+.dcard .art{position:relative;width:100%;height:86px;display:grid;place-items:end center;overflow:hidden;margin-bottom:4px;
+  background:radial-gradient(110% 90% at 50% 25%,color-mix(in srgb,var(--ca) 70%,#fff),color-mix(in srgb,var(--cb) 85%,#fff))}
+.dcard .art::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 60%,rgba(255,255,255,.6),transparent 60%)}
+.dcard .art img{height:80px;width:auto;max-width:92%;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(20,24,46,.25))}
+.dcard b{font-size:12px;font-weight:800;max-width:94%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dcard .els{font-size:11px;letter-spacing:1px}
+.dcard .n{font-size:9.5px;font-weight:700;color:#138a52;background:#1fae6a1a;border-radius:99px;padding:2px 7px}
+.dcard.locked{border-color:#e3e0d8;box-shadow:var(--e1);background:#faf8f3}
+.dcard.locked .art{background:radial-gradient(110% 90% at 50% 25%,#eef0f4,#d9dde5)}
+.dcard.locked .art img.in{filter:brightness(0) opacity(.22)}
+.dcard.locked b{color:var(--faint)}
+.dcard.locked .no{color:rgba(20,24,46,.35)}
+.dcard .q{position:absolute;z-index:2;inset:0;display:grid;place-items:center;font-size:30px;font-weight:900;color:rgba(20,24,46,.28)}
+.dcard.r-rare:not(.locked),.dcard.r-final:not(.locked){border-color:#e8b545}
+.dcard.r-legendary:not(.locked){border-color:transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(120deg,#ffd36e,#ff8ad1,#7fd8ff,#ffd36e) border-box;background-size:auto,300% 300%;animation:holo 6s linear infinite}
+.species-page .art{height:210px}
+.species-page .art img{height:200px;opacity:1}
+.creature-card .art img{opacity:0;transition:opacity .35s var(--ease)}
+.creature-card .art img.in{opacity:1}
+@media(prefers-reduced-motion:reduce){.ctile.shiny,.dcard.r-legendary{animation:none}.ctile .art img,.dcard .art img{transition:none}}
 @media(prefers-reduced-motion:reduce){#battle-skills.held::after{animation:none}}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>

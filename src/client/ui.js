@@ -18,6 +18,7 @@ import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
+import { face, faceNow, lazyFaces } from './faces.js';
 
 /**
  * Friends, parties, duels and the chat channels beyond this zone's — online,
@@ -727,32 +728,55 @@ var UI = class {
   panelDex(host) {
     let dex = this.dex;
     if (!dex) { host.appendChild(emptyState("📕", "טוען את האוסף…", null, "loading")); return; }
-    host.appendChild(section(`נתפסו ${dex.seen} מתוך ${dex.total}`, `${Math.round(dex.seen / Math.max(1, dex.total) * 100)}%`));
-    let byRarity = {};
-    for (let row of dex.rows) (byRarity[row.rarity] ||= []).push(row);
+    let pct = Math.round(dex.seen / Math.max(1, dex.total) * 100),
+      head = el("div", "dex-head");
+    head.innerHTML = `<div class="dex-count"><b>${ltr(dex.seen)}</b><span>מתוך ${ltr(dex.total)} נתפסו</span></div>
+      <div class="dex-bar"><i style="width:${pct}%"></i></div><span class="dex-pct mono">${ltr(`${pct}%`)}</span>`;
+    host.appendChild(head);
+    // by element: the one you are hunting for
+    let f = this.dexFilter || "all",
+      chips = el("div", "dex-filter");
+    for (let k of ["all", ...Object.keys(ELEMENTS)]) {
+      let b = el("button", `fchip ${f === k ? "on" : ""}`, k === "all" ? "הכל" : ELEMENTS[k].icon);
+      b.type = "button", b.setAttribute("aria-label", k === "all" ? "הכל" : loc(ELEMENTS[k])), b.setAttribute("aria-pressed", f === k ? "true" : "false");
+      b.onclick = () => { this.dexFilter = k, this.renderPanel("dex"); };
+      chips.appendChild(b);
+    }
+    host.appendChild(chips);
+    let number = new Map(dex.rows.map((r, i) => [r.id, i + 1])),
+      byRarity = {};
+    for (let row of dex.rows) (f === "all" || row.types.includes(f)) && (byRarity[row.rarity] ||= []).push(row);
     let labels = { starter: "פותחים", common: "נפוצים", evolved: "מתפתחים", final: "סופיים", rare: "נדירים", legendary: "אגדיים" };
+    let any = !1;
     for (let rarity of ["starter", "common", "evolved", "final", "rare", "legendary"]) {
       let rows = byRarity[rarity];
       if (!rows?.length) continue;
+      any = !0;
       host.appendChild(section(labels[rarity] || rarity, `${rows.filter((r) => r.caught).length}/${rows.length}`));
-      let grid = el("div", "dex-grid");
+      let grid = el("div", "dcard-grid");
       for (let row of rows) {
-        let tile = el("button", `dex-tile ${row.caught ? "" : "locked"}`);
-        let el0 = ELEMENTS[row.types[0]];
+        let sp = SPECIES[row.id], el0 = ELEMENTS[row.types[0]],
+          tile = el("button", `dcard r-${rarity} ${row.caught ? "" : "locked"}`);
+        tile.type = "button";
         tile.style.setProperty("--elem", el0?.ui || "#7d87ab");
+        sp && (tile.style.setProperty("--ca", oo(sp.model.a)), tile.style.setProperty("--cb", oo(sp.model.b)));
         // one that only comes out in its hour says so, caught or not: it is
         // the clue for where to look
-        let hour = foundWhere(row.id).find((f) => f.when)?.when;
-        tile.innerHTML = row.caught
-          ? `<span class="ico">${el0?.icon || "•"}</span><b>${row.he}</b>` +
-            `<span class="n">${row.caught > 1 ? `${row.caught} לכידות` : "חדש"}</span>`
-          : `<span class="ico">❔</span><b>???</b><span class="n">${el0?.icon || ""}${hour ? ` ${HOURS[hour].icon}` : ""}</span>`;
+        let hour = foundWhere(row.id).find((x) => x.when)?.when;
+        tile.innerHTML = `
+          <span class="no mono">${ltr(`#${String(number.get(row.id)).padStart(3, "0")}`)}</span>
+          <div class="art"><img data-face="${Ze(row.id)}" alt="" />${row.caught ? "" : "<span class=\"q\">?</span>"}</div>
+          <b>${row.caught ? Ze(row.he) : "???"}</b>
+          <span class="els">${row.types.map((x) => ELEMENTS[x]?.icon || "").join("")}${!row.caught && hour ? ` ${HOURS[hour].icon}` : ""}</span>
+          ${row.caught ? `<span class="n">${row.caught > 1 ? `${ltr(row.caught)} לכידות` : "חדש"}</span>` : ""}`;
         tile.setAttribute("aria-label", row.caught ? row.he : "יצור שעוד לא נתפס");
         tile.onclick = () => { this.speciesId = row.id; this.openPanel("species"); };
         grid.appendChild(tile);
       }
       host.appendChild(grid);
     }
+    any || host.appendChild(emptyState("🔎", "אין יצורים מהיסוד הזה"));
+    lazyFaces(host);
   }
 
   /**
@@ -770,14 +794,16 @@ var UI = class {
     host.appendChild(back);
     let page = el("div", `species-page ${caught ? "" : "locked"}`), el0 = ELEMENTS[sp.types[0]];
     page.style.setProperty("--elem", el0?.ui || "#7d87ab");
-    let img = zoneMinimap(id),
+    let img = faceNow(id) || zoneMinimap(id),
       rarity = { starter: "פותח", common: "נפוץ", evolved: "מתפתח", final: "סופי", rare: "נדיר", legendary: "אגדי" }[sp.rarity] || sp.rarity;
     page.innerHTML = `
-      <div class="art" style="background:linear-gradient(150deg, ${oo(sp.model.a)}, ${oo(sp.model.b)})">${img ? `<img src="${img}" alt="" />` : ""}</div>
+      <div class="art" style="background:radial-gradient(120% 90% at 50% 30%, ${oo(sp.model.a)}, ${oo(sp.model.b)})">${img ? `<img src="${img}" alt="" />` : ""}</div>
       <div class="name">${caught ? Ze(loc(sp)) : "???"}</div>
       <div class="chips">${sp.types.map((t) => `<span class="chip">${ELEMENTS[t].icon} ${Ze(loc(ELEMENTS[t]))}</span>`).join("")}<span class="chip">${rarity}</span></div>
       <div class="caught">${caught ? `נתפסו ${caught}` : "עוד לא נתפס"}</div>`;
     host.appendChild(page);
+    // the figurine's own portrait, when it is drawn
+    faceNow(id) || face(id).then((u) => { let im = page.querySelector(".art img"); u && im && (im.src = u); });
 
     // the line it belongs to, from the first form to the last
     let root = sp;
@@ -1371,76 +1397,89 @@ var UI = class {
     s.innerHTML = `<div class="grow"><b>מה שאתה לובש</b><span>
       ${o("נשק", "weapon")} · ${o("שריון", "armor")} · ${o("קמע", "trinket")}</span></div>`, e.appendChild(s);
   }
+  /**
+   * My creatures, as cards: the team first (the one at its head marked),
+   * then the box, then the ones in a pod at the farm. Each card is the
+   * creature's portrait on its colours, framed in its element, with its
+   * level, stars, health and what it is doing; tap it for its whole card.
+   * The lead and ride buttons sit on the card's corner.
+   */
   panelTeam(e) {
     let t = this.profile;
     if (!t) return;
-    let n = [...(t.team || []), ...(t.box || [])];
-    if (!n.length && !t.away?.length) {
+    let team = t.team || [], box = t.box || [], away = t.away || [];
+    if (!team.length && !box.length && !away.length) {
       e.appendChild(emptyState("🐾", "אין לך עדיין יצורים", "לכידה בקרב מוסיפה יצור לצוות"));
       return;
     }
-    e.appendChild(section("הצוות", `${n.length}`)), n.forEach((s, r) => {
-      let o = SPECIES[s.species],
-        a = r < (t.team?.length || 0),
-        l = el("div", "list-item tappable");
-      l.setAttribute("role", "button"), l.tabIndex = 0;
-      let c = o.types.map(f => `${ELEMENTS[f].icon} ${Ze(loc(ELEMENTS[f]))}`).join(" / ");
-      l.innerHTML = `
-        <div class="thumb" style="background:${oo(o.model.a)}"></div>
-        <div class="grow">
-          <b>${Ze(loc(o))} ${s.shiny ? "✨" : ""} <span class="pill">${lvlLabel(s.level)}</span> <span class="stars">${starLabel(s.star || 1)}</span></b>
-          <span>${c} · HP ${rangeLabel(s.hp, s.maxHp, "/")}</span>
-          <div class="bar hp" style="margin-top:4px"><i style="width:${s.hp / Math.max(1, s.maxHp) * 100}%"></i></div>
+    let sum = el("div", "roster-sum");
+    sum.innerHTML = `<span><b>${ltr(team.length)}</b>/6 בצוות</span>${box.length ? `<span><b>${ltr(box.length)}</b> בתיבה</span>` : ""}${away.length ? `<span><b>${ltr(away.length)}</b> בחווה</span>` : ""}<span class="hint-inline">מכל יצור — אחד</span>`;
+    e.appendChild(sum);
+    let card = (s, where, i) => {
+      let o = SPECIES[s.species];
+      if (!o) return null;
+      let types = o.types || [],
+        el0 = ELEMENTS[types[0]] || {},
+        lead = where === "team" && i === 0,
+        hp = Math.max(0, Math.min(100, s.hp / Math.max(1, s.maxHp) * 100)),
+        job = s.job && JOBS[s.job],
+        left = where === "away" ? (s.training?.readyAt || 0) - Date.now() : 0,
+        c = el("div", `ctile ${lead ? "lead" : ""} ${s.shiny ? "shiny" : ""} ${where} ${s.hp <= 0 ? "down" : ""}`);
+      c.setAttribute("role", "button"), c.tabIndex = 0;
+      c.style.setProperty("--elem", el0.ui || "#7d87ab"), c.style.setProperty("--ca", oo(o.model.a)), c.style.setProperty("--cb", oo(o.model.b));
+      c.setAttribute("aria-label", `${loc(o)}, ${lvlLabel(s.level).replace(/<[^>]+>/g, "")}`);
+      let tag = lead ? "<span class=\"tag lead\">👑 מוביל</span>"
+        : where === "away" ? `<span class="tag pod">🧪 ${left > 0 ? `<span data-countdown="${s.training.readyAt}">${formatClock(left)}</span>` : "מוכן!"}</span>`
+        : job ? `<span class="tag job">${job.icon} עובד</span>`
+        : this._riding?.uid === s.uid ? "<span class=\"tag ride\">🐎 רוכב</span>" : "";
+      c.innerHTML = `
+        <div class="art">
+          <img data-face="${Ze(s.species)}" alt="" />
+          <span class="lv mono">${lvlLabel(s.level)}</span>
+          <span class="els">${types.map((x) => ELEMENTS[x]?.icon || "").join("")}</span>
+          ${tag}
         </div>
-        ${a ? "<span class=\"pill good\">בצוות</span>" : s.job && JOBS[s.job] ? `<span class="pill">${JOBS[s.job].icon} עובד</span>` : ""}`;
-      let h = zoneMinimap(s.species);
-      h && (l.querySelector(".thumb").innerHTML = `<img src="${h}" alt="" />`);
-      let d = () => this.hooks.openCard?.(s.uid);
-      l.onclick = d, l.onkeydown = f => {
-        (f.key === "Enter" || f.key === " ") && (f.preventDefault(), d());
-      };
+        <div class="info">
+          <b class="nm">${Ze(s.nickname || loc(o))}${s.shiny ? " <span class=\"sh\">✨</span>" : ""}</b>
+          <span class="stars">${where === "away" ? `${starLabel(s.star || 1)} → ${ltr(`★${s.training?.star || 2}`)}` : starLabel(s.star || 1)}</span>
+          <div class="hp ${hp < 30 ? "low" : ""}"><i style="width:${hp}%"></i></div>
+          <span class="meta mono">${rangeLabel(Math.round(s.hp), s.maxHp, "/")} HP</span>
+        </div>`;
+      let open = () => this.hooks.openCard?.(s.uid);
+      c.onclick = open, c.onkeydown = (f) => { (f.key === "Enter" || f.key === " ") && (f.preventDefault(), open()); };
       // one that can carry you: a button to get on it (shared/riding.js) —
       // or, with no saddle yet, to the workbench that makes one
-      let mk = a && this.social !== void 0 && mountKind(s.species, s.star || 1);
+      let acts = el("div", "acts"),
+        mk = where === "team" && this.social !== void 0 && mountKind(s.species, s.star || 1);
       if (mk && !s.saddle) {
-        let sb = el("button", "btn small icon-only", "🪢");
-        sb.title = "צריך אוכף", sb.setAttribute("aria-label", "צריך אוכף — לחצר"), sb.onclick = f => {
+        let sb = el("button", "cact", "🪢");
+        sb.title = "צריך אוכף", sb.setAttribute("aria-label", "צריך אוכף — לחצר"), sb.onclick = (f) => {
           f.stopPropagation(), this.baseFocus = "saddles", this.hooks.openBase?.();
-        }, l.appendChild(sb);
+        }, acts.appendChild(sb);
       } else if (mk) {
-        let rb = el("button", `btn small icon-only ${this._riding?.uid === s.uid ? "primary" : ""}`, RIDE[mk].icon);
-        rb.title = RIDE[mk].he, rb.setAttribute("aria-label", RIDE[mk].he), rb.onclick = f => {
+        let rb = el("button", `cact ${this._riding?.uid === s.uid ? "on" : ""}`, RIDE[mk].icon);
+        rb.title = RIDE[mk].he, rb.setAttribute("aria-label", RIDE[mk].he), rb.onclick = (f) => {
           f.stopPropagation(), this.hooks.ride?.(this._riding?.uid === s.uid ? null : s.uid), this.closePanel();
-        }, l.appendChild(rb);
+        }, acts.appendChild(rb);
       }
-      let u = el("button", "btn small icon-only", "⬆");
-      u.title = "הצב בראש הצוות", u.setAttribute("aria-label", "הצב בראש הצוות"), u.disabled = r === 0, u.onclick = f => {
-        f.stopPropagation(), this.hooks.setLead?.(s.uid);
-      }, l.appendChild(u), e.appendChild(l);
-    });
-    // the ones at the farm, in a pod until their training is done
-    let away = t.away || [];
-    if (away.length) {
-      e.appendChild(section("בחווה — באימון", `${away.length}`));
-      for (let s of away) {
-        let o = SPECIES[s.species];
-        if (!o) continue;
-        let left = (s.training?.readyAt || 0) - Date.now(),
-          l = el("div", `list-item tappable ${left <= 0 ? "ready" : ""}`);
-        l.setAttribute("role", "button"), l.tabIndex = 0;
-        l.innerHTML = `
-          <div class="thumb" style="background:${oo(o.model.a)}"></div>
-          <div class="grow">
-            <b>${Ze(loc(o))} <span class="pill">${lvlLabel(s.level)}</span> <span class="stars">${starLabel(s.star || 1)}</span> → <span class="stars">${starLabel(s.training?.star || 2)}</span></b>
-            <span>${left <= 0 ? "מוכן! לך לחווה להוציא אותו" : "בתא אימון בחווה — "}${left > 0 ? `<span class="mono" dir="ltr" data-countdown="${s.training.readyAt}">${formatClock(left)}</span>` : ""}</span>
-          </div>
-          <span class="pill">🧪 בחווה</span>`;
-        let h = zoneMinimap(s.species);
-        h && (l.querySelector(".thumb").innerHTML = `<img src="${h}" alt="" />`);
-        l.onclick = () => this.hooks.openCard?.(s.uid), e.appendChild(l);
+      if (where === "team" && !lead) {
+        let u = el("button", "cact", "⬆");
+        u.title = "הצב בראש הצוות", u.setAttribute("aria-label", "הצב בראש הצוות"), u.onclick = (f) => {
+          f.stopPropagation(), this.hooks.setLead?.(s.uid);
+        }, acts.appendChild(u);
       }
-      this.startCountdowns();
-    }
+      acts.children.length && c.appendChild(acts);
+      return c;
+    };
+    let grid = (list, where) => {
+      let g = el("div", "ctile-grid");
+      list.forEach((s, i) => { let c = card(s, where, i); c && g.appendChild(c); });
+      return g;
+    };
+    team.length && (e.appendChild(section("הצוות", `${team.length}/6`)), e.appendChild(grid(team, "team")));
+    box.length && (e.appendChild(section("בתיבה", `${box.length}`)), e.appendChild(grid(box, "box")));
+    away.length && (e.appendChild(section("בחווה — באימון", `${away.length}`)), e.appendChild(grid(away, "away")), this.startCountdowns());
+    lazyFaces(e);
   }
   panelBase(e) {
     let t = this.base;
@@ -1647,10 +1686,10 @@ var UI = class {
       },
       r = el("div", "creature-card");
     r.style.setProperty("--elem", oo(s.color));
-    let o = zoneMinimap(t.species);
+    let o = faceNow(t.species);
     r.innerHTML = `
-      <div class="art" style="background:linear-gradient(150deg, ${oo(n.model.a)}, ${oo(n.model.b)})">
-        ${o ? `<img src="${o}" alt="" />` : ""}
+      <div class="art" style="background:radial-gradient(120% 90% at 50% 30%, ${oo(n.model.a)}, ${oo(n.model.b)})">
+        ${o ? `<img src="${o}" class="in" alt="" />` : `<img data-face="${Ze(t.species)}" alt="" />`}
         <span class="badge">${s.icon} ${Ze(loc(s))}</span>
         <span class="lvl">${lvlLabel(t.level)}</span>
       </div>
@@ -1682,7 +1721,7 @@ var UI = class {
       abl && (tr.innerHTML += `<div class="trait ${abl.rare ? "rare" : ""}"><span class="k">יכולת${abl.rare ? " · נדירה" : ""}</span><b>${abl.icon} ${Ze(abl.he)}</b><small>${Ze(abl.text)}</small></div>`);
       r.appendChild(tr);
     }
-    if (e.appendChild(r), this.movePicker(e, t), t.training) {
+    if (e.appendChild(r), lazyFaces(r), this.movePicker(e, t), t.training) {
       let x = el("div", "list-item");
       x.innerHTML = `<div class="grow"><b>🧪 בתא אימון בחווה → <span class="stars">${starLabel(t.training.star)}</span></b>
         <span class="mono" dir="ltr" data-countdown="${t.training.readyAt}">${formatClock(t.training.readyAt - Date.now())}</span></div>`, e.appendChild(x), this.startCountdowns();
