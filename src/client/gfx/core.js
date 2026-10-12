@@ -1,3 +1,4 @@
+import { withSurfaces } from './surfaces.js';
 import { ACESFilmicToneMapping, AdditiveBlending, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, CapsuleGeometry, Color, CylinderGeometry, DataTexture, DirectionalLight, DoubleSide, Euler, Float32BufferAttribute, FrontSide, Group, HemisphereLight, LinearToneMapping, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, MeshToonMaterial, NearestFilter, PCFShadowMap, PCFSoftShadowMap, PMREMGenerator, PlaneGeometry, Quaternion, RedFormat, SRGBColorSpace, Scene, ShaderMaterial, SphereGeometry, UnsignedByteType, Vector3, WebGLRenderer } from 'three';
 
 function Jv(i) {
@@ -261,7 +262,10 @@ function makeLights(i, {
 }) {
   // Cel shading needs a generous fill and a softer key: with the PBR balance
   // the quantised ramp turns every shadowed face into one flat dark band.
-  let o = QUALITY.tier === "high" ? 1024 : 512,
+  // The sun's shadow follows the player across ±26m: at 512 a texel was ten
+  // centimetres, and a fence post's shadow came out a row of steps. Twice
+  // that on a mid phone, four times on a strong one.
+  let o = QUALITY.tier === "high" ? 2048 : 1024,
     a = new HemisphereLight(n, s, STYLE.toon ? 1.45 : 0.92);
   i.add(a);
   let l = new DirectionalLight(t, STYLE.toon ? 1.75 : 2.45);
@@ -347,6 +351,8 @@ function mat(i, e = {}) {
       toon.emissive = new Color(styleColor(i));
       toon.emissiveIntensity = Math.min(0.3, ((e.env ?? 0.85) - 1) * 0.5);
     }
+    // what it is made of, if asked (surfaces.js): bark, rock, plaster…
+    e.surface != null && withSurfaces(toon, e.surface);
     return toon.userData.shared = !0, MAT_CACHE.set(t, toon), toon;
   }
   let n = new MeshStandardMaterial({

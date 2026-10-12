@@ -2602,5 +2602,26 @@ section('from the phone');
   ok('a finished errand says to go back to who gave it', back.canGuide && back.zone === QG.giverSpot(npcDone.giver)?.zone, back.steps.join(' / '));
 }
 
+{
+  // what things are made of (client/gfx/surfaces.js) and the planned zones' kit
+  section('surfaces');
+  const S = await import('../src/client/gfx/surfaces.js');
+  const K = await import('../src/client/gfx/zonekit.js');
+  const of = (h) => Object.keys(S.SURF).find((k) => S.SURF[k] === S.surfaceOf(h));
+  ok('brown is wood, grey is stone, straw is thatch', of(0x9A6A44) === 'wood' && of(0x6E4A30) === 'wood' && of(0x8E8578) === 'stone' && of(0xD9B464) === 'thatch', [0x9A6A44, 0x6E4A30, 0x8E8578, 0xD9B464].map(of).join());
+  ok('a cool white is snow and a warm one plaster', of(0xF4F8FF) === 'snow' && of(0xF2ECE0) === 'plaster');
+  ok('a painted red stays paint', of(0xB84A3A) === 'plain');
+  const k = new K.Kit({ x: 10, y: 0, z: 0, rot: Math.PI / 2 });
+  k.box(3, 0.2, 0.2, {}, 0x9A6A44);
+  k.gable(4, 5, 3, 5, {}, 0xB84A3A);
+  k.rock(1, {}, 0x8E8578);
+  const geo = k.geometry(), t = geo.attributes.tangent;
+  ok('every part carries its surface through the merge', !!t && t.count === geo.attributes.position.count);
+  const ids = new Set(); for (let i = 0; i < t.count; i++) ids.add(Math.round(t.getW(i)));
+  ok('a plank, a roof and a rock are each their own', ids.has(S.SURF.wood) && ids.has(S.SURF.roof) && ids.has(S.SURF.rock), [...ids].join());
+  // the plank runs along x in its kit, and the kit is turned a quarter: its grain is along world z now
+  ok('the grain turns with the part', Math.abs(Math.abs(t.getZ(0)) - 1) < 1e-3 && Math.abs(t.getX(0)) < 1e-3, `${t.getX(0).toFixed(2)},${t.getZ(0).toFixed(2)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

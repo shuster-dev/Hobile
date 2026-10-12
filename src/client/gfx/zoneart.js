@@ -11,6 +11,14 @@ import { softShadowTexture } from './core.js';
 import { BUILDERS } from './zonebuild.js';
 import { Kit, chunkMeshes, glowVC, toonVC } from './zonekit.js';
 
+// Houses against a 1.43m trainer. The plans give a storey's height in the
+// world's old scale — four metres of wall, seven to the ridge, five trainers
+// tall — so a cottage loomed like a warehouse. Drawn here at a little over
+// twice the trainer to the eaves (a door still clears them by a head), and
+// a barn somewhat taller. Only how high they are drawn: the footprint the
+// plan walks into is unchanged.
+const STOREY = { dwelling: 0.72, stonehouse: 0.72, forge: 0.75, cabin: 0.74, stilthouse: 0.78, barn: 0.8 };
+
 export function buildPlanArt(P, pal = {}) {
   const group = new Group();
   group.name = 'plan-art';
@@ -35,7 +43,7 @@ export function buildPlanArt(P, pal = {}) {
       smoke(x, y, z, kind = 'chimney') { smokes.push({ ...toWorld(x, y, z), kind }); },
       beacon(x, y, z) { beacons.push(toWorld(x, y, z)); },
     };
-    B(k, g, s, o);
+    B(k, g, STOREY[s.kind] && s.h ? { ...s, h: Math.max(2.7, s.h * STOREY[s.kind]) } : s, o);
     for (const [kit, list] of [[k, solid], [g, nightGlow], [lit, litGlow]]) { const geo = kit.geometry(); geo && list.push(geo); }
   }
   for (const [kit, list] of [[world, solid], [worldGlow, nightGlow], [worldLit, litGlow]]) { const geo = kit.geometry(); geo && list.push(geo); }

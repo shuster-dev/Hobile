@@ -15,7 +15,7 @@ import path from 'node:path';
 
 const outDir = process.argv[2] || 'shots/tour';
 const only = process.argv[3] ? process.argv[3].split(',') : null;
-const PORT = 2661;
+const PORT = Number(process.env.PORT || 2661);
 const W = 430, H = 880;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const [camD, camH] = (process.env.CAM || '14,10').split(',').map(Number);
@@ -31,15 +31,20 @@ await new Promise((r) => server.listen(PORT, r));
 const CHROME = ['/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell',
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => fs.existsSync(p));
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox'] });
-const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1.5 });
+const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: Number(process.env.DSF || 1.5) });
+// software GL draws a tier above low slowly: give every step time
+page.setDefaultTimeout(Number(process.env.STEP_MS || 30000));
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 fs.mkdirSync(outDir, { recursive: true });
 
-await page.goto(`http://127.0.0.1:${PORT}/solo.html${process.env.TIER ? '?tier=' + process.env.TIER : ''}`, { waitUntil: 'load' });
-await page.click('#btn-play', { timeout: 30000 });
-await page.waitForSelector('#btn-next', { timeout: 25000 }); await page.click('#btn-next');
+await page.goto(`http://127.0.0.1:${PORT}/${process.env.PAGE || 'solo.html'}${process.env.TIER ? '?tier=' + process.env.TIER : ''}`, { waitUntil: 'load' });
+await page.click('#btn-play');
+await page.waitForSelector('#btn-next', { timeout: 25000 });
+// the kind of adventurer first, where the build asks for one
+await page.click('#pick-kind .cc-kind', { timeout: 3000 }).catch(() => {});
+await page.click('#btn-next');
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter'); await page.fill('#in-charname', 'סייר'); await page.click('#btn-create');
 await page.waitForFunction(() => window.__hobile?.mode === 'world' && window.__hobile.profile, null, { timeout: 30000 });
@@ -96,7 +101,15 @@ for (const id of ids) {
     }, { v, camD, camH });
     await wait(v.aerial ? 2600 : 1800);
     const f = path.join(outDir, `${id}-${v.name}.png`);
+    // CLEAN=1: the world alone — no panel, no buttons over it
+    process.env.CLEAN && await page.evaluate(() => {
+      const g = window.__hobile, cv = g.world.canvas;
+      g.ui.closePanel?.(), document.querySelectorAll('.dialogue').forEach((d) => d.remove());
+      document.querySelectorAll('body *').forEach((e) => { e.style.visibility = e === cv || e.contains(cv) ? '' : 'hidden'; });
+      cv.style.visibility = 'visible';
+    });
     await page.screenshot({ path: f });
+    process.env.CLEAN && await page.evaluate(() => document.querySelectorAll('body *').forEach((e) => { e.style.visibility = ''; }));
     console.log(' ', f);
   }
   await page.evaluate(() => { const w = window.__hobile.world, k = w._tourSaved; if (k) { w.camDist = k.d; w.camHeight = k.h; w.updateCamera = k.upd; } });

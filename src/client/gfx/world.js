@@ -1,4 +1,6 @@
 import { Box3, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
+import { GROUNDING, bakeGroundY, contactMap, groundMaterial, noContact, snowBanks } from './grounding.js';
+import { SURF, surfaceOf, tagSurface, withSurfaces } from './surfaces.js';
 import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, watchSize, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
@@ -23,7 +25,7 @@ import { BLOCK, CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, PLAZA, SIDEWALK, STREET
 
 var PartBuilder = class {
   constructor() {
-    this.parts = [], this.pos = [], this.nor = [], this.col = [], this._c = new Color();
+    this.parts = [], this.pos = [], this.nor = [], this.col = [], this.tan = [], this._c = new Color();
   }
   get empty() {
     return !this.parts.length && !this.pos.length;
@@ -36,7 +38,9 @@ var PartBuilder = class {
       o = new Float32Array(r * 3),
       a = this._c.set(t);
     for (let l = 0; l < r; l++) o[l * 3] = a.r, o[l * 3 + 1] = a.g, o[l * 3 + 2] = a.b;
-    return s.setAttribute("color", new BufferAttribute(o, 3)), this.parts.push(s), this;
+    // what it is made of (surfaces.js), from its colour; the grain along its
+    // longest side as placed
+    return s.setAttribute("color", new BufferAttribute(o, 3)), tagSurface(s, typeof t == "number" ? surfaceOf(t) : SURF.plain), this.parts.push(s), this;
   }
   box(e, t, n, s, r) {
     return this.add(xf2(new BoxGeometry(e, t, n), s), r);
@@ -53,8 +57,10 @@ var PartBuilder = class {
       p = c * a - h * o,
       x = Math.hypot(u, f, p) || 1;
     u /= x, f /= x, p /= x;
-    let g = this._c.set(r);
-    for (let m of [e, s, n, e, n, t]) this.pos.push(m[0], m[1], m[2]), this.nor.push(u, f, p), this.col.push(g.r, g.g, g.b);
+    let g = this._c.set(r),
+      sf = typeof r == "number" ? surfaceOf(r) : SURF.plain,
+      gl = Math.hypot(o, a, l) || 1;
+    for (let m of [e, s, n, e, n, t]) this.pos.push(m[0], m[1], m[2]), this.nor.push(u, f, p), this.col.push(g.r, g.g, g.b), this.tan.push(o / gl, a / gl, l / gl, sf);
     return this;
   }
   put(e, t) {
@@ -68,7 +74,7 @@ var PartBuilder = class {
     let s = [...this.parts];
     if (this.pos.length) {
       let a = new BufferGeometry();
-      a.setAttribute("position", new Float32BufferAttribute(this.pos, 3)), a.setAttribute("normal", new Float32BufferAttribute(this.nor, 3)), a.setAttribute("color", new Float32BufferAttribute(this.col, 3)), s.push(a);
+      a.setAttribute("position", new Float32BufferAttribute(this.pos, 3)), a.setAttribute("normal", new Float32BufferAttribute(this.nor, 3)), a.setAttribute("color", new Float32BufferAttribute(this.col, 3)), a.setAttribute("tangent", new Float32BufferAttribute(this.tan, 4)), s.push(a);
     }
     if (!s.length) return null;
     let r = s.length === 1 ? s[0] : mergeGeometries(s, !1);
@@ -1462,10 +1468,10 @@ function buildCityGround(i, e, t, n) {
     y: n(PLAZA.x, PLAZA.z) + 0.05,
     r: PLAZA.r * 1.1
   });
-  let f = vertexColorMat({
+  let f = withSurfaces(vertexColorMat({
       roughness: 0.9,
       env: 0.55
-    }),
+    })),
     p = o.mesh(vertexColorMat({
       roughness: 0.97,
       env: 0.35
@@ -3562,7 +3568,41 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           pal: n,
           plaza: e.landmarks.find(s => s.kind === "plaza")
         }
-      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs(), this.buildTownStructures(n), this.buildIncubators()) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n));
+      })), this.zoneGroup.add(this.city.group), this.buildUrbanLandmarks(n), this.buildNpcs(), this.buildTownStructures(n), this.buildIncubators()) : (this.buildBuildings(n), this.buildLandmarks(n), this.plan && this.buildPlan(n)), this.groundZone();
+    }
+    /**
+     * Sit everything on the ground (grounding.js): the contact map under it,
+     * drawn on the terrain, and the foot shading on every world material. Run
+     * once the zone's meshes are all built.
+     */
+    groundZone() {
+      // the planned zones' buildings stop a walker through the plan, not the
+      // colliders: their footprints are in the plan's structures (turned as
+      // a mesh is, the other way from a collider: worldplan.js gives -rot)
+      let size = this.zone?.size || 200,
+        built = [...(this.plan?.structures || []), ...(this.urban ? this.props?.structures || [] : [])].filter(s => s.w > 0 && s.d > 0 && !s.len).map(s => ({ x: s.x, z: s.z, hw: s.w / 2, hd: s.d / 2, rot: -(s.rot || 0) })),
+        map = contactMap(this.props?.colliders || [], size, built);
+      this._contact && this._contact !== map && this._contact.dispose?.(), this._contact = map;
+      for (let u of this.groundU) u?.uContact && (u.uContact.value = map, u.uZoneHalf.value = size / 2);
+      // in the snow, drifts banked against everything standing in it
+      if (this.zone?.element === "frost" && !this.urban) {
+        let cols = this.props?.colliders || [],
+          boxes = [...built, ...cols.filter(c => Number.isFinite(c.hw) && !Number.isFinite(c.r))],
+          banks = snowBanks(cols, boxes, (x, z) => this.heightAt(x, z), withVertexColors(mat(0xFFFFFF, { surface: SURF.snow })), size / 2 - 6, this.palette?.ground ?? 0xC8D8EE);
+        banks && this.zoneGroup.add(banks);
+      }
+      let skip = new Set(this.windMaterials), h = (x, z) => this.heightAt(x, z);
+      this.zoneGroup.updateMatrixWorld(!0);
+      this.zoneGroup.traverse(o => {
+        if (!o.isMesh || o.isSkinnedMesh || o.userData.noGround) return;
+        let ms = Array.isArray(o.material) ? o.material : [o.material];
+        if (ms.some(m => !m || skip.has(m) || m.userData.isGround)) return;
+        // merged geometry is laid out in the world already: its mesh sits at
+        // the origin, so the ground under each vertex has to be written down
+        let e = o.matrixWorld.elements;
+        !o.isInstancedMesh && Math.abs(e[12]) + Math.abs(e[13]) + Math.abs(e[14]) < 1e-3 && Math.abs(e[0] - 1) + Math.abs(e[5] - 1) + Math.abs(e[10] - 1) < 1e-3 && bakeGroundY(o, h);
+        ms.forEach(groundMaterial);
+      });
     }
     /** The town's farm and garden, built like the field zones' (zoneart.js). */
     /** Your farm's training pods (incubator.js): drawn from your own base,
@@ -3827,6 +3867,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             y: 1.33
           })]) || new CylinderGeometry(1, 1.1, 1.4, 8),
           y = new InstancedMesh(T, mat(e.rock, {
+            surface: SURF.rock,
             roughness: 1,
             flat: !0,
             env: 0.3
@@ -3838,6 +3879,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         let T = new DodecahedronGeometry(1, 0);
         offsetGeometry(T, 0.34);
         let y = new InstancedMesh(T, mat(e.rock, {
+          surface: SURF.rock,
           roughness: 1,
           flat: !0,
           env: 0.3
@@ -3939,6 +3981,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
             rz: -0.5
           })].map(u => u.toNonIndexed()), !1),
           h = new InstancedMesh(l, mat(e.bark, {
+            surface: SURF.bark,
             roughness: 0.95
           }), t.length),
           d = new InstancedMesh(shadeFoliage(c), withVertexColors(mat(e.leaf, {
@@ -4088,6 +4131,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       c.translate(0, 1.3, 0);
       let h = shadeFoliage(P(e.flora)),
         d = mat(e.bark, {
+          surface: SURF.bark,
           roughness: 0.92
         }),
         u = withVertexColors(mat(e.leaf, {
@@ -4108,6 +4152,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           return offsetGeometry(A, 0.16), A;
         })(),
         m = withVertexColors(mat(e.rock, {
+          surface: SURF.rock,
           roughness: 0.9,
           flat: !0
         })),
@@ -4483,18 +4528,23 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     buildBuildings(e) {
       let t = [],
         n = mat(e.wall, {
+          surface: surfaceOf(e.wall),
           roughness: 0.88
         }),
         s = mat(mixHex(e.wall, 2760984, 0.3), {
+          surface: surfaceOf(e.wall),
           roughness: 0.9
         }),
         r = mat(e.roof, {
+          surface: SURF.roof,
           roughness: 0.78
         }),
         o = mat(mixHex(e.roof, 1774096, 0.34), {
+          surface: SURF.roof,
           roughness: 0.85
         }),
         a = mat(e.bark, {
+          surface: SURF.wood,
           roughness: 0.85
         }),
         l = mat(16770728, {
@@ -4503,9 +4553,11 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           roughness: 0.3
         }),
         c = mat(mixHex(e.wall, 9080726, 0.55), {
+          surface: SURF.stone,
           roughness: 0.96
         }),
         h = mat(mixHex(e.bark, 1182728, 0.35), {
+          surface: SURF.wood,
           roughness: 0.8
         });
       for (let u of this.props.buildings) {
@@ -6355,6 +6407,9 @@ function shadeRock(g, base, cap) {
 /** A private copy of a shared (cached) material that draws vertex colours. */
 function withVertexColors(m) {
   let c = m.clone();
+  // a clone keeps the shader edits it was given (surfaces, grounding)
+  Object.prototype.hasOwnProperty.call(m, "onBeforeCompile") && (c.onBeforeCompile = m.onBeforeCompile);
+  Object.prototype.hasOwnProperty.call(m, "customProgramCacheKey") && (c.customProgramCacheKey = m.customProgramCacheKey);
   return c.vertexColors = !0, c.userData = { ...c.userData, shared: !1 }, c;
 }
 
@@ -6528,6 +6583,13 @@ var GROUND_WILD = `
       c *= 1.0 - 0.28 * (1.0 - smoothstep(0.0, 1.6, dyw));
       c = mix(c, vec3(0.93, 0.97, 1.0), foam * 0.75);
     #endif
+    #if GROUND_ACCENT != 2
+      // the lie of the land: gentle swells catch the light and the dips
+      // between them fall into shade, so open ground is not one flat colour
+      vec2 rO = vec2(0.9, 0.0), rP = vec2(0.0, 0.9);
+      float rA = gN(w * 0.2), rB = gN((w + rO) * 0.2), rC = gN((w + rP) * 0.2);
+      c *= 0.94 + 0.11 * clamp(0.5 + dot(vec2(rB - rA, rC - rA) / 0.9, vec2(0.55, 0.83)) * 3.0, 0.0, 1.0);
+    #endif
     vec2 cell = floor(w * 0.9);
     float h1 = gH(cell), h2 = gH(cell + 19.1), h3 = gH(cell + 7.7), h4 = gH(cell + 3.3);
     vec2 ctr = (cell + 0.25 + vec2(h1, h2) * 0.5) / 0.9;
@@ -6543,6 +6605,17 @@ var GROUND_WILD = `
       gGlow += uGlow * line * (0.28 + 1.9 * uNight) * (0.8 + 0.2 * sin(uGTime * 1.7 + w.x * 0.6 + w.y * 0.4));
       gGlow += uS2 * sp * step(0.5, h2) * (0.3 + 0.9 * uNight);
     #elif GROUND_ACCENT == 2
+      // Snow with a body to it: drifts that face the light and the lee sides
+      // gone blue, and the wind's ripples across them — not a flat sheet.
+      vec2 dO = vec2(0.7, 0.0), dP = vec2(0.0, 0.7);
+      float sA = gN(w * 0.16) * 0.6 + gN(w * 0.5 + 3.0) * 0.4;
+      float sB = gN((w + dO) * 0.16) * 0.6 + gN((w + dO) * 0.5 + 3.0) * 0.4;
+      float sC = gN((w + dP) * 0.16) * 0.6 + gN((w + dP) * 0.5 + 3.0) * 0.4;
+      float sLit = clamp(0.5 + dot(vec2(sB - sA, sC - sA) / 0.7, vec2(0.55, 0.83)) * 2.6, 0.0, 1.0);
+      c *= 0.9 + 0.18 * sLit;
+      c = mix(c, c * vec3(0.8, 0.88, 1.07), (1.0 - sLit) * 0.5);
+      float sRip = sin(dot(w, vec2(0.74, 0.67)) * 4.6 + gN(w * 0.35) * 8.0);
+      c *= 1.0 + sRip * 0.04 * near * (1.0 - onT);
       // snow that catches the sun in points as you walk
       vec2 gc = floor(w * 2.6);
       float gh = gH(gc + 41.0);
@@ -6784,7 +6857,11 @@ function groundDetail(m, kind, o = {}) {
       uTrailSize: { value: trail?.size ?? 1 },
       uWaterY: { value: water ?? -99 },
       uNight: { value: 0 },
-      uGTime: { value: 0 }
+      uGTime: { value: 0 },
+      // under everything that stands on it (grounding.js contactMap)
+      uContact: { value: noContact() },
+      uZoneHalf: { value: 1e4 },
+      uContactAmt: { value: GROUNDING.contact }
     };
   trail && (u.uTrail = { value: trail.texture });
   if (city) {
@@ -6795,7 +6872,7 @@ function groundDetail(m, kind, o = {}) {
   let flags = (city ? "#define GROUND_CITY 1\n" : "") + (trail ? "#define GROUND_TRAIL 1\n" : "") + (water != null ? "#define GROUND_WATER 1\n" : ""),
     key = `ground|${g.accent | 0}|${city ? 1 : 0}|${trail ? 1 : 0}|${water != null ? 1 : 0}`,
     body = city ? GROUND_CITY : GROUND_WILD;
-  return m.onBeforeCompile = s => {
+  return m.userData.isGround = !0, m.onBeforeCompile = s => {
     Object.assign(s.uniforms, u);
     s.vertexShader = s.vertexShader.replace("#include <common>", `#include <common>
       varying vec3 vGW, vGN;`).replace("#include <begin_vertex>", `#include <begin_vertex>
@@ -6803,6 +6880,8 @@ function groundDetail(m, kind, o = {}) {
       vGN = normalize(mat3(modelMatrix) * objectNormal);`);
     s.fragmentShader = `#define GROUND_ACCENT ${g.accent | 0}
 ${flags}` + s.fragmentShader.replace("#include <common>", `#include <common>
+      uniform sampler2D uContact;
+      uniform float uZoneHalf, uContactAmt;
       ${GROUND_GLSL}`).replace("#include <color_fragment>", `#include <color_fragment>
       vec3 gGlow = vec3(0.0);
       {
@@ -6810,6 +6889,9 @@ ${flags}` + s.fragmentShader.replace("#include <common>", `#include <common>
         float near = 1.0 - smoothstep(16.0, 44.0, length(vGW - cameraPosition));
         vec3 c = diffuseColor.rgb;
         ${body}
+        // the dark pool where a wall, a trunk or a stone meets the ground
+        float gCt = texture(uContact, vGW.xz / (2.0 * uZoneHalf) + 0.5).r;
+        c *= mix(1.0, gCt, uContactAmt);
         diffuseColor.rgb = c;
       }`).replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
       totalEmissiveRadiance += gGlow;`);

@@ -10,6 +10,7 @@ import {
   UniformsLib, UniformsUtils, Vector3,
 } from 'three';
 import { STYLE, displayFrag, mergeGeometries, styleColor, toonGradient, xf2 } from './core.js';
+import { SURF, surfaceOf, tagSurface, withSurfaces } from './surfaces.js';
 
 const TMP = new Color();
 
@@ -24,10 +25,13 @@ export class Kit {
     this.parts = [];
   }
   /** Any three geometry, transformed ({x,y,z,rx,ry,rz,sx,sy,sz}) and coloured. */
-  add(geo, o, color) {
-    let g = xf2(geo, o || {});
-    g = g.index ? g.toNonIndexed() : g;
+  add(geo, o, color, surf = null, grain = null) {
+    let g = geo.index ? geo.toNonIndexed() : geo.clone();
     for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    // what it is made of, and which way its grain runs, before it is turned
+    // (surfaces.js): from its colour, unless the builder said
+    tagSurface(g, surf ?? surfaceOf(color), grain);
+    g = xf2(g, o || {});
     if (!g.attributes.normal) g.computeVertexNormals();
     const n = g.attributes.position.count, c = new Float32Array(n * 3);
     TMP.set(STYLE.toon ? styleColor(color) : color);
@@ -36,23 +40,25 @@ export class Kit {
     this.parts.push(g);
     return this;
   }
-  box(w, h, d, o, color) { return this.add(new BoxGeometry(w, h, d), o, color); }
+  box(w, h, d, o, color, surf = null, grain = null) { return this.add(new BoxGeometry(w, h, d), o, color, surf, grain); }
   /** A post, a tower, a trunk: rTop and rBottom, `seg` sides. */
   cyl(rt, rb, h, o, color, seg = 8) { return this.add(new CylinderGeometry(rt, rb, h, seg, 1), o, color); }
   cone(r, h, o, color, seg = 8) { return this.add(new ConeGeometry(r, h, seg, 1), o, color); }
   ball(r, o, color, seg = 8) { return this.add(new SphereGeometry(r, seg, Math.max(4, seg >> 1)), o, color); }
-  rock(r, o, color) { return this.add(new DodecahedronGeometry(r, 0), o, color); }
+  rock(r, o, color) { return this.add(new DodecahedronGeometry(r, 0), o, color, surfaceOf(color) === SURF.snow ? SURF.snow : SURF.rock); }
   ring(R, r, o, color, seg = 16) { return this.add(new TorusGeometry(R, r, 5, seg), o, color); }
   /** A gabled roof over w × d, ridge along z, eaves at y0, ridge at y1. */
   gable(w, d, y0, y1, o, color, thick = 0.18) {
     const half = w / 2 + 0.35, rise = y1 - y0, len = Math.hypot(half, rise), ang = Math.atan2(rise, half);
     for (const s of [1, -1]) {
-      this.box(len, thick, d + 0.5, { ...o, x: (o?.x ?? 0) + s * half / 2, y: (o?.y ?? 0) + y0 + rise / 2, rz: -s * ang }, color);
+      // tiles in rows across the slope (or straw down it), whatever the colour
+      const sf = surfaceOf(color);
+      this.box(len, thick, d + 0.5, { ...o, x: (o?.x ?? 0) + s * half / 2, y: (o?.y ?? 0) + y0 + rise / 2, rz: -s * ang }, color, sf === SURF.thatch || sf === SURF.snow ? sf : SURF.roof, 'x');
     }
     return this;
   }
   /** The triangle of wall under a gable, at both ends. */
-  gableEnds(w, d, y0, y1, o, color) {
+  gableEnds(w, d, y0, y1, o, color, surf = null) {
     const tri = new BufferGeometry();
     const hw = w / 2, rise = y1 - y0;
     const v = [-hw, 0, 0, hw, 0, 0, 0, rise, 0];
@@ -60,7 +66,7 @@ export class Kit {
     tri.computeVertexNormals();
     for (const s of [1, -1]) {
       const g = tri.clone();
-      this.add(g, { ...o, y: (o?.y ?? 0) + y0, z: (o?.z ?? 0) + s * d / 2, ry: s > 0 ? 0 : Math.PI }, color);
+      this.add(g, { ...o, y: (o?.y ?? 0) + y0, z: (o?.z ?? 0) + s * d / 2, ry: s > 0 ? 0 : Math.PI }, color, surf, 'y');
     }
     return this;
   }
@@ -79,7 +85,7 @@ const TOON = new Map();
 export function toonVC({ side = FrontSide, emissive = 0 } = {}) {
   const key = `${side}|${emissive}`;
   if (!TOON.has(key)) {
-    TOON.set(key, new MeshToonMaterial({ vertexColors: true, gradientMap: toonGradient(STYLE.bands), side, emissive }));
+    TOON.set(key, withSurfaces(new MeshToonMaterial({ vertexColors: true, gradientMap: toonGradient(STYLE.bands), side, emissive })));
     TOON.get(key).userData.shared = true;
   }
   return TOON.get(key);
