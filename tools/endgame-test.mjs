@@ -51,7 +51,7 @@ const P = {};
 for (const u of NAMES) {
   const r = await api('/api/register', { username: u, password: 'hunter22' });
   const name = u[0].toUpperCase() + u.slice(1);
-  await api('/api/character', { name, starter: 'cindcub' }, r.json.token);
+  await api('/api/character', { name, starter: 'sproutle' }, r.json.token);
   const me = await api('/api/me', null, r.json.token);
   P[u] = { name, token: r.json.token, id: me.json.profile?.id, client: new Client(`ws://127.0.0.1:${PORT}`), inbox: [], room: null };
 }
@@ -91,7 +91,9 @@ const me = async (u) => (await api('/api/me', null, P[u].token)).json.profile;
 for (const u of NAMES) await enterWorld(u);
 await wait(400);
 
-// strong enough to finish a dungeon: a level-40 creature at the head of each team
+// strong enough to finish a dungeon: a level-40 creature at the head of each team (of
+// another line than the starter, sproutle — one of each: a gift of the starter's
+// own line would raise the starter instead of joining)
 for (const u of ['alice', 'bob']) {
   P.alice.room.send('gm', { op: 'give', to: u === 'alice' ? 'me' : P.bob.id, what: 'creature', species: 'pyrelynx', level: 40 });
 }

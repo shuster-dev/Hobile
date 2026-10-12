@@ -14,7 +14,7 @@
 // zone, the log, a broadcast to the whole server. The single-player build has
 // no ctx.gm and no GMs.
 import { ITEMS, PROGRESSION, SPECIES, ZONES } from '../../shared/gamedata.js';
-import { activeCreature, addCreature, creatureCard, dexRecord, giveItem, healTeam, isWorker, makeCreature, publicProfile, takeItem, unassignWorker } from './combat.js';
+import { activeCreature, addCreature, creatureCard, dexRecord, familyOwned, giveItem, grantXpTo, healTeam, isWorker, makeCreature, publicProfile, takeItem, unassignWorker } from './combat.js';
 import { hpRatio } from './player.js';
 import { earn, economyReport, spend } from './economy.js';
 import { setSaddle } from './saddles.js';
@@ -102,6 +102,8 @@ export function removeCreature(doc, uid, target = null) {
 function restoreCreature(doc, c) {
   if (!c?.uid || !SPECIES[c.species]) return { error: 'no_creature' };
   if (doc.creatures?.[c.uid]) return { error: 'already_there' };
+  // one of each: not when they have one of its line again since
+  if (familyOwned(doc, c.species)) return { error: 'have_one' };
   addCreature(doc, JSON.parse(JSON.stringify(c)));
   return { where: doc.team.includes(c.uid) ? 'team' : 'box' };
 }
@@ -142,6 +144,12 @@ function takeFrom(target, t) {
 function undoRow(target, row) {
   const doc = target.doc, d = row.detail || {};
   if (row.op === 'give') {
+    if (d.what === 'creature' && d.merged) {
+      // the one they had, put back as it was before the gift
+      if (!doc.creatures?.[d.uid] || !d.before) return { error: 'no_creature' };
+      doc.creatures[d.uid] = JSON.parse(JSON.stringify(d.before));
+      return { detail: { what: 'creature', species: d.before.species, level: d.before.level, reverted: true } };
+    }
     if (d.what === 'creature') {
       const r = removeCreature(doc, d.uid, target);
       return r.error ? r : { detail: { what: 'creature', species: d.species, level: d.level, removed: true } };
@@ -222,11 +230,22 @@ export function handleGm(ctx, t = {}) {
       if (what === 'creature') {
         if (!own(SPECIES, t.species)) return fail('bad_species');
         const level = int(t.level, 1, PROGRESSION.maxLevel, 5);
-        const c = makeCreature(t.species, level, { shiny: !!t.shiny });
-        addCreature(doc, c);
-        dexRecord(doc, c.species, c);
-        detail = { what, species: c.species, level, shiny: c.shiny, uid: c.uid, where: doc.team.includes(c.uid) ? 'team' : 'box' };
-        gift = { what, species: c.species, level, shiny: c.shiny, card: creatureCard(doc, c.uid) };
+        const had = familyOwned(doc, t.species);
+        if (had) {
+          // one of each: the one they have is brought up to it instead (and
+          // the undo puts it back as it was)
+          const before = JSON.parse(JSON.stringify(had));
+          level > had.level && grantXpTo(had, PROGRESSION.xpToLevel(level) - (had.xp || 0), doc);
+          t.shiny && (had.shiny = true);
+          detail = { what, species: had.species, level: had.level, shiny: !!had.shiny, uid: had.uid, merged: true, before };
+          gift = { what, species: had.species, level: had.level, shiny: !!had.shiny, merged: true, card: creatureCard(doc, had.uid) };
+        } else {
+          const c = makeCreature(t.species, level, { shiny: !!t.shiny });
+          addCreature(doc, c);
+          dexRecord(doc, c.species, c);
+          detail = { what, species: c.species, level, shiny: c.shiny, uid: c.uid, where: doc.team.includes(c.uid) ? 'team' : 'box' };
+          gift = { what, species: c.species, level, shiny: c.shiny, card: creatureCard(doc, c.uid) };
+        }
       } else if (what === 'gold') {
         const amount = int(t.amount, 0, GM_LIMITS.gold, 0);   // nothing, or less: refused
         if (!amount) return fail('bad_amount');

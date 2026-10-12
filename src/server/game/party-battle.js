@@ -16,7 +16,7 @@
 import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
-  duplicateReward, settleHp, fieldCreature, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
+  takeIn, settleHp, fieldCreature, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
   statsOf, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
 } from './combat.js';
 import { DROPS, ITEMS, SPECIES, WILD_TIERS, ZONES, skillsFor, statsFor } from '../../shared/gamedata.js';
@@ -312,10 +312,13 @@ export class PartyBattle {
       }
       if (mine) {
         const c = makeCreature(part.capture.species, part.capture.level, part.capture.traits);
-        addCreature(t, c); t.stats.captures += 1; o.captured = c; o.mat = huntMaterial(t, c.species);
-        const dex = dexRecord(t, c.species, c);
-        o.newSpecies = dex.isNew; o.dexCount = dex.caught; o.card = creatureCard(t, c.uid);
-        if (!dex.isNew) o.duplicate = duplicateReward(t, c.species);
+        t.stats.captures += 1; o.mat = huntMaterial(t, c.species);
+        // one of each (combat.js takeIn)
+        const dex = dexRecord(t, c.species, c), got = takeIn(t, c);
+        o.newSpecies = dex.isNew; o.dexCount = dex.caught;
+        o.captured = { uid: got.creature.uid, species: c.species, level: c.level, shiny: !!c.shiny };
+        if (got.joined) o.card = creatureCard(t, c.uid);
+        else { o.duplicate = got.items; o.dupInto = { uid: got.creature.uid, species: got.creature.species, xp: got.xp, shiny: got.shiny }; o.events.push(...got.events); }
         o.questsDone.push(...syncQuests(t, { kind: 'capture', zone: this.zoneId, species: c.species, elements: SPECIES[c.species]?.types || [] }));
       }
     } else if (e.outcome !== 'fled') {
