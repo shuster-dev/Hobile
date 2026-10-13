@@ -503,8 +503,7 @@ var UI = class {
     // the partner's level up: where it is, and where it has to get
     if (!h && l.goal?.kind === "grow") {
       let top = Math.max(0, ...(this.profile.team || []).map(x => x.level || 1));
-      let lead = (this.profile.team || []).find(x => x.hp > 0) || this.profile.team?.[0], xx = lead && xpOf(lead);
-      hint = `השותף ברמה ${top} — צריך ${(a.base ?? top) + 1}. ${xx ? `ניסיון ${xx.have}/${xx.need} · ` : ""}כל ניצחון, גם בחרב, נותן לו ניסיון`;
+      hint = `השותף ברמה ${top} — צריך ${(a.base ?? top) + 1}. צא להילחם ולצוד — כל ניצחון מביא ניסיון`;
     }
     d.innerHTML = `
       <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם" : l.chain === "main" ? "📖 המסע" : "המשימה הנוכחית"}</div>
