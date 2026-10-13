@@ -56,14 +56,14 @@ await snap('0-title');
 await page.click('#btn-play', { timeout: Number(process.env.STEP_MS || 30000) });   // the title screen, as a player taps it
 await page.waitForSelector('#btn-next', { timeout: Number(process.env.STEP_MS || 25000) });
 // The cards' portraits are drawn one a frame, after the stage's figure.
-await page.waitForFunction(() => document.querySelectorAll('#pick-kind .cc-kind img').length >= 7, null, { timeout: Number(process.env.STEP_MS || 30000) }).catch(() => {});
+await page.waitForFunction(() => document.querySelectorAll('#pick-kind .cc-kind img').length >= 5, null, { timeout: Number(process.env.STEP_MS || 30000) }).catch(() => {});
 await wait(2400);
 await snap('1-create');
 // Another kind: the stage, the name and the colour follow it.
 await page.click('#pick-kind .cc-kind[data-kind="mage"]');
 await wait(2600);
 await snap('1a-create-mage');
-await page.click('#pick-kind .cc-kind[data-kind="catcher"]');
+await page.click('#pick-kind .cc-kind[data-kind="knight"]');
 await page.click('#btn-next');
 await page.waitForSelector('#pick-starter .starter', { timeout: Number(process.env.STEP_MS || 25000) });
 await page.waitForSelector('#pick-starter .portrait', { timeout: 12000 }).catch(() => {});

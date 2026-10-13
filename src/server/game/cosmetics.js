@@ -1,8 +1,8 @@
-// The tailor (shared/cosmetics.js): buying a hat or a dye with gold, wearing
+// The tailor (shared/cosmetics.js): buying a hat, glasses, a pack or a dye with gold, wearing
 // it, taking it off. What is worn is kept apart from the appearance the
 // character was made with (doc.cosmetics), so nothing can be put on that was
 // not bought — and the room state carries it, so everyone sees it.
-import { cosmeticById, wardrobeOf } from '../../shared/cosmetics.js';
+import { SLOTS, cosmeticById, wardrobeOf } from '../../shared/cosmetics.js';
 import { spend } from './economy.js';
 
 export function buyCosmetic(doc, id) {
@@ -28,7 +28,7 @@ export function grantCosmetic(doc, id) {
 
 /** Wear `id` in `slot`, or take off what is there (`id` null). */
 export function wearCosmetic(doc, slot, id) {
-  if (slot !== 'hat' && slot !== 'dye') return { ok: false, reason: 'bad_slot' };
+  if (!Object.prototype.hasOwnProperty.call(SLOTS, slot)) return { ok: false, reason: 'bad_slot' };
   const w = wardrobeOf(doc);
   if (id != null) {
     const c = cosmeticById(id);

@@ -17,7 +17,8 @@
 import { Color, Euler, Group, Matrix4, Quaternion, Vector3 } from 'three';
 import { BOX, CONE, ELLIPSOID, PAINT, SPHERE, TORUS, CARVE, instance, setFigurineLod } from './figurine.js';
 import { AVATAR } from '../../shared/gamedata.js';
-import { DYES, HATS } from '../../shared/cosmetics.js';
+import { BACKS, DYES, FACES, HATS } from '../../shared/cosmetics.js';
+import { dressHero, heroAct } from './heroes.js';
 
 // -- the vocabulary (as in figurine-designs.js) ---------------------------------
 const S = (bone, c, p, r, k = 0.03, o) => ({ t: SPHERE, bone, c, p, r, k, ...o });
@@ -278,6 +279,9 @@ const HAT_SHAPES = {
   }),
 };
 
+/** Hats made for the models (wardrobe3d.js), on the figure as the one nearest. */
+const HAT_NEAREST = { trainer: 'cap', sphere: 'beanie', straw: 'cowboy' };
+
 /**
  * A dye (shared/cosmetics.js) on a kind's main cloth: every colour of the
  * same hue and saturation as one of the kind's `main` colours — the cloth and
@@ -307,8 +311,9 @@ function dyeDesign(d, main, dye) {
 function dress(b, extra = {}) {
   // a hat from the tailor (shared/cosmetics.js): the kind's own headwear off, this one on
   const hat = b.o?.hat && HATS[b.o.hat];
-  if (hat && HAT_SHAPES[hat.shape]) {
-    const worn = HAT_SHAPES[hat.shape](Y.head, hat.color);
+  const shape = hat && (HAT_SHAPES[hat.shape] || HAT_SHAPES[HAT_NEAREST[hat.shape]]);
+  if (shape) {
+    const worn = shape(Y.head, hat.color);
     extra = {
       ...extra,
       parts: [...(extra.parts || []).filter((q) => !q.hw), ...(worn.parts || [])],
@@ -631,6 +636,11 @@ export const KINDS = {
   },
 };
 
+// Two the models brought (heroes.js), drawn as the nearest kind of figure
+// until the model is in.
+KINDS.knight = { ...KINDS.explorer, he: 'אביר', en: 'Knight', accent: '#6aa0e0', line: 'מגן על החלשים, ותמיד הראשון להיכנס לקרב.', pose: 'draw' };
+KINDS.barbarian = { ...KINDS.pirate, he: 'ברברי', en: 'Barbarian', accent: '#e07a3a', line: 'חזק כמו הר, וחבר נאמן לכל יצור.', pose: 'attack' };
+
 export const KIND_IDS = Object.keys(KINDS);
 
 /** Everything a stored appearance can say, made whole: a kind, a look, a skin. */
@@ -638,7 +648,10 @@ export function personLook(a = {}) {
   const kind = KINDS[a.kind] ? a.kind : kindFromLegacy(a);
   const look = a.look === 'b' ? 'b' : a.look === 'a' ? 'a' : a.body === 'slim' ? 'b' : 'a';
   const skin = SKINS.includes(a.skin) ? a.skin : nearestSkin(a.skin);
-  return { kind, look, skin, hair: a.hairC || null, scale: a.scale || 1, hat: HATS[a.hat] ? a.hat : null, dye: DYES[a.dye] ? a.dye : null };
+  return {
+    kind, look, skin, hair: a.hairC || null, scale: a.scale || 1,
+    hat: HATS[a.hat] ? a.hat : null, dye: DYES[a.dye] ? a.dye : null, face: FACES[a.face] ? a.face : null, back: BACKS[a.back] ? a.back : null,
+  };
 }
 
 /** A character made before there were kinds: dressed as the one closest to its outfit. */
@@ -692,6 +705,9 @@ export function buildPerson(appearance = {}, { hi = false, outline = true } = {}
   g.userData.rig = { arms: [m.bones.armR, m.bones.armL], person: true };
   g.userData.height = m.height * L.scale;
   g.userData.kind = L.kind;
+  // the model, when it is here (heroes.js): the figure until then
+  g.userData.figure = made.holder;
+  g.userData.heroReady = dressHero(g, L, { outline }).catch((err) => { console.warn('[heroes]', err?.message || err); return false; });
   return g;
 }
 
@@ -908,6 +924,7 @@ const moves = {
 /** Play a one-off move — a kind's show-off pose, an attack, a hit — then back to the loop. */
 export function personAct(group, name, dur = 1.3) {
   const m = group?.userData?.model;
+  if (m?.hero) return heroAct(group, name, dur);
   if (!m || m.def?.plan !== 'person') return false;
   m.act = { name, t: 0, dur };
   return true;

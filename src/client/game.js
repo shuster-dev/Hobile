@@ -254,7 +254,7 @@ var Game = class {
     this.ui.showScreen("create"), this.ui.setMode("none");
     let root = $("#screen-create"),
       e = {
-        kind: "catcher",
+        kind: "knight",
         look: "a",
         skin: AVATAR.skins[1],
         starter: STARTERS[0],
@@ -1600,7 +1600,7 @@ var Game = class {
       r.add(u);
       let f = this.world.ensureActor(u, {
         kind: "player",
-        signature: `p:${d.kind}:${d.look}:${d.skin}:${d.outfit}:${d.hat || ""}:${d.dye || ""}`,
+        signature: `p:${d.kind}:${d.look}:${d.skin}:${d.outfit}:${d.hat || ""}:${d.dye || ""}:${d.face || ""}:${d.back || ""}`,
         appearance: {
           kind: d.kind,
           look: d.look,
@@ -1609,6 +1609,8 @@ var Game = class {
           hair: d.hair,
           outfit: d.outfit,
           hat: d.hat || null,
+          face: d.face || null,
+          back: d.back || null,
           dye: d.dye || null
         },
         petSpecies: d.petSpecies,

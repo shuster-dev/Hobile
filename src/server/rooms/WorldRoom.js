@@ -241,6 +241,7 @@ export class WorldRoom extends Room {
       hair: doc.appearance.hair, outfit: doc.appearance.outfit,
       kind: doc.appearance.kind, look: doc.appearance.look,
       hat: wardrobeOf(doc).hat || '', dye: wardrobeOf(doc).dye || '',
+      face: wardrobeOf(doc).face || '', back: wardrobeOf(doc).back || '',
     });
     this.state.players.set(client.sessionId, p);
     this.docsBySession.set(client.sessionId, doc);

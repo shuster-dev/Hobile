@@ -70,3 +70,54 @@ CLEAN=1 TIER=medium STEP_MS=400000 node tools/zone-tour.mjs shots/tour frostpeak
 
 `CLEAN=1` hides the HUD; `PAGE=other.html` tours another build in `dist/`
 (for a before/after); `PORT` and `DSF` as named.
+
+## Buildings as models (v0.45)
+
+Houses, the forge, the windmill (its sails turn), the well, the watchtower,
+the crates, and the grove's crypt are KayKit models (CREDITS.md):
+`src/client/gfx/propmap.js` maps a planned structure's kind to models and a
+footprint to fit, `propmodels.js` loads each once and draws every copy as an
+InstancedMesh per part, through the game's cel ramp with the grounding's foot
+shading. The plan's footprints are unchanged, and a model is fitted inside
+them: as large as fits, never taller than its `maxH`, with a little give in
+width.
+
+Left to their builders on purpose: the barn (no model fills 10×14 without
+towering, and an unfilled footprint is an invisible wall), the mine (its
+footprint is two posts with the way in open between them), the mesa's tents
+(the pack's tent is a market canopy), and the town's blocks — the KayKit City
+Builder pack was tried there and put back: the town is narrow lots of up to
+nine floors, the pack's buildings two or three on wide ones, and fitted,
+stretched or stacked they read as a jumble of roofs from the street camera.
+
+To add or change one: `node tools/models/props.mjs <dir with the packs>`
+(clone them from the links in CREDITS.md), then a key in `PROP_MODELS` and a
+line in `propmap.js`.
+
+## The adventurers as models (v0.45)
+
+The player, and every other person in the world, is one of the five
+characters of KayKit's Character Pack Adventures (CREDITS.md): rogue, ranger
+(the hooded rogue), mage, knight and barbarian. The kinds from before them are
+drawn as the nearest (`HERO_ALIAS` in `heroes.js`; `AVATAR.kindAlias` turns a
+saved one into it).
+
+`buildPerson` (people.js) still makes the code-sculpted figure first, so a
+person is on screen at once; `dressHero` (heroes.js) swaps the model into the
+same group when its file is in, at the same height. The clips are the pack's,
+shared by all five (`kk_hero_anims.glb`): idle, walk and run kept in step with
+the ground, sitting astride when riding, and `personAct`'s moves — the throw,
+the flinch, the cheer, each kind's show-off with its weapon in hand (hidden
+the rest of the time).
+
+What was chosen is painted into the model's colour atlas, a grid of 8 × 4
+swatches with the same cells on all five: the skin cell, the hair cell, and
+the two cells of the main cloth for the tailor's dye. A look is the model's
+own headgear on or off (the mage's hat, the knight's helmet, the barbarian's
+bear) and a second hair colour.
+
+The tailor's hats, glasses, packs, scarf and wings are built in code
+(`wardrobe3d.js`) in the frame of the head or the body, measured from the
+model, and fixed to that bone, so they move with every clip.
+
+`node tools/models/heroes.mjs <the pack's Characters/gltf>` remakes the files.

@@ -14,7 +14,7 @@ import { CELL, planFor } from '../shared/worldplan.js';
 import { CURB_IN, CURB_OUT, EDGE_Y, LAMP_SPACING, SIDEWALK, gridOffset, plazaOf, propsFor } from '../shared/props.js';
 import { JOBS, JOB_IDS, bestJob, workRate } from '../shared/farmwork.js';
 import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
-import { DYES, HATS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
+import { DYES, HATS, SLOTS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
@@ -2426,7 +2426,7 @@ var UI = class {
     }
     let what = r => r.cosmetic ? (() => {
       let c = cosmeticById(r.cosmetic);
-      return c.slot === "dye" ? `<span class="swatch sm" style="background:${oo(c.color)}"></span> צבע ${Ze(c.he)}` : `${HAT_ICON[c.shape] || "👒"} ${Ze(c.he)}`;
+      return c.slot === "dye" ? `<span class="swatch sm" style="background:${oo(c.color)}"></span> צבע ${Ze(c.he)}` : `${wearIcon(c)} ${Ze(c.he)}`;
     })() : [r.gold ? `🪙 ${ltr(r.gold.toLocaleString("en-US"))}` : "", ...(r.items || []).map(([id, n]) => `${itemIcon(id, "sm")} ${ltr(`×${n}`)}`)].filter(Boolean).join(" · ");
     e.appendChild(section("השלבים"));
     REWARDS.forEach((r, i) => {
@@ -2511,24 +2511,25 @@ var UI = class {
     this.hooks.pushState?.().then(paint).catch(() => paint("unsupported"));
   }
   /**
-   * The tailor (shared/cosmetics.js): hats and dyes for gold, and the ones
+   * The tailor (shared/cosmetics.js): hats, glasses, packs and dyes for gold, and the ones
    * from the season's track. Tapping one tries it on in the picture at the
    * top; buying puts it on.
    */
   panelTailor(e) {
     let p = this.profile;
     if (!p) return;
-    let w = p.wardrobe || { owned: [], hat: null, dye: null },
+    let w = p.wardrobe || { owned: [], hat: null, face: null, back: null, dye: null },
       gold = p.gold || 0,
       tryOn = this._tryOn || {},
-      look = { ...(p.appearance || {}), hat: "hat" in tryOn ? tryOn.hat : w.hat, dye: "dye" in tryOn ? tryOn.dye : w.dye },
+      look = { ...(p.appearance || {}) },
       top = el("div", "tailor-top"),
       pic = el("div", "tailor-pic");
+    for (let s of Object.keys(SLOTS)) look[s] = s in tryOn ? tryOn[s] : w[s] ?? null;
     pic.innerHTML = `<div class="spin" aria-hidden="true"></div>`;
     top.appendChild(pic);
     let info = el("div", "grow");
-    info.innerHTML = `<b>${Ze(p.name || "")}</b><span>${look.hat ? `👒 ${Ze(HATS[look.hat]?.he || "")}` : "בלי כובע"} · ${look.dye ? `🎨 ${Ze(DYES[look.dye]?.he || "")}` : "הצבע של הדמות"}</span><span class="mono">${ltr(`${gold.toLocaleString("en-US")}⛁`)}</span>`;
-    if (this._tryOn && (tryOn.hat !== void 0 || tryOn.dye !== void 0)) {
+    info.innerHTML = `<b>${Ze(p.name || "")}</b><span>${[look.hat, look.face, look.back].filter(Boolean).map(id => `${wearIcon(cosmeticById(id))} ${Ze(cosmeticById(id).he)}`).join(" · ") || "בלי פריטים"} · ${look.dye ? `🎨 ${Ze(DYES[look.dye]?.he || "")}` : "הצבע של הדמות"}</span><span class="mono">${ltr(`${gold.toLocaleString("en-US")}⛁`)}</span>`;
+    if (this._tryOn && Object.keys(tryOn).length) {
       let back = el("button", "btn small ghost", "בטל מדידה");
       back.onclick = () => (this._tryOn = null, this.renderPanel("tailor")), info.appendChild(back);
     }
@@ -2539,7 +2540,7 @@ var UI = class {
     let row = (slot, id, d) => {
       let own = w.owned.includes(id), worn = w[slot] === id, trying = tryOn[slot] === id,
         r = el("div", `list-item tappable ${trying ? "ready" : ""} ${!own && !d.pass && gold < d.price ? "lacking" : ""}`),
-        sw = slot === "dye" ? `<div class="swatch" style="background:${oo(d.color)}"></div>` : `<div class="ico-lg">${HAT_ICON[d.shape] || "👒"}</div>`;
+        sw = slot === "dye" ? `<div class="swatch" style="background:${oo(d.color)}"></div>` : `<div class="ico-lg">${wearIcon({ ...d, slot })}</div>`;
       r.innerHTML = `${sw}<div class="grow"><b>${Ze(d.he)}</b><span>${worn ? "לבוש עכשיו" : own ? "שלך" : d.pass ? "🎟 ממסלול העונה" : ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span></div>`;
       r.onclick = () => (this._tryOn = { ...(this._tryOn || {}), [slot]: id }, this.renderPanel("tailor"));
       let b;
@@ -2549,10 +2550,11 @@ var UI = class {
       else b = el("span", "pill", "🔒");
       r.appendChild(b), e.appendChild(r);
     };
-    e.appendChild(section("👒 כובעים", `${ltr(Object.keys(HATS).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(HATS).length)}`));
-    for (let [id, d] of Object.entries(HATS)) row("hat", id, d);
-    e.appendChild(section("🎨 צבע לבגד", `${ltr(Object.keys(DYES).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(DYES).length)}`));
-    for (let [id, d] of Object.entries(DYES)) row("dye", id, d);
+    for (let [slot, title] of [["hat", "👒 כובעים"], ["face", "👓 משקפיים"], ["back", "🎒 על הגב ועל הצוואר"], ["dye", "🎨 צבע לבגד"]]) {
+      let table = SLOTS[slot];
+      e.appendChild(section(title, `${ltr(Object.keys(table).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(table).length)}`));
+      for (let [id, d] of Object.entries(table)) row(slot, id, d);
+    }
     let n = el("div", "hint");
     n.textContent = "רק מראה — שום דבר כאן לא משנה כוח בקרב.", e.appendChild(n);
   }
@@ -2561,7 +2563,7 @@ var UI = class {
       n = Object.values(ITEMS).filter(s => s.price);
     {
       // the tailor is next door
-      let tl = el("button", "btn", "👒 לחייט — כובעים וצבעים");
+      let tl = el("button", "btn", "👒 לחייט — כובעים, משקפיים, תיקים וצבעים");
       tl.style.width = "100%", tl.onclick = () => this.openPanel("tailor"), e.appendChild(tl);
     }
     if (!n.length) {
@@ -3041,7 +3043,10 @@ function textInput(i) {
   return e.className = "field-input", e.placeholder = i, e.autocomplete = "off", e.spellcheck = !1, e;
 }
 
-var HAT_ICON = { cap: "🧢", bandana: "🎀", beanie: "🧶", flowers: "🌸", cowboy: "🤠", catears: "🐱", wizard: "🧙", tophat: "🎩", crown: "👑", halo: "😇", horns: "😈" };
+var HAT_ICON = { cap: "🧢", bandana: "🎀", beanie: "🧶", flowers: "🌸", cowboy: "🤠", catears: "🐱", wizard: "🧙", tophat: "🎩", crown: "👑", halo: "😇", horns: "😈", trainer: "🧢", sphere: "🔴", headphones: "🎧", straw: "👒" },
+  FACE_ICON = { round: "👓", shades: "🕶", star: "⭐", goggles: "🥽" },
+  BACK_ICON = { backpack: "🎒", sphere: "🔴", scarf: "🧣", wings: "🪽" },
+  wearIcon = c => (c.slot === "face" ? FACE_ICON : c.slot === "back" ? BACK_ICON : HAT_ICON)[c.shape] || "👒";
 
 function itemList(i) {
   return Object.entries(i || {}).map(([e, t]) => `${itemIcon(e, "sm")} ${Ze(loc(ITEMS[e]))} ${ltr(`×${t}`)}`).join(", ");

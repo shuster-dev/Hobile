@@ -56,7 +56,7 @@ export const MODELS = {};
 
 /** One line each, because each pack shares one licence. */
 export const MODEL_CREDIT =
-  'Creatures and people: sculpted in code for this game.';
+  'Creatures: sculpted in code for this game. Adventurers: KayKit Character Pack Adventures by Kay Lousberg (CC0).';
 
 // ---------------------------------------------------------------------------
 // loading
@@ -91,6 +91,11 @@ function fetchModel(file) {
   return p;
 }
 
+/** Any model file by name (the world's buildings use this: propmodels.js). */
+export function loadModelFile(file) {
+  return fetchModel(file);
+}
+
 /** Warm the cache for species about to appear, so nothing pops in late. */
 export function preloadModels(ids) {
   const files = new Set();
@@ -112,7 +117,7 @@ export function hasModel(id) {
  * It has to be pushed out along the normal in the vertex shader, after the
  * skinning has been applied.
  */
-function outlineMaterial(thickness) {
+export function outlineMaterial(thickness) {
   const m = new MeshBasicMaterial({
     color: new Color(STYLE.outlineColor),
     side: BackSide,
@@ -460,6 +465,7 @@ export function playClip(group, name, { hold = false } = {}) {
 export function animateModel(group, timeMs, moving, speed = 1) {
   const m = group?.userData?.model;
   if (!m) return false;
+  if (m.animate) return m.animate(group, m, timeMs, moving, speed);
   if (m.fig) return animateFigurine(group, m, timeMs, moving, speed);
   const dt = m.last == null ? 0.016 : Math.min(0.1, Math.max(0, (timeMs - m.last) * 0.001));
   m.last = timeMs;

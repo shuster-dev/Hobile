@@ -15,7 +15,7 @@ defineTypes(PlayerState, {
   body: 'string', skin: 'string', hair: 'string', outfit: 'string',
   kind: 'string', look: 'string',
   // what they wear from the tailor (shared/cosmetics.js)
-  hat: 'string', dye: 'string',
+  hat: 'string', dye: 'string', face: 'string', back: 'string',
   // riding (shared/riding.js): the creature carrying them, and how
   mount: 'string', mountKind: 'string', mountStar: 'number',
   // how high a flyer is, for the others' screens (client world.js stepFlight)

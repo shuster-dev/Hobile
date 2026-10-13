@@ -200,6 +200,8 @@ var StoreBase = class {
         look: e.appearance.look,
         hat: wardrobeOf(e).hat || "",
         dye: wardrobeOf(e).dye || "",
+        face: wardrobeOf(e).face || "",
+        back: wardrobeOf(e).back || "",
         mount: "",
         mountKind: "",
         mountStar: 1,

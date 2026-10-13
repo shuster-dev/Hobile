@@ -3621,7 +3621,9 @@ function starRank(i, e) {
 var AVATAR = {
   // The kinds of adventurer a player can be; src/client/gfx/people.js dresses
   // them. A character is a kind, one of two looks, and a skin tone.
-  kinds: ["rogue", "pirate", "fire", "catcher", "ranger", "mage", "explorer"],
+  kinds: ["rogue", "ranger", "mage", "knight", "barbarian"],
+  // kinds from before the adventurers were models, and who they are now
+  kindAlias: { pirate: "barbarian", fire: "mage", catcher: "knight", explorer: "knight" },
   looks: ["a", "b"],
   // Warmer than they look on a swatch: a figure is lit from the ground under
   // it, and a meadow's green bounce turns a neutral tone grey.
@@ -3629,7 +3631,7 @@ var AVATAR = {
   // Characters made before there were kinds: the kind nearest their outfit,
   // and back the other way for anything that still reads an outfit.
   legacyKind: { wanderer: "explorer", ranger: "ranger", scholar: "mage", nomad: "fire", shade: "rogue", tide: "pirate" },
-  kindOutfit: { explorer: "wanderer", ranger: "ranger", mage: "scholar", fire: "nomad", rogue: "shade", pirate: "tide", catcher: "wanderer" },
+  kindOutfit: { explorer: "wanderer", ranger: "ranger", mage: "scholar", fire: "nomad", rogue: "shade", pirate: "tide", catcher: "wanderer", knight: "wanderer", barbarian: "tide" },
   bodies: ["slim", "stocky", "tall"],
   hair: ["#2b1b16", "#6b3e1e", "#c9a227", "#d94f4f", "#3f7ad9", "#8b5cf6", "#e8e8e8", "#2fb27a"],
   outfits: [{
@@ -3785,7 +3787,8 @@ Object.assign(ITEMS, MATERIALS);
  * the old fields are kept, and filled, for anything that still reads them.
  */
 function avatarLook(a = {}) {
-  let kind = AVATAR.kinds.includes(a.kind) ? a.kind : AVATAR.legacyKind[a.outfit] || "explorer",
+  let k0 = AVATAR.kindAlias[a.kind] || a.kind,
+    kind = AVATAR.kinds.includes(k0) ? k0 : AVATAR.kindAlias[AVATAR.legacyKind[a.outfit]] || AVATAR.legacyKind[a.outfit] || "knight",
     look = AVATAR.looks.includes(a.look) ? a.look : a.body === "slim" ? "b" : "a";
   return {
     kind,

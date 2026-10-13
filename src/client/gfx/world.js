@@ -1,6 +1,8 @@
 import { Box3, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
 import { GROUNDING, bakeGroundY, contactMap, groundMaterial, noContact, snowBanks } from './grounding.js';
 import { SURF, surfaceOf, tagSurface, withSurfaces } from './surfaces.js';
+import { placeProps } from './propmodels.js';
+import { villageModel } from './propmap.js';
 import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLights, makeRenderer, makeSky, mat, mergeByMaterial, mergeGeometries, profile, sizeRenderer, softShadowTexture, watchSize, xf2 } from './core.js';
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
@@ -1458,6 +1460,10 @@ function buildCityGround(i, e, t, n) {
     d = [],
     u = [];
   buildGroundMesh(i, t, n, o);
+  // (The KayKit City Builder pack was tried here and put back: the town is
+  // narrow lots of up to nine floors, the pack's buildings two or three on
+  // wide ones — fitted, stretched or stacked, they read as a jumble of roofs
+  // from the street camera. The town builds its own.)
   for (let A of collectColliders(i, e)) A.kind === "block" ? buildBuildingBlock(A, a, l, c, h, n, t, r) : (buildBuildingBlock({
     ...A,
     sign: !1
@@ -3558,7 +3564,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.farmWorkers = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.propGroups?.forEach(g => g.userData.disposed = !0), this.propGroups = [], this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.farmWorkers = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -3605,6 +3611,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         ms.forEach(groundMaterial);
       });
     }
+    /**
+     * Real models where a builder's boxes used to stand (propmodels.js): the
+     * zone's houses, forge, windmill… and the town's buildings. They arrive
+     * a moment after the zone; one that comes after the zone was left is
+     * dropped.
+     */
+    addProps(list) {
+      if (!list?.length) return;
+      let g = placeProps(list);
+      (this.propGroups ||= []).push(g), this.zoneGroup.add(g);
+    }
     /** The town's farm and garden, built like the field zones' (zoneart.js). */
     /** Your farm's training pods (incubator.js): drawn from your own base,
      *  which `setBase` hands over whenever the server sends it. */
@@ -3632,13 +3649,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       if (!list?.length) return;
       let z = this.zone,
         P = { structures: list, zone: z, level: z.water?.level ?? -1.35, water: null, half: z.size / 2, height: (x, y) => this.heightAt(x, y) };
-      this.planArt = buildPlanArt(P, e), this.zoneGroup.add(this.planArt.group);
+      this.planArt = buildPlanArt(P, e, z.id), this.zoneGroup.add(this.planArt.group), this.addProps(this.planArt.models);
     }
     /** A planned zone's water and everything built in it (zoneart.js). */
     buildPlan(e) {
       let w = buildWater(this.plan, e);
       w && (this.zoneGroup.add(w), this.groundU.push(w.userData.uniforms));
-      this.planArt = buildPlanArt(this.plan, e), this.zoneGroup.add(this.planArt.group);
+      this.planArt = buildPlanArt(this.plan, e, this.zone.id), this.zoneGroup.add(this.planArt.group), this.addProps(this.planArt.models);
     }
     buildTerrain(e) {
       if (this.urban) {
@@ -4526,239 +4543,15 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       // a program compiled without the fix, or the other way round.
       thin && (n.customProgramCacheKey = () => "wind|thin"), n.needsUpdate = !0, this.windMaterials.push(n), n;
     }
-    buildBuildings(e) {
-      let t = [],
-        n = mat(e.wall, {
-          surface: surfaceOf(e.wall),
-          roughness: 0.88
-        }),
-        s = mat(mixHex(e.wall, 2760984, 0.3), {
-          surface: surfaceOf(e.wall),
-          roughness: 0.9
-        }),
-        r = mat(e.roof, {
-          surface: SURF.roof,
-          roughness: 0.78
-        }),
-        o = mat(mixHex(e.roof, 1774096, 0.34), {
-          surface: SURF.roof,
-          roughness: 0.85
-        }),
-        a = mat(e.bark, {
-          surface: SURF.wood,
-          roughness: 0.85
-        }),
-        l = mat(16770728, {
-          emissive: 16763490,
-          emissiveIntensity: 0.9,
-          roughness: 0.3
-        }),
-        c = mat(mixHex(e.wall, 9080726, 0.55), {
-          surface: SURF.stone,
-          roughness: 0.96
-        }),
-        h = mat(mixHex(e.bark, 1182728, 0.35), {
-          surface: SURF.wood,
-          roughness: 0.8
-        });
-      for (let u of this.props.buildings) {
-        let f = heightAt(this.zone.id, u.x, u.z),
-          p = u.kind === "hall" ? 1.35 : 1,
-          x = u.h * p * HOUSE_WALL,
-          g = {
-            x: u.x,
-            y: f,
-            z: u.z,
-            ry: u.rot
-          },
-          m = (S, b = {}) => xf2(S, {
-            ...b,
-            ...rotateLocal(g, b)
-          });
-        t.push({
-          geo: m(new BoxGeometry(u.w + 0.22, 0.34, u.d + 0.22), {
-            y: 0.17
-          }),
-          mat: c
-        }), t.push({
-          geo: m(new BoxGeometry(u.w, x, u.d), {
-            y: x / 2
-          }),
-          mat: n
-        }), t.push({
-          geo: m(new BoxGeometry(u.w + 0.07, 0.15, u.d + 0.07), {
-            y: x * 0.54
-          }),
-          mat: a
-        }), t.push({
-          geo: m(new BoxGeometry(u.w + 0.14, 0.16, u.d + 0.14), {
-            y: x + 0.02
-          }),
-          mat: s
-        });
-        // The roof: two thick slabs meeting at a ridge, at a cottage's pitch,
-        // over a gable of wall. It used to be a three-sided cylinder laid on
-        // its side: an A-frame as tall again as the walls, which made every
-        // house tower over a chibi trainer — and it was laid down by an Euler
-        // whose yaw came between its two tilts, so on any house not facing
-        // the one way the roof came out rolled off its walls. Everything here
-        // turns about the vertical only.
-        let P = HOUSE_PITCH,
-          cs = 1 / Math.hypot(1, P),
-          sn = P * cs,
-          run = u.w / 2 + HOUSE_EAVE,
-          ridge = x + 0.2 + u.w / 2 * P,
-          th = 0.24,
-          len = u.d + 0.7,
-          past = 0.14,
-          along = run / cs + past;
-        t.push({
-          geo: m(gablePrism(u.w / 2, x - 0.05, ridge - 0.1, u.d)),
-          mat: n
-        });
-        for (let S of [-1, 1]) {
-          // Measured down the slope from the ridge, starting a little past it
-          // so the two slabs overlap there instead of leaving a notch.
-          let mid = along / 2 - past,
-            px = S * mid * cs - S * sn * th / 2,
-            py = ridge - mid * sn - cs * th / 2;
-          t.push({
-            geo: m(new BoxGeometry(along, th, len), {
-              x: px,
-              y: py,
-              rz: -S * Math.atan(P)
-            }),
-            mat: r
-          });
-          for (let b = 1; b <= 4; b++) {
-            let k = b / 4.6 * (along - past);
-            t.push({
-              geo: m(new BoxGeometry(0.12, 0.07, len + 0.04), {
-                x: S * k * cs + S * sn * 0.03,
-                y: ridge - k * sn + cs * 0.03,
-                rz: -S * Math.atan(P)
-              }),
-              mat: o
-            });
-          }
-        }
-        t.push({
-          geo: m(new BoxGeometry(0.36, 0.2, len + 0.06), {
-            y: ridge + 0.02
-          }),
-          mat: o
-        });
-        let _ = u.d / 2;
-        // A round attic window in the front gable.
-        t.push({
-          geo: m(new RingGeometry(0.22, 0.31, 16), {
-            y: x + (ridge - x) * 0.4,
-            z: _ + 0.02
-          }),
-          mat: a
-        }, {
-          geo: m(new CircleGeometry(0.22, 16), {
-            y: x + (ridge - x) * 0.4,
-            z: _ + 0.015
-          }),
-          mat: l
-        });
-        t.push({
-          geo: m(new BoxGeometry(0.86, 1.46, 0.09), {
-            y: 0.73,
-            z: _ + 0.015
-          }),
-          mat: a
-        }), t.push({
-          geo: m(new BoxGeometry(0.62, 1.22, 0.1), {
-            y: 0.61,
-            z: _ + 0.05
-          }),
-          mat: h
-        }), t.push({
-          geo: m(new BoxGeometry(0.98, 0.12, 0.42), {
-            y: 0.06,
-            z: _ + 0.2
-          }),
-          mat: c
-        });
-        for (let S of [-1, 1]) {
-          let b = S * u.w * 0.3,
-            T = x * 0.62;
-          t.push({
-            geo: m(new BoxGeometry(0.64, 0.64, 0.07), {
-              x: b,
-              y: T,
-              z: _ + 0.01
-            }),
-            mat: a
-          }), t.push({
-            geo: m(new BoxGeometry(0.46, 0.46, 0.08), {
-              x: b,
-              y: T,
-              z: _ + 0.04
-            }),
-            mat: l
-          }), t.push({
-            geo: m(new BoxGeometry(0.05, 0.5, 0.06), {
-              x: b,
-              y: T,
-              z: _ + 0.07
-            }),
-            mat: a
-          }), t.push({
-            geo: m(new BoxGeometry(0.5, 0.05, 0.06), {
-              x: b,
-              y: T,
-              z: _ + 0.07
-            }),
-            mat: a
-          }), t.push({
-            geo: m(new BoxGeometry(0.72, 0.1, 0.16), {
-              x: b,
-              y: T - 0.36,
-              z: _ + 0.06
-            }),
-            mat: c
-          });
-        }
-        for (let S of [-1, 1]) for (let b of [-1, 1]) t.push({
-          geo: m(new BoxGeometry(0.13, x, 0.13), {
-            x: S * u.w / 2,
-            y: x / 2,
-            z: b * u.d / 2
-          }),
-          mat: a
-        });
-        if (u.kind === "hall" || (Math.round(u.x * 7 + u.z * 13) & 3) !== 0) {
-          // Standing up through the roof where it is, not at a height the old
-          // steep roof would have buried it to.
-          let S = u.w * 0.3,
-            b = -u.d * 0.2,
-            top = ridge - S * P;
-          t.push({
-            geo: m(new BoxGeometry(0.46, 1.2, 0.46), {
-              x: S,
-              y: top + 0.15,
-              z: b
-            }),
-            mat: c
-          }), t.push({
-            geo: m(new BoxGeometry(0.6, 0.14, 0.6), {
-              x: S,
-              y: top + 0.82,
-              z: b
-            }),
-            mat: s
-          });
-        }
-      }
-      if (!t.length) return;
-      let d = mergeByMaterial(t, {
-        castShadow: !0,
-        receiveShadow: !0
-      });
-      d.receiveShadow = !0, d.userData.houses = !0, this.zoneGroup.add(d);
+    /**
+     * A field zone's village houses: a cottage from the pack for each, the
+     * tavern for a hall (propmap.js villageModel, propmodels.js), fitted to
+     * the footprint that stops a walker. They used to be boxes under a
+     * gable, built here.
+     */
+    buildBuildings() {
+      let id = this.zone.id;
+      this.addProps(this.props.buildings.map((u, i) => villageModel(u, id, heightAt(id, u.x, u.z), i)));
     }
     buildLandmarks(e) {
       let t = new Group();
@@ -5511,7 +5304,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       for (let n of this.windMaterials) n.userData.shader && (n.userData.shader.uniforms.uTime.value = this.time);
       for (let n of this.groundU) n.uGTime.value = this.time, n.uNight.value = this.night || 0;
       this.fountain?.tick(this.time);
-      this.planArt?.update(this.time, this.night || 0), this.cullGrass();
+      this.planArt?.update(this.time, this.night || 0), this.propGroups?.forEach(g => g.userData.update?.(this.time)), this.cullGrass();
       if (this.water && (this.water.position.y = -1.15 + Math.sin(this.time * 0.7) * 0.05), this._inside) {
         let n = this._inside;
         n.room.tick(this.time);
@@ -6306,20 +6099,6 @@ var HOUSE_WALL = 0.88,
   HOUSE_PITCH = 0.84,
   HOUSE_EAVE = 0.42;
 
-/** A triangular block of wall under a roof: `hw` either side of the middle at
- *  `y0`, up to a point at `y1`, `len` deep. Wound to face outward, with flat
- *  normals, for a merged mesh's front-side-only material. */
-function gablePrism(hw, y0, y1, len) {
-  let f = len / 2,
-    b = -len / 2,
-    g = new BufferGeometry();
-  return g.setAttribute("position", new Float32BufferAttribute([
-    -hw, y0, f, hw, y0, f, 0, y1, f,
-    hw, y0, b, -hw, y0, b, 0, y1, b,
-    hw, y0, f, hw, y0, b, 0, y1, b, hw, y0, f, 0, y1, b, 0, y1, f,
-    -hw, y0, b, -hw, y0, f, 0, y1, f, -hw, y0, b, 0, y1, f, 0, y1, b
-  ], 3)), g.computeVertexNormals(), g;
-}
 
 // A flower's head sits this high on its stem, in the flower's own units: one
 // unit is the head's radius, so a flower scaled 0.18 is 36cm across and 40cm
