@@ -10,6 +10,7 @@
 //
 // The online DungeonRoom and the single-player build (base.js DungeonSim) both
 // drive this, so the two play the same dungeon.
+import { claimMilestones } from './milestones.js';
 import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, creaturePower, creatureScore, giveItem, grantXp, grantXpTo, healTeam,
@@ -259,6 +260,7 @@ export class PartyDungeon {
       o.questsDone = syncQuests(doc, { kind: 'dungeon', target: this.def.id });
     }
     if (!full && !fled) healTeam(doc, 1);
+    o.milestones = claimMilestones(doc);
     o.profile = publicProfile(doc);
     return o;
   }

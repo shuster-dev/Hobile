@@ -7,6 +7,7 @@ import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLi
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { capHeight, setStarLook } from './starlook.js';
+import { heroStrike } from './heroes.js';
 
 /** The tallest the creature walking behind you is drawn (a boss is built for raids). */
 const PET_MAX_H = 2.1;
@@ -5336,6 +5337,25 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         to: to.clone(),
         color
       });
+    }
+    /**
+     * The trainer's own blow (shared/arms.js): they turn to it, swing, smash,
+     * shoot or cast with what is in their hand, and it lands — a flash where
+     * a blade or a hammer meets it, an arrow or a bolt flying to it.
+     */
+    selfStrike(arm, item, targetKey) {
+      let me = this.selfActor(), to = this.actorPosition(targetKey, 0.7);
+      if (!me) return;
+      if (to) {
+        let p = me.holder.position, yaw = Math.atan2(to.x - p.x, to.z - p.z);
+        me.rotTarget = yaw, me.holder.rotation.y = yaw;
+      }
+      heroStrike(me.group, arm, item);
+      if (!to) return;
+      let from = me.holder.position.clone().setY(me.holder.position.y + 1.1);
+      if (arm === "bow") this.strike(from, to, 16775885);
+      else if (arm === "staff") this.strike(from, to, 9109503);
+      else setTimeout(() => this.ring(to.clone().setY(to.y - 0.6), arm === "hammer" ? 16756800 : 16777215, arm === "hammer" ? 1.15 : 0.9), arm === "hammer" ? 380 : 200);
     }
     /** The actor (wild, player) by its key, for where a strike starts or lands. */
     actorPosition(key, up = 0.8) {

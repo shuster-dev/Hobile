@@ -10,6 +10,8 @@ import { FIELD, fieldHint, keepSpot, savedSpot, tickField } from './field.js';
 import { weatherAt } from '../../shared/weather.js';
 import { earn, spend } from './economy.js';
 import { PartyDungeon } from './party-dungeon.js';
+import { armOf } from '../../shared/arms.js';
+import { claimMilestones } from './milestones.js';
 import { eventMul } from '../../shared/events.js';
 import { storyWin } from './saga.js';
 import { huntMaterial } from './saddles.js';
@@ -460,7 +462,8 @@ var StoreBase = class {
       // the team went down — both headline features of v0.7 were inert.
       let gear = sumStats(r),
         team = teamCreatures(r),
-        lead = team.find(c => c.hp > 0) || team[0] || null;
+        // nobody standing (or nobody yet): the trainer is the one fighting
+        lead = team.find(c => c.hp > 0) || null;
       this.roster = [];
       team.forEach((creature, i) => {
         let c = this.sim.add(new Combatant({
@@ -483,7 +486,10 @@ var StoreBase = class {
         ownerId: r.id,
         level: r.level,
         benched: !!this.anchor,
-        gearBonus: gear
+        gearBonus: gear,
+        // as hurt as they are out in the open, and with what is in their hand
+        hp: r.trainerHp > 0 ? r.trainerHp : void 0,
+        arm: armOf(r)
       }));
       // How hard it fights depends on where it lives (WILD_TIERS). A story
       // foe (shared/saga.js) is a boss of its level: no sphere takes it.
@@ -504,6 +510,8 @@ var StoreBase = class {
         scale: tier.scale,
         ai: tier.ai
       }));
+      // hurt in the open before the battle (field-fight.js): it stays hurt
+      n.hpLeft < 1 && (this.foe.hp = Math.max(1, Math.round(this.foe.maxHp * n.hpLeft)));
     }
     /**
      * The combatant the player is currently controlling.
@@ -629,6 +637,7 @@ var StoreBase = class {
         // you wake at the camp, as the genre always has.
         o.gold = -spend(t, a, "blackout"), o.blackout = !0, healTeam(t, 1), t.pos = null;
       }
+      o.milestones = claimMilestones(t);
       this.net.save(), o.profile = publicProfile(t), this.finish(s || r), this.net.emit("battleEnd", o);
     }
     handle(e, t = {}) {

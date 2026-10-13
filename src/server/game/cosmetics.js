@@ -4,6 +4,7 @@
 // not bought — and the room state carries it, so everyone sees it.
 import { SLOTS, cosmeticById, wardrobeOf } from '../../shared/cosmetics.js';
 import { spend } from './economy.js';
+import { isUnlocked } from '../../shared/milestones.js';
 
 export function buyCosmetic(doc, id) {
   const c = cosmeticById(id);
@@ -11,6 +12,7 @@ export function buyCosmetic(doc, id) {
   const w = wardrobeOf(doc);
   if (w.owned.includes(id)) return { ok: false, reason: 'already_owned' };
   if (c.pass || !(c.price > 0)) return { ok: false, reason: 'not_for_sale' };
+  if (!isUnlocked(doc, c)) return { ok: false, reason: 'locked' };
   if ((doc.gold || 0) < c.price) return { ok: false, reason: 'not_enough_gold' };
   spend(doc, c.price, 'cosmetic');
   doc.cosmetics = { ...w, owned: [...w.owned, id] };

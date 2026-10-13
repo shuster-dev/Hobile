@@ -14,7 +14,7 @@
 // pixel keeps how much lighter or darker it was than its cell. What they wear
 // from the tailor (wardrobe3d.js) is fixed to the head or the chest bone, so
 // it moves with every clip.
-import { AnimationMixer, Box3, CanvasTexture, Color, Group, LoopOnce, LoopRepeat, Matrix4, MeshToonMaterial, Quaternion, SRGBColorSpace, SkinnedMesh, Vector3 } from 'three';
+import { AnimationMixer, Box3, BoxGeometry, CanvasTexture, Color, ConeGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, SphereGeometry, TorusGeometry, LoopOnce, LoopRepeat, Matrix4, MeshToonMaterial, Quaternion, SRGBColorSpace, SkinnedMesh, Vector3 } from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { QUALITY, STYLE, toonGradient } from './core.js';
 import { loadModelFile, outlineMaterial } from './models.js';
@@ -46,6 +46,8 @@ export const heroKind = (kind) => (HEROES[kind] ? kind : HERO_ALIAS[kind] || nul
 
 // the clips, by what the game asks for
 const CLIPS = { idle: 'Idle', walk: 'Walking_A', run: 'Running_A', ride: 'Sit_Chair_Idle', throw: 'Throw', cheer: 'Cheer', hit: 'Hit_A', faint: 'Death_A', jump: 'Jump_Full_Short', use: 'Use_Item' };
+// a trainer's own weapon (shared/arms.js), whatever kind they are
+const ARM_CLIPS = { swing: '1H_Melee_Attack_Chop', smash: '2H_Melee_Attack_Spin', shoot: '1H_Ranged_Shoot', cast: 'Spellcast_Shoot' };
 const HELD = /Knife|Crossbow|Throwable|Sword|Shield|Wand|Staff|Spellbook|Axe|Mug/;
 
 // -- the colour atlas, painted with what was chosen -----------------------------------
@@ -217,7 +219,7 @@ export async function dressHero(group, look, { outline = true } = {}) {
   // the clips
   const mixer = new AnimationMixer(model);
   const actions = {};
-  for (const [name, clipName] of Object.entries({ ...CLIPS, attack: H.attack, show: H.show[0] })) {
+  for (const [name, clipName] of Object.entries({ ...CLIPS, ...ARM_CLIPS, attack: H.attack, show: H.show[0] })) {
     const clip = clips.find((c) => c.name === clipName);
     if (clip) actions[name] = mixer.clipAction(clip);
   }
@@ -234,6 +236,7 @@ export async function dressHero(group, look, { outline = true } = {}) {
     hero: true, animate: animateHero, kind, mixer, actions, current: 'idle', holder, model,
     height: tall, last: null, once: null, held: H.show[1].map((n) => meshes[n]).filter(Boolean),
     hipsY: hips ? hips.position.y : 0, hips,
+    slot: model.getObjectByName('handslot.r') || model.getObjectByName('handslotr') || bones['hand.r'] || bones.handr || null, arms: {},
   };
   group.userData.model = rec;
   group.userData.rig = { arms: [bones['hand.r'] || bones.handr || bones.wristr, bones['hand.l'] || bones.handl || bones.wristl].filter(Boolean), person: true };
@@ -268,6 +271,7 @@ function animateHero(group, m, timeMs, moving, speed = 1) {
     m.once.left -= dt;
     if (m.once.left <= 0 || riding) {
       for (const o of m.held) o.visible = false;
+      for (const w of Object.values(m.arms)) w.visible = false;
       m.once = null;
     }
   }
@@ -301,5 +305,58 @@ export function heroAct(group, name, dur) {
   const len = a.getClip().duration;
   m.once = { left: Math.max(0.4, Math.min(len, dur ? Math.max(dur, len * 0.9) : len) - 0.1) };
   if (key === 'show') for (const o of m.held) o.visible = true;
+  return true;
+}
+
+// -- the weapon in hand --------------------------------------------------------------
+// Drawn here, not taken from a model: the five kinds each came with their
+// own, and a knight with a bow should hold a bow. Built along +Y from the
+// grip (as the models' own props are, under `handslot.r`), about a sword long.
+const armMat = (c) => new MeshToonMaterial({ color: c, gradientMap: toonGradient() });
+function armMesh(arm, item) {
+  const g = new Group(), wood = armMat(0x8a5a2e), steel = armMat(0xd8dee8), gold = armMat(0xe8c05a);
+  const add = (geo, mat, x = 0, y = 0, z = 0, rx = 0, rz = 0) => { const m = new Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); g.add(m); return m; };
+  const tint = { sword_wood: 0xc8955a, blade_storm: 0x8ac8ff, blade_ember: 0xff8a4a, hammer_titan: 0xe8b23a, bow_wind: 0x5ad8b8, staff_star: 0xffd86a, staff_rift: 0x2fe6d0 }[item];
+  if (arm === 'sword') {
+    add(new CylinderGeometry(0.035, 0.035, 0.22, 8), wood, 0, 0.0);
+    add(new BoxGeometry(0.26, 0.05, 0.06), gold, 0, 0.13);
+    add(new BoxGeometry(0.09, 0.72, 0.025), tint ? armMat(tint) : steel, 0, 0.52);
+    add(new ConeGeometry(0.064, 0.14, 4), tint ? armMat(tint) : steel, 0, 0.95);
+  } else if (arm === 'hammer') {
+    add(new CylinderGeometry(0.035, 0.04, 0.95, 8), wood, 0, 0.32);
+    add(new BoxGeometry(0.34, 0.2, 0.2), armMat(tint || 0x9aa4b4), 0, 0.82);
+    add(new BoxGeometry(0.36, 0.05, 0.22), gold, 0, 0.82);
+  } else if (arm === 'bow') {
+    const bow = add(new TorusGeometry(0.42, 0.028, 6, 18, Math.PI * 0.9), armMat(tint || 0xa8743e), 0, 0.12, 0, 0, Math.PI * 0.55);
+    bow.position.x = -0.18;
+    add(new CylinderGeometry(0.006, 0.006, 0.84, 4), armMat(0xeef2f8), 0.2, 0.12);
+  } else {
+    add(new CylinderGeometry(0.03, 0.04, 1.1, 8), wood, 0, 0.38);
+    const orb = add(new SphereGeometry(0.1, 14, 10), new MeshBasicMaterial({ color: tint || 0x7ae87a }), 0, 0.98);
+    orb.userData.noOutline = true;
+    add(new TorusGeometry(0.11, 0.018, 6, 14), gold, 0, 0.9, 0, Math.PI / 2);
+  }
+  g.traverse((o) => { o.castShadow = !!o.isMesh; });
+  g.visible = false;
+  return g;
+}
+
+/** The trainer strikes with what is in their hand: its move, and the weapon
+ *  shown for it. True when this group is a model and did. */
+export function heroStrike(group, arm, item) {
+  const m = group?.userData?.model;
+  if (!m?.hero || group.userData.riding) return false;
+  const clip = { sword: 'swing', hammer: 'smash', bow: 'shoot', staff: 'cast' }[arm] || 'swing';
+  heroAct(group, clip, 0.7);
+  const key = `${arm}|${item || ''}`;
+  if (m.slot && !m.arms[key]) {
+    const w = armMesh(arm, item);
+    // the slot's scale is the model's; the weapon is sized to the figure
+    const v = new Vector3(); m.slot.getWorldScale(v);
+    const k = (m.height || 1.4) * 0.55 / Math.max(1e-4, v.y || 1);
+    w.scale.setScalar(k); m.slot.add(w); m.arms[key] = w;
+  }
+  for (const [k, w] of Object.entries(m.arms)) w.visible = k === key;
+  for (const o of m.held) o.visible = false;
   return true;
 }

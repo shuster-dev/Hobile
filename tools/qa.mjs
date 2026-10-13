@@ -953,7 +953,68 @@ section('the field');
     fw._fieldCd = 0;
     FF.wildAttack(fw, busy, lead.skills[0], T);
     fw.battlePending = 0;
-    ok('the action button still takes it to a battle (to catch it), whole', WM.engageWild(fw, busy) === true && fw.wildDocs.get(busy).mode !== 'fight');
+    {
+      const left = fw.wildDocs.get(busy).hp / fw.wildDocs.get(busy).maxHp;
+      fnet.pendingRooms.clear();
+      ok('the action button still takes it to a battle (to catch it)', WM.engageWild(fw, busy) === true && fw.wildDocs.get(busy).mode !== 'fight');
+      const sim = [...fnet.pendingRooms.values()][0];
+      ok('and it comes into the battle as hurt as it was, not whole', !!sim && left < 1 && Math.abs(sim.foe.hp / sim.foe.maxHp - left) < 0.02,
+        sim && `${left.toFixed(2)} vs ${(sim.foe.hp / sim.foe.maxHp).toFixed(2)}`);
+      fnet.pendingRooms.clear();
+    }
+  }
+
+  // The trainer's own weapon (shared/arms.js), and a trainer with nobody yet
+  {
+    const FF = await import('../src/server/game/field-fight.js');
+    const AR = await import('../src/shared/arms.js');
+    const MS = await import('../src/shared/milestones.js');
+    const nd = C.createPlayerDoc('qa-arms', 'QA', {}, 'none');
+    C.normalizeDoc(nd);
+    ok('a trainer can set out with nobody, a wooden sword in hand', nd.team.length === 0 && nd.gear.weapon === 'sword_wood' && AR.armOf(nd).id === 'sword');
+    ok('every weapon is one of the four kinds, with a power', Object.values(G.ITEMS).filter((i) => i.slot === 'weapon').every((i) => AR.ARMS[i.arm] && i.power > 0));
+    ok('and there is a sword, a hammer, a bow and a staff to be had', ['sword', 'hammer', 'bow', 'staff'].every((a) => Object.values(G.ITEMS).some((i) => i.arm === a)));
+    // fw is the single-player world on fdoc: swap the doc for one with nobody
+    const keep = fnet.doc;
+    fnet.doc = nd;
+    const ctxDoc = fw.doc;
+    reset();
+    const wid = put('sparkit', 3, 3);
+    fw._armCd = 0;
+    const r1 = FF.armStrike(fw, wid, T);
+    ok('the trainer hits a wild with their weapon', !!r1 && r1.dmg > 0 && fev.some(([k, v]) => k === 'fieldHit' && v.trainer && v.arm === 'sword'), String(ctxDoc === nd));
+    ok('not faster than the weapon swings', FF.armStrike(fw, wid, T + 100) === null);
+    const thp = nd.trainerHp;
+    ok('it hits back at the trainer when nobody else is there', run(4000, () => fev.some(([k, v]) => k === 'fieldCounter' && v.trainer)) && nd.trainerHp < thp, `${thp} -> ${nd.trainerHp}`);
+    const far = put('sparkit', 3, 9);
+    fw._armCd = 0;
+    ok('a sword does not reach across the field', FF.armStrike(fw, far, T + 5000) === null && fev.some(([k, v]) => k === 'error' && v.code === 'too_far'));
+    nd.gear.weapon = 'bow_hunter';
+    fw._armCd = 0;
+    ok('a bow does', !!FF.armStrike(fw, far, T + 6000));
+    nd.gear.weapon = 'sword_wood';
+    // half down, then into the battle: the trainer fights it there
+    reset();
+    nd.trainerHp = C.trainerMaxHp(nd);
+    const cw = put('sparkit', 3, 3);
+    fw._armCd = 0;
+    FF.armStrike(fw, cw, T);
+    const left = fw.wildDocs.get(cw).hp / fw.wildDocs.get(cw).maxHp;
+    fnet.pendingRooms.clear(); fw.battlePending = 0;
+    ok('with nobody yet, the trainer can still take a wild into a battle', WM.engageWild(fw, cw) === true);
+    const sim = [...fnet.pendingRooms.values()][0];
+    ok('where the trainer is the one fighting, with their weapon', !!sim && sim.you === sim.trainer && !sim.trainer.benched && sim.trainer.arm?.id === 'sword');
+    ok('and the wild is as hurt as it was out there', !!sim && Math.abs(sim.foe.hp / sim.foe.maxHp - left) < 0.02);
+    fnet.pendingRooms.clear();
+    // beaten with the weapon: it counts, and the first milestone pays
+    reset();
+    const kw = put('sparkit', 2, 3);
+    let won = null;
+    for (let k = 0; k < 60 && !won; k++) { fw._armCd = 0; const r = FF.armStrike(fw, kw, T + k * 1000); r?.won && (won = r); }
+    ok('beaten with the weapon, it pays and counts', !!won && won.xp > 0 && nd.stats.armKills === 1 && nd.stats.fieldKills === 1);
+    ok('and the first milestone is reached and paid, once', won?.milestones?.some((m) => m.id === 'first_blood') && nd.milestones.includes('first_blood') && MS.due(nd).every((m) => m.id !== 'first_blood'));
+    fnet.doc = keep;
+    reset();
   }
 
   reset();
@@ -2425,9 +2486,20 @@ section('look and sound');
   const CO = await import('../src/shared/cosmetics.js');
   const CS = await import('../src/server/game/cosmetics.js');
   const td = C.createPlayerDoc('qa-tailor', 'QA', {}, 'cindcub');
+  {
+    // what is worn adds to the trainer and the team (cosmetics.js BONUS)
+    const wd = C.createPlayerDoc('qa-worn', 'QA', {}, 'cindcub');
+    C.normalizeDoc(wd);
+    const before = C.sumStats(wd).spe || 0;
+    CS.grantCosmetic(wd, 'catears'); CS.wearCosmetic(wd, 'hat', 'catears');
+    ok('a hat worn adds to the stats', (C.sumStats(wd).spe || 0) === before + CO.HATS.catears.bonus.spe);
+    ok('a hat that waits on a milestone is not sold before it', CS.buyCosmetic({ ...wd, gold: 99999 }, 'wizard').reason === 'locked');
+    wd.milestones = ['dungeon_normal']; wd.gold = 99999;
+    ok('and is, after', CS.buyCosmetic(wd, 'wizard').ok === true);
+  }
   C.normalizeDoc(td);
   td.gold = 1000;
-  ok('too dear, not bought', CS.buyCosmetic(td, 'wizard').reason === 'not_enough_gold' && td.gold === 1000);
+  ok('too dear, not bought', CS.buyCosmetic(td, 'tophat').reason === 'not_enough_gold' && td.gold === 1000);
   ok('one from the season\'s track is not for sale', CS.buyCosmetic(td, 'halo').reason === 'not_for_sale');
   ok('bought: paid for and yours', CS.buyCosmetic(td, 'bandana').ok && td.gold === 1000 - CO.HATS.bandana.price && CO.wardrobeOf(td).owned.includes('bandana'));
   ok('not twice', CS.buyCosmetic(td, 'bandana').reason === 'already_owned');

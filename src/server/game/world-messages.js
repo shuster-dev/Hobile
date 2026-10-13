@@ -23,7 +23,7 @@ import {
 } from './combat.js';
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
-import { endFight, wildAttack } from './field-fight.js';
+import { armStrike, endFight, restTrainer, wildAttack } from './field-fight.js';
 import { placesOf } from '../../shared/services.js';
 import { sellPrice } from '../../shared/market.js';
 import { CLINIC, admitCost, toAdmit } from '../../shared/clinic.js';
@@ -39,6 +39,7 @@ import * as Social from '../social.js';
 import * as Reports from '../reports.js';
 import { sceneSeen, storyFoe } from './saga.js';
 import { buyCosmetic, wearCosmetic } from './cosmetics.js';
+import { isUnlocked } from '../../shared/milestones.js';
 import { GUARD, cadence, moveAllowance, spendMove, strike } from './guard.js';
 import { claimTier } from './pass.js';
 import { passView } from '../../shared/pass.js';
@@ -64,13 +65,18 @@ export function engageWild(ctx, wildId, { ambush = false } = {}) {
   const fd = ctx.wildDocs.get(wildId);
   if (fd?.mode === 'fight' && fd.prey !== ctx.fieldKey) return ctx.net.emit('error', { code: 'wild_gone' }), false;
   if (!s || Math.hypot(o.x - s.x, o.z - s.z) > 8) return ctx.net.emit('error', { code: 'too_far' }), false;
+  // with nobody yet (or nobody standing) the trainer fights it themselves,
+  // with what is in their hand (shared/arms.js)
   const a = activeCreature(n);
-  if (!a || a.hp <= 0) return ctx.net.emit('error', { code: 'no_healthy_creature' }), false;
+  restTrainer(n, now);
+  if ((!a || a.hp <= 0) && (n.trainerHp ?? 1) <= 0) return ctx.net.emit('error', { code: 'no_healthy_creature' }), false;
   // One fight at a time. The client guards its own button, but the server is
   // the one that knows a wild is also about to catch this player.
   if (now < (ctx.battlePending || 0)) return false;
   ctx.battlePending = now + FIELD.pendingMs;
-  // a fight in the open becomes the battle (to catch it): it starts whole
+  // a fight in the open becomes the battle (to catch it): it comes in with
+  // whatever health it had left out there
+  const hpLeft = fd?.mode === 'fight' && fd.maxHp ? Math.max(0.01, fd.hp / fd.maxHp) : 1;
   fd?.mode === 'fight' && (endFight(o, fd, now), ctx.chasedBy === wildId && (ctx.chasedBy = null));
   o.engagedBy = n.id;
   const d = ctx.wildDocs.get(wildId);
@@ -79,7 +85,7 @@ export function engageWild(ctx, wildId, { ambush = false } = {}) {
     zoneId: ctx.zoneId,
     wildId,
     ambush,
-    wild: { species: o.species, level: o.level },
+    wild: { species: o.species, level: o.level, hpLeft },
     onEnd: (captured) => {
       // Whatever became of the fight, this session is free to start another.
       ctx.battlePending = 0;
@@ -418,6 +424,11 @@ export function handleWorldMessage(ctx, e, t = {}) {
           if (ctx.inside) return;
           wildAttack(ctx, typeof t?.wildId == "string" ? t.wildId : "", typeof t?.skill == "string" ? t.skill : "");
           break;
+        case "armStrike":
+          // the trainer's own weapon at a wild (shared/arms.js)
+          if (ctx.inside) return;
+          armStrike(ctx, typeof t?.wildId == "string" ? t.wildId : "");
+          break;
         case "bossAttack":
           {
             let o = ctx.state.boss;
@@ -667,6 +678,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = ITEMS[t.itemId],
               a = Math.max(1, Math.min(99, Number(t.qty) || 1));
             if (!o?.price) return;
+            // some wait on a milestone (shared/milestones.js)
+            if (!isUnlocked(n, o)) return ctx.net.emit("error", { code: "locked" });
             if (n.gold < o.price * a) {
               ctx.net.emit("error", {
                 code: "not_enough_gold"

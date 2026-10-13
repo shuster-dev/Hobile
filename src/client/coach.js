@@ -126,7 +126,9 @@ export class Coach {
     else if (step.id === 'talk' || step.id === 'fight') {
       // near enough to the one to talk to (or fight): the big button
       const label = $('#btn-action')?.textContent || '';
-      if ((step.id === 'talk' && label === 'דבר') || (step.id === 'fight' && label === 'קרב')) ring = rectOf('#btn-action');
+      if (step.id === 'talk' && label === 'דבר') ring = rectOf('#btn-action');
+      // the weapon's circle, once a wild is near enough to hit (shared/arms.js)
+      if (step.id === 'fight') ring = rectOf('#btn-arm') || (label === 'קרב' ? rectOf('#btn-action') : null);
       if (step.id === 'fight' && !ring) {
         // an arrow over the nearest wild creature
         const p = g.world.selfPosition?.(), near = p && g.nearestWild?.(p), w = near && g.worldState()?.wilds?.get(near.id);

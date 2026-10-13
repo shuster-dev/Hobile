@@ -13,6 +13,8 @@
 // their own sphere and potions, what each takes home, and someone leaving
 // halfway. The single-player build keeps BattleSim (base.js); the reward rules
 // here follow its `resolve` line by line, so the two settle a wild the same way.
+import { armOf } from '../../shared/arms.js';
+import { claimMilestones } from './milestones.js';
 import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
@@ -65,6 +67,8 @@ export class PartyBattle {
         creature: makeCreature(wild.species, wild.level, { shinyMul: eventMul('shiny') }), scale: tier.scale, ai: tier.ai,
       }));
       this.foeBaseHp = this.foe.maxHp;
+      // hurt in the open before the battle (field-fight.js): it stays hurt
+      wild.hpLeft < 1 && (this.foe.hp = Math.max(1, Math.round(this.foe.maxHp * wild.hpLeft)));
     }
   }
 
@@ -82,7 +86,8 @@ export class PartyBattle {
       }
       return this.mode === 'pvp' ? { ...c, hp: statsOf(c).hp } : c;
     });
-    const lead = team.find((c) => c.hp > 0) || team[0] || null;
+    // nobody standing (or nobody yet): the trainer is the one fighting
+    const lead = team.find((c) => c.hp > 0) || null;
     const roster = [];
     team.forEach((creature, i) => {
       const c = this.sim.add(new Combatant({
@@ -94,6 +99,8 @@ export class PartyBattle {
     const anchor = this.sim.combatants.get(roster.find((x) => x.uid === lead?.uid)?.id) || null;
     const trainer = this.sim.add(new Combatant({
       side, kind: 'trainer', name: doc.name, ownerId: doc.id, level: doc.level, benched: !!anchor, gearBonus: gear,
+      // as hurt as they are in the open (not in a duel), with what is in their hand
+      hp: this.mode !== 'pvp' && doc.trainerHp > 0 ? doc.trainerHp : undefined, arm: armOf(doc),
     }));
     const part = { id: doc.id, doc, side, emit, roster, anchor, trainer, left: false, capture: null, guildBonus };
     this.parts.set(doc.id, part);
@@ -329,6 +336,7 @@ export class PartyBattle {
       const lost = Math.floor(t.gold * 0.02);
       o.gold = -spend(t, lost, 'blackout'); o.blackout = true; healTeam(t, 1); t.pos = null;
     }
+    o.milestones = claimMilestones(t);
     o.profile = publicProfile(t);
     return o;
   }

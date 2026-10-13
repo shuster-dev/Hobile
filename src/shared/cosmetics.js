@@ -1,7 +1,11 @@
 // What a trainer can wear that is not their kind's: a hat, glasses, something
 // on the back or round the neck, and a dye for the kind's main cloth. Bought with gold at the tailor (or earned on the season's
-// track, `pass`), owned for good, worn or taken off at will. None of it does
-// anything in a fight — it is how you look, nothing more.
+// track, `pass`), owned for good, worn or taken off at will. And, as in the
+// old side-scrollers, what you wear is not only how you look: each hat,
+// glasses and pack adds a little to the trainer and their team in a fight
+// (`bonus`, summed with the gear by combat.js sumStats). Dyes are colour only.
+// Some are not sold until a milestone is reached (`unlock`,
+// shared/milestones.js), and some only given for one (`reward`).
 //
 // Pure: the server sells and checks by it (server/game/cosmetics.js), the
 // figure is built by it (client/gfx/wardrobe3d.js on the models, people.js
@@ -63,6 +67,24 @@ export const DYES = {
   rift: { he: 'אור הקרע', color: 0x2fc8b8, pass: true },
 };
 
+/** What each one adds in a fight. Small: a whole outfit is about one piece
+ *  of the smith's gear. */
+const BONUS = {
+  cap_red: { atk: 2 }, cap_blue: { def: 2 }, bandana: { spe: 3 }, beanie: { hp: 10 },
+  flowers: { spd: 3, hp: 6 }, cowboy: { atk: 4, spe: 2 }, catears: { spe: 5, atk: 2 },
+  wizard: { spa: 6 }, tophat: { spd: 4, def: 3 }, crown: { atk: 6, def: 6, spa: 6, spd: 6, hp: 30 },
+  trainer_red: { atk: 3 }, trainer_blue: { def: 3 }, sphere_beanie: { hp: 15 }, headphones: { spa: 3 },
+  straw: { hp: 8, spe: 2 }, halo: { spd: 6, hp: 20 }, horns: { atk: 7 }, riftcrown: { atk: 5, spa: 7 },
+  glasses: { spa: 3 }, shades: { spe: 3 }, star_shades: { spa: 4, spe: 2 }, goggles: { def: 4 },
+  backpack: { hp: 12 }, backpack_blue: { def: 3, hp: 8 }, sphere_pack: { hp: 20 }, scarf: { spd: 3 },
+  wings: { spe: 8, spd: 4, hp: 15 },
+};
+for (const t of [HATS, FACES, BACKS]) for (const [id, c] of Object.entries(t)) if (BONUS[id]) c.bonus = BONUS[id];
+// reached, then sold (shared/milestones.js)
+HATS.crown.unlock = 'level_25';
+BACKS.wings.unlock = 'dungeon_mythic';
+HATS.wizard.unlock = 'dungeon_normal';
+
 export const SLOTS = { hat: HATS, face: FACES, back: BACKS, dye: DYES };
 
 /** A cosmetic by id: { id, slot, ...def }, or null. */
@@ -83,6 +105,16 @@ export function wardrobeOf(doc) {
 export function wornLook(doc) {
   const w = wardrobeOf(doc);
   return { ...(doc?.appearance || {}), hat: w.hat, face: w.face, back: w.back, dye: w.dye };
+}
+
+/** What the worn ones add, summed. */
+export function wornBonus(doc) {
+  const w = wardrobeOf(doc), out = {};
+  for (const slot of ['hat', 'face', 'back']) {
+    const b = w[slot] && SLOTS[slot][w[slot]]?.bonus;
+    if (b) for (const [k, v] of Object.entries(b)) out[k] = (out[k] || 0) + v;
+  }
+  return out;
 }
 
 export const HAT_IDS = Object.keys(HATS);

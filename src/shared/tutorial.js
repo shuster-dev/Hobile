@@ -13,8 +13,8 @@ export const TUTORIAL = [
   { id: 'move', mode: 'world', he: 'גרור את האגודל השמאלי כדי ללכת', icon: '👣' },
   { id: 'look', mode: 'world', he: 'גרור עם אצבע בצד ימין כדי לסובב את המצלמה', icon: '🔄' },
   { id: 'talk', mode: 'world', he: 'לך אחרי החץ ודבר עם מי שמחכה לך — כשאתה לידו לחץ "דבר"', icon: '💬' },
-  { id: 'fight', mode: 'world', he: 'יצור פראי! גש אליו ולחץ "קרב"', icon: '⚔️' },
-  { id: 'attack', mode: 'battle', he: 'לחץ על מהלך כדי לתקוף', icon: '✊' },
+  { id: 'fight', mode: 'world', he: 'יצור פראי! גש אליו והכה אותו בנשק שלך — הכפתור מופיע כשאתה קרוב', icon: '⚔️' },
+  { id: 'attack', mode: 'battle', he: 'לחץ על "מכה" או על מהלך כדי לתקוף', icon: '✊' },
   { id: 'capture', mode: 'battle', he: 'כשהחיים שלו בצהוב או באדום — "זרוק כדור" כדי ללכוד אותו', icon: '🔵' },
   { id: 'base', mode: 'world', he: 'הבסיס שלך: אימון, ייצור ובנייה — פתח אותו', icon: '🏕' },
 ];
