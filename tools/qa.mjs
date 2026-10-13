@@ -2987,5 +2987,28 @@ section('the leaders');
   ok('one already past the meadow\'s and the canyon\'s leaders holds their badges', ['badge_leaf', 'badge_flame', 'badge_stone'].every((b) => vd2.badges?.includes(b)), JSON.stringify(vd2.badges));
 }
 
+// ---------------------------------------------------------------- levels
+// A creature should grow in a handful of wins, all the way to 60, and every
+// level should show: more health, more strength, and now and then a move.
+section('levels');
+{
+  const P = G.PROGRESSION;
+  const wins = (L) => (P.xpToLevel(L + 1) - P.xpToLevel(L)) / Math.round(C.creaturePower({ species: 'mossnail', level: L }, Math.max(1, Math.round(L * 0.8))) * P.creatureXpMul);
+  const ws = [2, 5, 10, 20, 30, 40, 50, 59].map(wins);
+  ok('a level takes a handful of wins: about three early, never more than six', ws.every((w) => w >= 1.5 && w <= 6) && ws[0] <= 4, ws.map((w) => w.toFixed(1)).join(','));
+  ok('the levels go to 60', P.maxLevel === 60);
+  let flat = [];
+  for (const sp of ['sparkit', 'mossnail', 'cindcub', 'pebblin', 'tidefin']) {
+    const c = C.makeCreature(sp, 2);
+    const ev = C.grantXpTo(c, P.xpToLevel(60), null).filter((e) => e.kind === 'level');
+    for (const e of ev) if (!(e.gain?.hp > 0) || !((e.gain.atk || 0) + (e.gain.spa || 0) > 0)) flat.push(`${sp}@${e.level}`);
+  }
+  ok('every level gives more health and more strength', !flat.length, flat.slice(0, 8).join(','));
+  const cd = C.createPlayerDoc('qa-levels', 'QA', {}, 'sparkit');
+  C.normalizeDoc(cd);
+  const card = C.creatureCard(cd, cd.team[0]);
+  ok('a creature\'s card says its XP and the next move it will learn', Number.isFinite(card.xp) && card.xp >= P.xpToLevel(card.level) && (card.nextMove === null || card.nextMove.level > card.level));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

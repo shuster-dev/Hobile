@@ -859,6 +859,16 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .badge-strip .badge.on{opacity:1;background:linear-gradient(180deg,rgba(232,192,90,.28),rgba(232,192,90,.06));border-color:#e8c05a}
 .badge-strip .bi{font-size:20px}
 .badge-strip .bn{font-size:9px;color:var(--muted);text-align:center;line-height:1.1}
+
+/* a creature's XP into its level */
+.xpline{display:flex;align-items:center;gap:6px;margin-top:4px}
+.xpline .bar{flex:1;height:5px}
+.xpline span{font-size:10px;color:var(--muted);white-space:nowrap}
+.xpline.big{margin:8px 14px 0}
+.xpline.big .bar{height:8px}
+.xpline.big span{font-size:var(--t-sm);color:var(--text)}
+.xp-next{margin:4px 14px 0;font-size:var(--t-sm);color:var(--muted);line-height:1.4}
+.bar.pet-xp{height:3px;margin-top:3px;opacity:.9}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
@@ -881,6 +891,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
         <div class="bar xp"><i id="v-xp" style="width:0%"></i></div>
         <div class="pet"><span id="v-pet-name">—</span><span id="v-gold" class="mono" dir="ltr" style="margin-inline-start:auto"></span></div>
         <div class="bar hp"><i id="v-hp" style="width:100%"></i></div>
+        <div class="bar xp pet-xp"><i id="v-pxp" style="width:0%"></i></div>
         <div class="sky"><b id="v-sky">—</b><span id="v-season"></span></div>
         <button id="btn-claim" class="claim hidden" type="button">🔒 שמור התקדמות</button>
         <button id="chip-daily" class="chip-daily hidden" type="button"></button>

@@ -163,7 +163,8 @@ function fieldWin(ctx, wildId, w, d = {}) {
   const xp = Math.round(creaturePower(foe, doc.level) * eventMul('xp')), gold = Math.round(creatureScore(foe) * eventMul('gold'));
   earn(doc, gold, 'battle');
   o.xp = xp; o.gold = gold;
-  lead && o.events.push(...grantXpTo(lead, xp, doc));
+  lead && o.events.push(...grantXpTo(lead, Math.round(xp * PROGRESSION.creatureXpMul), doc));
+  o.leadXp = lead ? { uid: lead.uid, gained: Math.round(xp * PROGRESSION.creatureXpMul) } : null;
   // a trainer who fought it alone learns all of it
   o.events.push(...grantXp(doc, Math.floor(xp * (lead && d.leadHit ? 0.6 : 1))));
   const stats = (doc.stats ||= {});

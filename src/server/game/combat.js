@@ -1048,6 +1048,7 @@ function trainerMaxHp(i) {
 function grantXpTo(i, e, doc = null) {
   let t = [];
   for (i.xp += e; i.level < PROGRESSION.maxLevel && i.xp >= PROGRESSION.xpToLevel(i.level + 1);) {
+    let was = statsFor(i.species, i.level, i.iv, i.star || 1, i.nature);
     i.level += 1;
     let n = statsFor(i.species, i.level, i.iv, i.star || 1, i.nature),
       s = n.hp - i.maxHp;
@@ -1061,9 +1062,12 @@ function grantXpTo(i, e, doc = null) {
       skill: a,
       equipped: i.skills.includes(a)
     });
+    // what the level gave it: health, strength, the rest (the client says so)
     t.push({
       kind: "level",
-      level: i.level
+      level: i.level,
+      uid: i.uid,
+      gain: Object.fromEntries(["hp", "atk", "def", "spa", "spd", "spe"].map(k => [k, Math.max(0, (n[k] || 0) - (was[k] || 0))]))
     });
     // "your partner grows" (shared/journey.js)
     doc && syncQuests(doc, { kind: "grow" });
@@ -2101,6 +2105,9 @@ function creatureCard(i, e) {
     uid: t.uid,
     species: t.species,
     level: t.level,
+    // how far into this level, and the next move it will learn (ui.panelCard)
+    xp: t.xp || 0,
+    nextMove: (SPECIES[t.species]?.learn || []).filter(([lv]) => lv > t.level).sort((a, b) => a[0] - b[0]).map(([lv, sk]) => ({ level: lv, skill: sk }))[0] || null,
     star: t.star || 1,
     iv: t.iv,
     hp: t.hp,
