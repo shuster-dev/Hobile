@@ -31,7 +31,7 @@ const xpProgress = (c) => {
   let lv = c?.level || 1, lo = lv > 1 ? PROGRESSION.xpToLevel(lv) : 0, hi = PROGRESSION.xpToLevel(lv + 1);
   return { have: Math.max(0, Math.min(hi - lo, (c?.xp || 0) - lo)), need: hi - lo };
 };
-import { LEADERS, LEADER_REACH, leaderSpot, weakTo } from '../shared/leaders.js';
+import { LEADERS, LEADER_REACH, badgeNeeded, leaderSpot, weakTo } from '../shared/leaders.js';
 import { LEAGUE, leagueOpen } from '../shared/league.js';
 import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
@@ -712,7 +712,12 @@ var Game = class {
       let q = QUESTS[t?.questId];
       q && this.ui.toast(`משימה חדשה: ${loc(q)}`, "good");
     }), e.on("error", t => {
-      if (t.code === "need_badge") return this.engagePending = 0, this.ui.toast(`🔒 העולם הזה נפתח עם ${t.badge} — נצח את המנהיג של ${loc(ZONES[t.zone] || {})}`, "bad");
+      if (t.code === "need_badge") {
+        // and the arrow now leads to the one who holds it (gateFirst)
+        let l = LEADERS[t.zone], gate = Object.values(ZONES).find(z => badgeNeeded(z.id)?.zone === t.zone)?.id;
+        this._gate = gate || null;
+        return this.engagePending = 0, this.ui.toast(`🔒 העולם הזה נפתח עם ${t.badge} — נצח את ${l ? `${l.he}, ${l.title},` : "המנהיג"} בזירה ליד המחנה של ${loc(ZONES[t.zone] || {})}. החץ מראה את הדרך (⚔ במכ״ם).`, "bad");
+      }
       this.engagePending = 0, this._storyFight = null, this._leaderFight = null, this._leagueFight = null, this.ui.toast(Oc(t.code), "bad");
       // could not land here (over the water, the chasm): back up into the air
       t.code === "cannot_land" && (this.world.flyLanding = !1);
@@ -1994,7 +1999,28 @@ var Game = class {
   storyFight(id) {
     this.engagePending || (this.engagePending = Date.now(), this._storyFight = id, this.net.send("storyFight", { id }));
   }
+  /** What to do now; and when it lies past a gate the badges do not open
+   *  yet, the leader who holds that badge first. A player sent on to the
+   *  next world (a guided errand, the journey) used to walk into a shut
+   *  portal with no word of who to beat or where. */
   currentObjective() {
+    let o = this.objectiveOf();
+    return this.gateFirst(o) || o;
+  }
+  gateFirst(o) {
+    let have = this.profile?.badges || [], here = this.zone?.id;
+    if (!here) return null;
+    let want = o?.goal?.kind === "talk" ? giverSpot(o.goal.target)?.zone || o.goal.zone : o?.goal?.zone,
+      way = want && want !== here ? route(here, want) || [] : [];
+    // the gate just tried, too (the "need_badge" answer)
+    this._gate && !way.includes(this._gate) && (way = [...way, this._gate]);
+    for (let z of way) {
+      let l = badgeNeeded(z);
+      if (l && !have.includes(l.badge.id)) return { label: `⚔ קודם: ${l.he}, ${l.title} (${l.badge.icon} ${l.badge.he})`, goal: { kind: "badge", target: l.zone, zone: l.zone }, done: !1 };
+    }
+    return this._gate = null, null;
+  }
+  objectiveOf() {
     let e = this.profile?.quests?.active || {};
     // the quest the player asked to be shown the way to (ui: quest guide)
     let gid = this.guideQuestId, gq = gid && QUESTS[gid], gl = gq && (e[gid] || this.profile?.quests?.dailies?.[gid]);

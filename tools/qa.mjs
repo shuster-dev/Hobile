@@ -3061,6 +3061,25 @@ section('journey bot');
     ok('and a rematch pays no prize twice', !again.first && again.gold === 0);
     ok('the league is announced trainer by trainer', LGS.leagueMemberAt(0)?.id === LGS.LEAGUE.members[0].id && LGS.leagueMemberAt(LGS.LEAGUE_TEAM.length - 1)?.id === 'champion');
   }
+  {
+    // a player who was further on than a leader before there were leaders is
+    // not shut out behind them (the storm heights portal, a level-60 save)
+    const LDR = await import('../src/shared/leaders.js');
+    const old = C.createPlayerDoc('qa-old', 'QA', {}, 'sparkit');
+    old.zone = 'stormreach_heights'; old.badges = [];
+    C.normalizeDoc(old);
+    const before = LDR.LEADER_ORDER.slice(0, 4).map((z) => LDR.LEADERS[z].badge.id);
+    ok('an old save in the storm heights has every badge before it, and not that world\'s own', before.every((b) => old.badges.includes(b)) && !old.badges.includes(LDR.LEADERS.stormreach_heights.badge.id), JSON.stringify(old.badges));
+    const went = C.createPlayerDoc('qa-old2', 'QA', {}, 'sparkit');
+    went.zone = 'stormreach_heights'; went.badges = [];
+    C.normalizeDoc(went);
+    went.quests.done.push('q_frostpeak_ridge_hunt');
+    C.normalizeDoc(went);
+    ok('one who has been in the frost ridge already has the storm badge too', !G.QUESTS.q_frostpeak_ridge_hunt || went.badges.includes(LDR.LEADERS.stormreach_heights.badge.id), JSON.stringify(went.badges));
+    const fresh = C.createPlayerDoc('qa-new', 'QA', {}, 'none');
+    C.normalizeDoc(fresh);
+    ok('a new player has no badges given', !(fresh.badges || []).length);
+  }
   const team = C.teamCreatures(r.doc).map((c) => c.level), spread = Math.max(...team) - Math.min(...team);
   ok('the team grows together: no creature in it left 12 levels behind', spread <= 12, team.join(','));
 }

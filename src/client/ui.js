@@ -607,7 +607,12 @@ var UI = class {
     let onRim = [];
     // the world's leader's ring (shared/leaders.js)
     let lsp = z?.id && LEADERS[z.id] && leaderSpot(z.id);
-    if (lsp) { let [x, y] = at(lsp.x, lsp.z); inside(x, y, 6) && badge(x, y, 6.2, (this.profile?.badges || []).includes(LEADERS[z.id].badge.id) ? "#e8c05a" : "#ff7a59", "⚔", "#fff"); }
+    if (lsp) {
+      let [x, y] = at(lsp.x, lsp.z), won = (this.profile?.badges || []).includes(LEADERS[z.id].badge.id);
+      if (inside(x, y, 6)) badge(x, y, 6.2, won ? "#e8c05a" : "#ff7a59", "⚔", "#fff");
+      // a leader not yet beaten is worth finding from anywhere: on the rim, pointing the way
+      else if (!won) { let p = rim(x, y, 9); onRim.push(p.ang), badge(p.x, p.y, 5.4, "#ff7a59", "⚔", "#fff"), pointer(p, "#ff7a59"); }
+    }
     for (let h of placesOf(z)) {
       let [x, y] = at(h.x, h.z), col = MAP_PIN[h.kind] || MAP_PIN._, way = h.kind === "portal" || h.kind === "dungeon";
       if (inside(x, y, 6)) badge(x, y, h.r ? 6.2 : 5.4, col, MAP_GLYPH[h.kind] || "", way ? col : "#fff");
