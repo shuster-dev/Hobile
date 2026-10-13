@@ -3096,6 +3096,20 @@ section('world bosses');
   }
   ok('some world boss is out, or comes within five minutes, at any minute of the day', worst <= 5 * 60_000, `${worst / 60000} min`);
   const d = G.WORLD_BOSSES[2], t0 = Date.parse('2026-10-13T10:07:00Z'), a = WB.bossWindow(d, t0), b = WB.bossWindow(d, t0 + 30_000);
+  {
+    // the journey's "hit the world boss" is done by the first hit (online it
+    // never closed: the room paid the board and told no quest)
+    const WM = await import('../src/server/game/world-messages.js');
+    const d = C.createPlayerDoc('qa-boss', 'QA', {}, 'vulcanth');
+    C.normalizeDoc(d);
+    d.quests.active = { q_main_10: { progress: 0 } };
+    const sent = [], ctx = { doc: d, online: true, self: () => ({ x: 0, z: 0 }), state: { boss: { active: true, x: 2, z: 2, hp: 5000, maxHp: 5000 } },
+      bossContribution: new Map(), refreshBossBoard: () => {}, net: { emit: (k, v) => sent.push([k, v]), save: () => {} } };
+    WM.handleWorldMessage(ctx, 'bossAttack', {});
+    ok('the first hit on a world boss closes the journey\'s boss step', d.quests.done.includes('q_main_10') && ctx.state.boss.hp < 5000 && sent.some(([k]) => k === 'questDone'), JSON.stringify(sent.map(([k]) => k)));
+    const one = G.statsFor('magmadon', 22, 1, 3).hp * WB.BOSS_HP_PER, dmg = ((2 * 22 / 5 + 2) * 90 * (G.statsFor('vulcanth', 22, 0.7, 1, 'steady').atk / 120) / 50 + 2);
+    ok('one player at a boss\'s level brings it down well inside its window', one / dmg * 0.9 < G.WORLD_BOSSES[0].windowMinutes * 60 * 0.6, `${Math.round(one / dmg)} hits`);
+  }
   ok('a boss\'s window is the same however often you ask', a.startsAt === b.startsAt && a.endsAt === b.endsAt && a.endsAt - a.startsAt === d.windowMinutes * 60_000);
 }
 

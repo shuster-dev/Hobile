@@ -16,6 +16,7 @@ import { addLeaderCrew, leaderWin } from './leaders.js';
 import { eventMul } from '../../shared/events.js';
 import { storyWin } from './saga.js';
 import { huntMaterial } from './saddles.js';
+import { BOSS_HP_PER } from '../../shared/worldboss.js';
 import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
 
 var StoreBase = class {
@@ -332,8 +333,8 @@ var StoreBase = class {
     tickBoss(e) {
       let t = this.state.boss;
       if (!t.active && t.nextSpawnAt && e >= t.nextSpawnAt) {
-        let n = statsFor(this.bossDef.species, this.bossDef.level, 0.6);
-        t.active = !0, t.hp = n.hp * 10, t.maxHp = t.hp, t.endsAt = e + 5 * 6e4, t.top = [], this.bossContribution = new Map(), this.net.emit("bossSpawn", {
+        let n = statsFor(this.bossDef.species, this.bossDef.level, 1, 3);
+        t.active = !0, t.hp = Math.round(n.hp * BOSS_HP_PER), t.maxHp = t.hp, t.endsAt = e + 5 * 6e4, t.top = [], this.bossContribution = new Map(), this.net.emit("bossSpawn", {
           species: t.species,
           level: t.level,
           x: t.x,

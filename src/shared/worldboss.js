@@ -13,6 +13,10 @@ import { WORLD_BOSSES } from './gamedata.js';
 
 export const BOSS_CYCLE_MS = 15 * 60_000;
 
+/** A boss's health per player there to fight it, in its own (3★) health:
+ *  a couple of minutes for one at its level, half a minute at sixty. */
+export const BOSS_HP_PER = 3;
+
 /** This boss's window now or next: { active, startsAt, endsAt }. */
 export function bossWindow(def, now = Date.now()) {
   const i = Math.max(0, WORLD_BOSSES.indexOf(def)),

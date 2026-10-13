@@ -206,7 +206,14 @@ export function playJourney({ seed = 1, eager = false, log = () => {} } = {}) {
       } else if (g.kind === 'dungeon') {
         C.syncQuests(doc, { kind: 'dungeon', target: g.target }); note = 'dungeon: by its event';
       } else if (g.kind === 'boss') {
-        C.syncQuests(doc, { kind: 'boss' }); note = 'world boss: by its event';
+        // the world boss the way a player hits it: through the message the
+        // client sends (world-messages.js bossAttack), online, where the step
+        // once never closed
+        const wb = G.WORLD_BOSSES[0], sent = [];
+        const ctx = { doc, online: true, self: () => ({ x: wb.x, z: wb.z }), state: { boss: { active: true, x: wb.x, z: wb.z, hp: 1e6, maxHp: 1e6 } },
+          bossContribution: new Map(), refreshBossBoard: () => {}, net: { emit: (k, v) => sent.push(k), save: () => {} } };
+        W.handleWorldMessage(ctx, 'bossAttack', {});
+        note = 'world boss: one hit';
       } else if (g.kind === 'anchor') {
         for (const a of SAGA.ANCHORS) SV.storyWin(doc, a.id);
       } else if (g.kind === 'story') {
