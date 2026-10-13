@@ -171,12 +171,13 @@ const land = await page.evaluate(() => {
   const hidden = (sel) => { const e = document.querySelector(sel); return !e || getComputedStyle(e).display === 'none'; };
   const stick = document.querySelector('#stick-zone').getBoundingClientRect();
   const act = document.querySelector('#action-cluster').getBoundingClientRect();
-  return { tracker: hidden('#tracker'), chat: hidden('#chat-mini'),
+  const tr = document.querySelector('#tracker'), tb = tr.getBoundingClientRect(), btns = document.querySelector('.top-right').getBoundingClientRect();
+  return { tracker: hidden('#tracker') || (tb.top >= btns.bottom - 1 && tb.right <= window.innerWidth + 1), chat: hidden('#chat-mini'),
     stickOnScreen: stick.bottom <= window.innerHeight + 1 && stick.left >= -1,
     actionOnScreen: act.bottom <= window.innerHeight + 1 && act.right <= window.innerWidth + 1 };
 });
 for (const [label, cond] of [
-  ['landscape drops the quest panel and chat', land.tracker && land.chat],
+  ['landscape drops the chat; the quest line sits under the buttons', land.tracker && land.chat],
   ['landscape keeps the stick on screen', land.stickOnScreen],
   ['landscape keeps the action cluster on screen', land.actionOnScreen],
 ]) { if (cond) { console.log('  ok  ' + label); } else { console.log('  FAIL ' + label); errors.push(label); } }
