@@ -60,7 +60,7 @@ ok('three characters made', NAMES.every((u) => P[u].id));
 const EVENTS = ['party', 'partyInvite', 'error', 'goto', 'dungeonOffer', 'dungeonInit', 'dungeonLobby', 'floor', 'floorCleared',
   'dungeonEnd', 'battleInit', 'battleStart', 'battleEnd', 'battleEvent', 'battleCountdown', 'allyJoined', 'allyLeft', 'profile',
   'zone', 'gm', 'gmGift', 'inventory', 'actionRejected', 'chat', 'friends', 'arena', 'arenaQueue', 'arenaMatch', 'guild', 'guildList',
-  'guildKicked', 'guildBuff', 'towerChest'];
+  'guildKicked', 'guildBuff', 'towerChest', 'healed'];
 function listen(p, room) {
   for (const ev of EVENTS) room.onMessage(ev, (data) => p.inbox.push({ ev, data, at: Date.now() }));
   room.onMessage('*', () => {});
@@ -149,6 +149,12 @@ ok('the hard tier is open now', pa.records?.dungeons?.undercity_cistern === 0);
 // ---------------------------------------------------------------- the tower
 // (Bob climbs: a GM — Alice — is kept off the boards, server/admin.js)
 section('the tower');
+// Whatever the dungeon took out of Bob's team, he climbs whole: a floor is a
+// fight, and a test that starts it half-fainted is a coin toss, not a test.
+P.alice.room.send('gm', { op: 'give', to: P.bob.id, what: 'gold', amount: 50000 });
+await until(async () => ((await me('bob')).gold || 0) >= 50000, 5000);
+P.bob.room.send('clinicHeal', {});
+await waitFor('bob', 'healed', () => true, 5000);
 clear('alice', 'bob', 'carol');
 P.carol.room.send('dungeonEnter', { dungeonId: 'endless_tower' });
 ok('below its level, the tower says so', await waitFor('carol', 'error', (d) => d.code === 'level_too_low' && d.need === 15));
