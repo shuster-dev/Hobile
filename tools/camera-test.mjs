@@ -6,7 +6,7 @@
  * You arrive in a field zone somewhere in the ring around its camp, often with
  * a house a step behind you, and the camera has to find a view of you from
  * there. Its idea of a house is a box it tests a sightline against; the house
- * it draws is walls and a roof with eaves. Twice now the two have disagreed —
+ * it draws is a model (propmodels.js) with a roof and eaves. Twice now the two have disagreed —
  * a collider circle inside the eaves, then a sightline that started under
  * them — and each time the result was the same picture: a close-up of roof
  * tiles, and no player. So this stands at 96 places around each camp, lets
@@ -67,13 +67,33 @@ for (const zone of ZONES) {
   if (!arrived) continue;
   await new Promise((r) => setTimeout(r, 1500));
 
-  const r = await page.evaluate(() => {
+  const r = await page.evaluate(async () => {
     const w = window.__hobile.world;
+    // The houses are models (propmodels.js), each part an InstancedMesh:
+    // wait for them, then lay every copy's triangles out where it stands.
+    await Promise.all((w.propGroups || []).map((g) => g.userData.ready));
+    const tris = [];
+    const put = (geo, m) => {
+      const P = geo.attributes.position, idx = geo.index, n = idx ? idx.count : P.count, e = m.elements;
+      for (let k = 0; k < n; k++) {
+        const i = idx ? idx.getX(k) : k, x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+        tris.push(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
+      }
+    };
+    for (const g of w.propGroups || []) {
+      g.updateMatrixWorld(true);
+      g.traverse((o) => {
+        if (!o.isMesh || o.userData.noOutline && !o.isInstancedMesh && o.material?.side === 1) return;
+        if (o.isInstancedMesh) {
+          const M = o.matrixWorld.clone(), I = o.matrixWorld.clone();
+          for (let j = 0; j < o.count; j++) { o.getMatrixAt(j, I); put(o.geometry, M.clone().multiply(I)); }
+        } else put(o.geometry, o.matrixWorld);
+      });
+    }
+    if (!tris.length) return { err: 'no houses in this zone' };
+    const pos = tris;
     const keep = w.reconcile;
     w.reconcile = () => {};   // the server's position would drag us back to spawn
-    const mesh = w.zoneGroup.children.find((m) => m.userData?.houses);
-    if (!mesh) return { err: 'no houses in this zone' };
-    const pos = mesh.geometry.attributes.position.array;
     // Nearest triangle along the ray (Moller-Trumbore), or Infinity.
     const hit = (o, d, far) => {
       let best = Infinity;
