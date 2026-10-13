@@ -11,7 +11,7 @@ import { REPORT_REASONS } from '../shared/reports.js';
 import { CameraRig, Joystick, Keyboard, lookSpeed } from './input.js';
 import { Net, remembering, setRemember } from './net.js';
 import { $, Ib, UI, kb, loc, wp, zb } from './ui.js';
-import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
+import { ACTIONS, AVATAR, DUNGEONS, ELEMENTS, HOME_ZONE, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, STARTERS, ZONES } from '../shared/gamedata.js';
 import { NPCS } from '../shared/npcs.js';
 import { GIVERS, giverMark, giverView, heldProgress, questState } from '../shared/story.js';
 import { weatherAt } from '../shared/weather.js';
@@ -22,6 +22,15 @@ import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
 import { RIDE, leadMount, mountKind } from '../shared/riding.js';
 import { placesOf } from '../shared/services.js';
 import { armOf } from '../shared/arms.js';
+
+/** What a level gave: " · חיים +4 · התקפה +1 …" (combat.js grantXpTo). */
+const GAIN_HE = { hp: "חיים", atk: "התקפה", def: "הגנה", spa: "מיוחדת", spd: "עמידות", spe: "מהירות" };
+const gainText = (g) => g ? Object.entries(g).filter(([, v]) => v > 0).map(([k, v]) => ` · ${GAIN_HE[k]} +${v}`).join("") : "";
+/** XP into its level, and what the level takes. */
+const xpProgress = (c) => {
+  let lv = c?.level || 1, lo = lv > 1 ? PROGRESSION.xpToLevel(lv) : 0, hi = PROGRESSION.xpToLevel(lv + 1);
+  return { have: Math.max(0, Math.min(hi - lo, (c?.xp || 0) - lo)), need: hi - lo };
+};
 import { LEADERS, LEADER_REACH, leaderSpot } from '../shared/leaders.js';
 import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
@@ -837,7 +846,7 @@ var Game = class {
       // An evolution gets its own scene (gfx/evolve.js) after the result, so
       // it is not also a line in the summary.
       let evo = (t.events || []).filter(r => r.kind === "evolve" && SPECIES[r.from] && SPECIES[r.into]);
-      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!`), r.kind === "skill" && n.push(r.equipped === !1 ? `למד ${loc(MOVES[r.skill])} — אפשר להכניס אותו בכרטיס היצור` : `למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
+      for (let r of t.events || []) r.kind === "level" && n.push(`עלייה לרמה ${r.level}!${gainText(r.gain)}`), r.kind === "skill" && n.push(r.equipped === !1 ? `למד ${loc(MOVES[r.skill])} — אפשר להכניס אותו בכרטיס היצור` : `למד ${loc(MOVES[r.skill])}`), r.kind === "evolve" && r.newSpecies && n.push(`${loc(SPECIES[r.into])} נרשם באוסף`);
       audio.sfx(t.outcome === "captured" ? "caught" : t.won ? "victory" : t.outcome === "fled" ? "uiBack" : "defeat"), vibrate(t.won || t.outcome === "captured" ? [20, 50, 20, 50, 60] : [140]);
       for (let r of t.events || []) r.kind === "level" && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${r.level}!`, "level"));
       // the story moved: an anchor broken, the rift's guardian down
@@ -956,10 +965,12 @@ var Game = class {
       t.profile && this.applyProfile(t.profile);
       audio.sfx("victory"), vibrate([18, 40, 26]);
       let items = (t.items || []).map(id => ITEMS[id] ? `${ITEMS[id].icon || "🎁"}` : "").join(" ");
-      this.ui.toast(`${loc(SPECIES[t.species] || {})} הובס · +${t.xp} XP · +${t.gold}⛁ ${items}`, "good");
+      // what the one beside you earned, and how far it is into its level
+      let lc = t.leadXp && this.profile?.team?.find(c => c.uid === t.leadXp.uid), xx = lc && xpProgress(lc);
+      this.ui.toast(`${loc(SPECIES[t.species] || {})} הובס · +${t.gold}⛁ ${items}${lc ? ` · ${loc(SPECIES[lc.species] || {})} +${t.leadXp.gained} XP (${xx.have}/${xx.need})` : ` · +${t.xp} XP`}`, "good");
       t.questsDone?.length && this.ui.toast("משימה התקדמה", "good");
       let lv = (t.events || []).filter(r => r.kind === "level").at(-1);
-      lv && this.ui.toast(`⬆ ${loc(SPECIES[this.profile?.team?.[0]?.species] || {})} עלה לרמה ${lv.level}`, "good");
+      lv && (audio.sfx("levelUp"), this.ui.celebrate(`רמה ${lv.level}!`, "level"), this.ui.toast(`⬆ ${loc(SPECIES[(this.profile?.team || []).find(c => c.uid === lv.uid)?.species || this.profile?.team?.[0]?.species] || {})} עלה לרמה ${lv.level}${gainText(lv.gain)}`, "good"));
       for (let r of t.events || []) r.kind === "evolve" && SPECIES[r.into] && this.ui.toast(`✨ ${loc(SPECIES[r.from] || {})} התפתח ל${loc(SPECIES[r.into])}!`, "good");
       this.showMilestones(t.milestones);
     }), e.on("fieldLost", t => {

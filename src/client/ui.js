@@ -321,6 +321,9 @@ var UI = class {
       $("#v-pet-name").innerHTML = `${Ze(loc(o))} ${lvlLabel(r.level)}`;
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
+      // and how far into its level, under its health
+      let px = xpOf(r), pb = $("#v-pxp");
+      pb && (pb.style.width = `${px.max ? 100 : Math.round(px.have / Math.max(1, px.need) * 100)}%`, pb.parentElement.title = `XP ${px.have}/${px.need}`);
     }
     this.renderTracker(), this.renderDailyChip(), this.renderWardChip(), this.renderRide(), this.journeyNews(e), this.openPanelId && this.renderPanel(this.openPanelId);
   }
@@ -500,7 +503,8 @@ var UI = class {
     // the partner's level up: where it is, and where it has to get
     if (!h && l.goal?.kind === "grow") {
       let top = Math.max(0, ...(this.profile.team || []).map(x => x.level || 1));
-      hint = `השותף ברמה ${top} — צריך ${(a.base ?? top) + 1}. כל ניצחון, גם בחרב, נותן לו ניסיון`;
+      let lead = (this.profile.team || []).find(x => x.hp > 0) || this.profile.team?.[0], xx = lead && xpOf(lead);
+      hint = `השותף ברמה ${top} — צריך ${(a.base ?? top) + 1}. ${xx ? `ניסיון ${xx.have}/${xx.need} · ` : ""}כל ניצחון, גם בחרב, נותן לו ניסיון`;
     }
     d.innerHTML = `
       <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם" : l.chain === "main" ? "📖 המסע" : "המשימה הנוכחית"}</div>
@@ -1735,6 +1739,7 @@ var UI = class {
           <span class="stars">${where === "away" ? `${starLabel(s.star || 1)} → ${ltr(`★${s.training?.star || 2}`)}` : starLabel(s.star || 1)}</span>
           <div class="hp ${hp < 30 ? "low" : ""}"><i style="width:${hp}%"></i></div>
           <span class="meta mono">${rangeLabel(Math.round(s.hp), s.maxHp, "/")} HP</span>
+          ${xpBar(s)}
         </div>`;
       let open = () => this.hooks.openCard?.(s.uid);
       c.onclick = open, c.onkeydown = (f) => { (f.key === "Enter" || f.key === " ") && (f.preventDefault(), open()); };
@@ -2012,7 +2017,9 @@ var UI = class {
       </div>
       <div class="name">${Ze(loc(n))}</div>
       <div class="stars big">${starLabel(t.star)}</div>
-      <div class="power">כוח <b>${ltr(powerOf(t))}</b></div>`;
+      <div class="power">כוח <b>${ltr(powerOf(t))}</b></div>
+      ${xpBar(t, !0)}
+      <div class="xp-next">${xpOf(t).max ? "" : `עוד <b>${ltr(xpOf(t).need - xpOf(t).have)}</b> XP לרמה ${ltr(t.level + 1)} — בכל רמה עולים החיים והכוח${t.nextMove && MOVES[t.nextMove.skill] ? ` · ברמה ${ltr(t.nextMove.level)} ילמד <b>${Ze(loc(MOVES[t.nextMove.skill]))}</b>` : ""}`}</div>`;
     let a = el("div", "statgrid"),
       l = {
         hp: "חיים",
@@ -3359,6 +3366,17 @@ function storeHead(icon, name, gold) {
 var STAT_HE = { hp: "חיים", atk: "כוח", def: "הגנה", spa: "כוח מיוחד", spd: "הגנה מיוחדת", spe: "מהירות" };
 
 var KIND_TITLE = { sphere: "🔴 כדורי לכידה", heal: "🧪 שיקויים", revive: "✨ החייאה", stamina: "⚡ מרץ", trainerHeal: "🩹 בשבילך", gear: "⚔️ ציוד — נשק, שריון וקמע", material: "💎 חומרים" };
+
+/** Where a creature is in its level: XP into it, XP the level takes. */
+function xpOf(c) {
+  let lv = c?.level || 1, lo = lv > 1 ? PROGRESSION.xpToLevel(lv) : 0, hi = PROGRESSION.xpToLevel(lv + 1);
+  return { have: Math.max(0, Math.min(hi - lo, (c?.xp || 0) - lo)), need: hi - lo, max: lv >= PROGRESSION.maxLevel };
+}
+/** A thin XP bar with its numbers ("XP 45/137"), for a creature. */
+function xpBar(c, big = !1) {
+  let x = xpOf(c);
+  return x.max ? `<div class="xpline"><span class="mono">רמה מקסימלית</span></div>` : `<div class="xpline ${big ? "big" : ""}"><div class="bar xp"><i style="width:${Math.round(x.have / Math.max(1, x.need) * 100)}%"></i></div><span class="mono">${ltr(`XP ${x.have}/${x.need}`)}</span></div>`;
+}
 
 /** "כוח +8 · מהירות +4" */
 function bonusText(b) {

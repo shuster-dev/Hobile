@@ -600,7 +600,7 @@ var StoreBase = class {
         // the season pays its share (shared/events.js)
         let a = Math.round(creaturePower(this.foe, t.level) * eventMul("xp")),
           l = Math.round(creatureScore(this.foe) * eventMul("gold"));
-        if (earn(t, l, r ? "capture" : "battle"), o.xp = a, o.gold = l, n && o.events.push(...grantXpTo(n, a, t)), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
+        if (earn(t, l, r ? "capture" : "battle"), o.xp = a, o.gold = l, n && o.events.push(...grantXpTo(n, Math.round(a * PROGRESSION.creatureXpMul), t)), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
           let foeSp = [...this.sim.combatants.values()].find(d => d.side === "b")?.creature?.species;
           t.stats.battlesWon += 1, o.questsDone = syncQuests(t, {
             kind: "defeat",

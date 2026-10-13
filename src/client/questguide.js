@@ -173,8 +173,7 @@ export function questGuide(q, live = {}, profile = {}, here = null) {
     case 'grow':
       {
         const top = Math.max(0, ...(profile?.team || []).map((c) => c.level || 1)), need = (live.base ?? top) + 1;
-        steps.push('נצח יצורים ברחובות העיר — עם החרב שלך או בקרב עם השותף. מכל ניצחון השותף מקבל ניסיון, גם כשאתה זה שהכה.');
-        steps.push(`השותף ברמה ${top} — כשיגיע לרמה ${need} השלב נגמר מעצמו, ותוכל לראות את הניסיון שלו בכרטיס היצור.`);
+        steps.push(`השותף ברמה ${top} — כשיגיע לרמה ${need} השלב נגמר מעצמו. פס הניסיון שלו מופיע מתחת לחיים שלו בפינה, וגם בכרטיס היצור.`);
       }
       break;
     case 'claim': {

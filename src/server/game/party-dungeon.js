@@ -236,7 +236,7 @@ export class PartyDungeon {
     const o = { success, endless: this.endless, tier: this.tier.id, xp, gold: 0, items: [], events: [], questsDone: [], floors: this.endless ? this.cleared : this.floor, of: this.floors, players: this.live().length, profile: null };
     o.gold = earn(doc, gold, 'dungeon');
     const n = activeCreature(doc);
-    n && o.events.push(...grantXpTo(n, xp, doc));
+    n && o.events.push(...grantXpTo(n, Math.round(xp * PROGRESSION.creatureXpMul), doc));
     o.events.push(...grantXp(doc, Math.floor(xp * 0.7)));
     const recs = (doc.records ||= {});
     const wk = weekly(doc);
