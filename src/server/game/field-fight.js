@@ -20,6 +20,7 @@ import { activeCreature, creaturePower, creatureScore, giveItem, grantItems, gra
 import { hpRatio } from './player.js';
 import { earn, spend } from './economy.js';
 import { huntMaterial } from './saddles.js';
+import { fieldLoot } from '../../shared/market.js';
 
 export const FIGHT = {
   reach: 8,          // metres: a move reaches this far
@@ -111,7 +112,8 @@ function fieldWin(ctx, wildId, w) {
   o.questsDone = syncQuests(doc, { kind: 'defeat', zone: ctx.zoneId, species: w.species, elements: SPECIES[w.species]?.types || [] });
   const el = SPECIES[w.species]?.types?.[0] || 'metal';
   for (const it of grantItems(doc, DROPS.roll(el, doc.level, 'wild'))) o.items.push(it.id);
-  if (Math.random() < 0.2) { giveItem(doc, 'potion_s', 1); o.items.push('potion_s'); }
+  // and now and then a potion, a sphere, or something to wear (shared/market.js)
+  for (const id of fieldLoot(doc.level || 1)) { giveItem(doc, id, 1); o.items.push(id); }
   o.mat = huntMaterial(doc, w.species);
   if (ctx.chasedBy === wildId) ctx.chasedBy = null;
   ctx.state.wilds.delete(wildId); ctx.wildDocs.delete(wildId);

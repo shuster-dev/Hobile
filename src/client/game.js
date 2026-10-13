@@ -20,6 +20,7 @@ import { HOURS, howOf, rowFor } from '../shared/habitats.js';
 import { abilityInfo } from '../shared/traits.js';
 import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
 import { RIDE, leadMount, mountKind } from '../shared/riding.js';
+import { placesOf } from '../shared/services.js';
 import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
@@ -667,6 +668,7 @@ var Game = class {
       let n = {
         id: t.id,
         kind: t.kind,
+        service: !!t.service,
         name: t.name,
         he: t.he,
         door: t.door
@@ -906,6 +908,8 @@ var Game = class {
       audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
       audio.sfx("bossRoar"), audio.playMusic("boss"), vibrate([60, 60, 120]), this.ui.toast(`⚠ ${t.he || t.name} הופיע באזור!`, "bad");
+    }), e.on("sold", t => {
+      audio.sfx("coin"), this.ui.toast(`נמכר ${loc(ITEMS[t.itemId] || {})}${t.qty > 1 ? ` ×${t.qty}` : ""} · +${t.gold.toLocaleString("en-US")}⛁`, "good");
     }), e.on("fieldHit", t => {
       // your lead's move, where the wild stands (server game/field-fight.js)
       let m = MOVES[t.skill], col = m?.type && ELEMENTS[m.type]?.color || 16772215,
@@ -1142,21 +1146,28 @@ var Game = class {
     if (this.world.atInteriorExit()) return this.ui.setPrompt("🚪 חזרה לרחוב"), t.textContent = "צא", t.onclick = () => this.leaveInterior(), !0;
     let n = this.world.interiorNpcScreenPos(),
       s = {
-        clinic: ["🩺 טיפול, שיקויים והחייאה", "מרפאה"],
-        shop: ["🛒 כדורים, חומרים וציוד", "חנות"],
-        archive: ["📜 יומן המסע ומידע על האזורים", "קרא"],
-        workshop: ["🛠 מתכונים — שדרוגים נעשים בחצר", "מתכונים"]
+        clinic: ["🩺 טיפול, שיקויים וכדורים", "מרפאה"],
+        shop: ["🛒 קנייה ומכירה — הכל", "חנות"],
+        archive: ["📜 המשימות שלך ומידע על האזורים", "משימות"],
+        workshop: ["🛠 מתכונים — שדרוגים נעשים בחצר", "מתכונים"],
+        smith: ["⚒ נשק, שריון וקמעות — כוח וחיים לדמות", "נפח"],
+        tailor: ["👒 כובעים, משקפיים, תיקים וצבעים", "חייט"]
       },
       [r, o] = s[e.kind] || ["—", "פעולה"];
     return n.visible && n.dist < 5.5 ? (this.ui.setPrompt(r), t.textContent = o, t.onclick = () => this.openCounter(e.kind), !0) : (this.ui.setPrompt(e.he || e.name || null), t.textContent = "פעולה", t.onclick = () => this.doAction(), !0);
   }
   openCounter(e) {
+    // a camp's clinic is its shop too; the town's has its own market
     if (audio.sfx("ui"), e === "clinic") {
-      this.ui.openPanel("clinic");
+      this.world.interior?.service ? (this.ui.counter = "clinic", this.ui.shopTab = "buy", this.ui.openPanel("shop")) : this.ui.openPanel("clinic");
       return;
     }
-    if (e === "shop") {
-      this.ui.openPanel("shop");
+    if (e === "shop" || e === "smith") {
+      this.ui.counter = e, this.ui.shopTab = "buy", this.ui.openPanel("shop");
+      return;
+    }
+    if (e === "tailor") {
+      this.ui.openPanel("tailor");
       return;
     }
     if (e === "workshop") {
@@ -1283,6 +1294,7 @@ var Game = class {
       useItem: t => e("useItem", {
         itemId: t
       }),
+      sell: (t, n) => e("shopSell", { itemId: t, qty: n }),
       buy: (t, n) => e("shopBuy", {
         itemId: t,
         qty: n
@@ -1536,7 +1548,7 @@ var Game = class {
       go: () => {
         if (r.interior) {
           this.net.send("enterBuilding", {
-            id: r.interior
+            id: r.service ? r.id : r.interior
           });
           return;
         }
@@ -1593,7 +1605,8 @@ var Game = class {
   }
   nearestLandmark(e) {
     let t = null;
-    for (let n of this.zone?.landmarks || []) {
+    // the zone's places, and a camp's cottages (shared/services.js)
+    for (let n of placesOf(ZONES[this.zone?.id] || this.zone)) {
       let s = Math.hypot(n.x - e.x, n.z - e.z);
       (!t || s < t.d) && (t = {
         ...n,
@@ -2072,15 +2085,15 @@ var Game = class {
           })}`, "היכנס"],
           base: ["🔨 החצר שלך — בנייה, ייצור ואימון", "פתח"],
           workshop: ["🛠 המסגרייה — מתכונים ושדרוגים", "פתח"],
-          shop: ["🛒 שוק הרחוב", "חנות"],
+          shop: ["🛒 שוק הרחוב — קנייה ומכירה", "היכנס"],
           archive: ["📜 הארכיון", "היכנס"],
           clinic: ["🩺 מרפאת הגאות — ריפוי והחייאה", "היכנס"],
           plaza: ["⛲ כיכר הרסיס — מנוחה וריפוי", "מנוחה"],
           pier: ["🌀 מזח הקרע", "התבונן"],
           gate: ["🛡 השער הצפוני", "דבר"]
         },
-        [a, l] = o[s.kind] || [loc(s) || "מנוחה וריפוי", "פעולה"];
-      this.ui.setPrompt(a), $("#btn-action").textContent = l, s.kind === "base" || s.kind === "workshop" ? $("#btn-action").onclick = () => this.openBase() : s.kind === "shop" ? $("#btn-action").onclick = () => this.ui.openPanel("shop") : $("#btn-action").onclick = () => this.doAction();
+        [a, l] = s.service ? [`${s.icon} ${s.he}`, "היכנס"] : o[s.kind] || [loc(s) || "מנוחה וריפוי", "פעולה"];
+      this.ui.setPrompt(a), $("#btn-action").textContent = l, s.kind === "base" || s.kind === "workshop" ? $("#btn-action").onclick = () => this.openBase() : $("#btn-action").onclick = () => this.doAction();
       return;
     }
     let r = this.nearestWild(t);
