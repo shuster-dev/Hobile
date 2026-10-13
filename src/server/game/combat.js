@@ -1010,6 +1010,8 @@ function addCreature(i, e) {
 
 function healTeam(i, e = 1) {
   for (let n of teamCreatures(i)) {
+    // one in a clinic's care gets better there, and is collected (shared/clinic.js)
+    if (n.ward) continue;
     let s = statsOf(n);
     n.maxHp = s.hp, n.hp = Math.min(s.hp, Math.floor(n.hp + s.hp * e)), n.stamina = PROGRESSION.staminaMax;
   }

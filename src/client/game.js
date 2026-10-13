@@ -21,6 +21,7 @@ import { abilityInfo } from '../shared/traits.js';
 import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
 import { RIDE, leadMount, mountKind } from '../shared/riding.js';
 import { placesOf } from '../shared/services.js';
+import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
@@ -540,7 +541,7 @@ var Game = class {
       t.tutorial && this.coach.set(t.tutorial);
       // duplicates folded into one (server mergeDuplicates): said once
       this.sayMerged(t.merged);
-      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
+      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.syncWardGuests(), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t), this.storyWorld();
       // the town has your farm: ask for what is in its pods
@@ -665,6 +666,8 @@ var Game = class {
         this.leaveInterior();
         return;
       }
+      // which house: a clinic's ward is collected where it was left
+      this.ui.place = t.place || null;
       let n = {
         id: t.id,
         kind: t.kind,
@@ -673,7 +676,7 @@ var Game = class {
         he: t.he,
         door: t.door
       };
-      this.world.enterInterior(n) && (audio.sfx("ui"), this.ui.toast(`${t.he || t.name}`, "good"));
+      this.world.enterInterior(n) && (audio.sfx("ui"), this.ui.toast(`${t.he || t.name}`, "good"), this.syncWardGuests());
     }), e.on("dialogue", t => {
       let q = t.errand && QUESTS[t.errand.id];
       audio.sfx("ui"), this.ui.showDialogue({
@@ -908,6 +911,8 @@ var Game = class {
       audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
       audio.sfx("bossRoar"), audio.playMusic("boss"), vibrate([60, 60, 120]), this.ui.toast(`⚠ ${t.he || t.name} הופיע באזור!`, "bad");
+    }), e.on("ward", t => {
+      t.admitted?.length ? (audio.sfx("ui"), this.ui.toast(`🚑 ${t.admitted.length} באשפוז — חזור לאסוף בעוד 5 דקות`, "good")) : t.collected?.length && (audio.sfx("quest"), this.ui.toast(`💚 ${t.collected.length} חזרו לצוות, בריאים`, "good"));
     }), e.on("sold", t => {
       audio.sfx("coin"), this.ui.toast(`נמכר ${loc(ITEMS[t.itemId] || {})}${t.qty > 1 ? ` ×${t.qty}` : ""} · +${t.gold.toLocaleString("en-US")}⛁`, "good");
     }), e.on("fieldHit", t => {
@@ -1137,6 +1142,7 @@ var Game = class {
     return audio.sfx("ui"), this.ui.toast(t === "first" ? "מבט גוף ראשון" : "מבט גוף שלישי"), t;
   }
   leaveInterior() {
+    this._wardKey = null, this.ui.place = null;
     this.world.interior && (this.world.exitInterior(), this.net.send("exitBuilding"), audio.sfx("ui"));
   }
   interiorPrompt() {
@@ -1163,7 +1169,7 @@ var Game = class {
   openCounter(e) {
     // a camp's clinic is its shop too; the town's has its own market
     if (audio.sfx("ui"), e === "clinic") {
-      this.world.interior?.service ? (this.ui.counter = "clinic", this.ui.shopTab = "buy", this.ui.openPanel("shop")) : this.ui.openPanel("clinic");
+      this.ui.counter = "clinic", this.ui.shopTab = "buy", this.ui.openPanel("shop");
       return;
     }
     if (e === "shop" || e === "smith") {
@@ -1220,6 +1226,8 @@ var Game = class {
       gm: (op, data = {}) => e("gm", { ...data, op }),
       gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" }), e("gm", { op: "reports" }), e("gm", { op: "metrics" }), e("gm", { op: "errors" })),
       clinicHeal: () => e("clinicHeal"),
+      clinicAdmit: () => e("clinicAdmit"),
+      clinicCollect: () => e("clinicCollect"),
       // NB: swapCreature is defined once, further down in this same object.
       // It used to be declared here too, sending an unhandled "switchCreature"
       // message; the later key silently won, so this one never ran.
@@ -1503,7 +1511,14 @@ var Game = class {
   }
   /** A profile the server sent with something else (a fight in the open). */
   applyProfile(p) {
-    this.profile = p, this.ui.setProfile(p), this.ui.renderWorldSkills(p.team?.[0]);
+    this.profile = p, this.ui.setProfile(p), this.ui.renderWorldSkills(p.team?.[0]), this.syncWardGuests();
+  }
+  /** In a clinic: the ones in its care walk about the room (shared/clinic.js). */
+  syncWardGuests() {
+    if (this.world.interior?.kind !== "clinic") return;
+    let list = inCare(this.profile?.team || []).filter(w => w.place === this.ui.place).map(w => w.c),
+      key = list.map(c => c.uid).join(",");
+    key !== this._wardKey && (this._wardKey = key, this.world.setInteriorGuests(list));
   }
   /** A number that rises and fades over something in the world. */
   floatOver(key, text, cls, up = 2.2) {

@@ -26,6 +26,7 @@ import { FIELD, calmWild, keepSpot } from './field.js';
 import { endFight, wildAttack } from './field-fight.js';
 import { placesOf } from '../../shared/services.js';
 import { sellPrice } from '../../shared/market.js';
+import { CLINIC, admitCost, toAdmit } from '../../shared/clinic.js';
 import { handleGm } from './gm.js';
 import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
@@ -534,6 +535,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // Park the player in the doorway so stepping back out is sensible.
             s.x = a.x, s.z = a.z, s.moving = !1, s.status = "inside", keepSpot(n, ctx.zoneId, s);
             ctx.inside = o.interior;
+            // which house exactly: a clinic's ward is collected where it was left
+            ctx.insidePlace = o.id || `${ctx.zoneId}:${o.kind}`, ctx.insideKind = o.kind, ctx.insideHe = o.he || o.name || "";
             // nobody rides in through a door
             ctx.ride && (setRide(ctx, s, n, null), ctx.net.emit("ride", null));
             ctx.net.emit("building", {
@@ -541,6 +544,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               kind: o.kind,
               // a camp's cottage (shared/services.js), not one of the town's
               service: !!o.service,
+              place: ctx.insidePlace,
               name: o.name,
               he: o.he,
               door: a
@@ -549,7 +553,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "exitBuilding":
           {
-            ctx.inside = null, s.status = "idle";
+            ctx.inside = null, ctx.insidePlace = null, ctx.insideKind = null, s.status = "idle";
             ctx.net.emit("building", null);
             break;
           }
@@ -672,6 +676,27 @@ export function handleWorldMessage(ctx, e, t = {}) {
             spend(n, o.price * a, "shop"), giveItem(n, o.id, a), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
             break;
           }
+        case "clinicAdmit":
+          {
+            // the ones that fainted, into this clinic's care (shared/clinic.js)
+            if (ctx.insideKind !== "clinic") return ctx.net.emit("error", { code: "not_here" });
+            let team = teamCreaturesOf(n), down = toAdmit(team), cost = admitCost(team);
+            if (!down.length) return ctx.net.emit("error", { code: "nobody_down" });
+            if ((n.gold || 0) < cost) return ctx.net.emit("error", { code: "not_enough_gold" });
+            spend(n, cost, "clinic");
+            for (let c of down) c.ward = { place: ctx.insidePlace, zone: ctx.zoneId, he: ctx.insideHe, until: r + CLINIC.stayMs };
+            ctx.net.save(), ctx.net.emit("ward", { admitted: down.map(c => c.uid), cost }), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
+        case "clinicCollect":
+          {
+            // only at the clinic they are in, and only once they are better
+            let ready = teamCreaturesOf(n).filter(c => c?.ward && c.ward.place === ctx.insidePlace && c.ward.until <= r);
+            if (!ready.length) return ctx.net.emit("error", { code: "not_ready" });
+            for (let c of ready) c.hp = c.maxHp, delete c.ward;
+            s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("ward", { collected: ready.map(c => c.uid) }), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
         case "shopSell":
           {
             // what you carry, back to the counter for part of what it costs
@@ -690,6 +715,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = ITEMS[t.itemId];
             if (!o) return;
             let a = n.creatures[t.uid] || activeCreature(n);
+            if (a?.ward) return ctx.net.emit("error", { code: "in_care" });
             if (o.kind === "heal" && a && a.hp > 0 && takeItem(n, o.id)) a.hp = Math.min(a.maxHp, a.hp + o.amount);else if (o.kind === "revive" && a && a.hp <= 0 && takeItem(n, o.id)) a.hp = Math.floor(a.maxHp * o.ratio);else if (o.kind === "gear") {
               if (!equipGear(n, o.id)) {
                 ctx.net.emit("error", {

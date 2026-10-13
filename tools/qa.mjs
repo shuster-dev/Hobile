@@ -1522,6 +1522,27 @@ section('camps, counters and loot');
   ok('selling: paid, and gone from the bag', sd.gold === g0 + 2 * MK.sellPrice(G.ITEMS.potion_m) && sd.inventory.potion_m === 1 && out.some(([k]) => k === 'sold'));
   WM.handleWorldMessage({ doc: sd, self: () => ({}), net: { save() {}, emit: (k, v) => out.push([k, v]) } }, 'shopSell', { itemId: 'potion_m', qty: 5 });
   ok('not more than you have', sd.inventory.potion_m === 1 && out.some(([k, v]) => k === 'error' && v.code === 'not_enough_items'));
+  // the clinic's ward (shared/clinic.js)
+  const CL = await import('../src/shared/clinic.js');
+  const wd = C.createPlayerDoc('qa-ward', 'QA', {}, 'cindcub');
+  C.normalizeDoc(wd);
+  const lead = wd.creatures[wd.team[0]];
+  lead.hp = 0; wd.gold = 10000;
+  const wout = [], wctx = (place, kind = 'clinic') => ({ doc: wd, self: () => ({}), insideKind: kind, insidePlace: place, insideHe: 'מרפאה', zoneId: 'verdant_meadow', net: { save() {}, emit: (k, v) => wout.push([k, v]) } });
+  WM.handleWorldMessage(wctx(null, null), 'clinicAdmit', {});
+  ok('the ward is only in a clinic', !lead.ward && wout.some(([k, v]) => k === 'error' && v.code === 'not_here'));
+  WM.handleWorldMessage(wctx('svc_a'), 'clinicAdmit', {});
+  ok('one that fainted is admitted, paid for, for five minutes', lead.ward?.place === 'svc_a' && lead.ward.until - Date.now() > CL.CLINIC.stayMs - 5000 && wd.gold < 10000 && lead.hp === 0);
+  C.healTeam(wd, 1);
+  ok('nothing heals it on the way: it gets better in the ward', lead.hp === 0);
+  WM.handleWorldMessage(wctx('svc_a'), 'clinicCollect', {});
+  ok('not collected before its time', !!lead.ward && wout.some(([k, v]) => k === 'error' && v.code === 'not_ready'));
+  lead.ward.until = Date.now() - 1;
+  WM.handleWorldMessage(wctx('svc_b'), 'clinicCollect', {});
+  ok('nor from another clinic', !!lead.ward);
+  WM.handleWorldMessage(wctx('svc_a'), 'clinicCollect', {});
+  ok('collected where it was left: whole, and back', !lead.ward && lead.hp === lead.maxHp && wout.some(([k, v]) => k === 'ward' && v.collected?.length === 1));
+  ok('a healthy team has nothing to admit', CL.toAdmit(C.teamCreatures(wd)).length === 0 && CL.admitCost(C.teamCreatures(wd)) === 0);
 }
 
 section('the farm');

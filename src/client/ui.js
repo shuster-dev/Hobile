@@ -19,6 +19,7 @@ import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 import { COUNTERS, SELL_RATE, catalog, sellPrice } from '../shared/market.js';
 import { placesOf } from '../shared/services.js';
+import { CLINIC, admitCost, inCare, toAdmit } from '../shared/clinic.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
 import { face, faceNow, lazyFaces } from './faces.js';
@@ -316,7 +317,7 @@ var UI = class {
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
     }
-    this.renderTracker(), this.renderDailyChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
+    this.renderTracker(), this.renderDailyChip(), this.renderWardChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
   }
   /** The ride button: shown when the lead (the one beside you) can carry
    *  you, its icon how — fly, swim or ride (shared/riding.js) — lit while riding. */
@@ -333,6 +334,48 @@ var UI = class {
     this._clusterKey = null, this.syncCluster();
   }
   /** Under the vitals: a gift waiting today, or else the season that is on. */
+  /** Who is in a clinic's care, and how long until the first can be collected. */
+  renderWardChip() {
+    let c = $("#chip-ward");
+    if (!c) return;
+    let paint = () => {
+      let list = inCare(this.profile?.team || []);
+      if (!list.length) return c.classList.add("hidden"), clearInterval(this._wardTick), this._wardTick = null;
+      let ready = list.filter(x => !x.left).length, next = Math.min(...list.map(x => x.left).filter(x => x > 0), Infinity);
+      c.classList.remove("hidden"), c.textContent = `🏥 ${list.length} · ${ready ? "מוכן לאיסוף" : formatClock(next)}`, c.title = `${list.length} במרפאה`;
+    };
+    paint(), !this._wardTick && inCare(this.profile?.team || []).length && (this._wardTick = setInterval(paint, 1e3));
+    c.onclick = () => {
+      let w = inCare(this.profile?.team || [])[0];
+      w && this.toast(`${loc(SPECIES[w.c.species])} ב${w.he || "מרפאה"}${w.left ? ` · עוד ${formatClock(w.left)}` : " — מוכן, לך לאסוף"}`, "good");
+    };
+  }
+  /**
+   * The clinic's ward (shared/clinic.js): the ones who fainted are brought
+   * in for five minutes and collected here, whole. Nothing to show when the
+   * team is well.
+   */
+  wardCard() {
+    let t = this.profile || {}, gold = t.gold || 0, team = t.team || [], down = toAdmit(team), care = inCare(team);
+    if (!down.length && !care.length) return null;
+    let c = el("div", "ward-card");
+    if (down.length) {
+      let r = el("div", "row"), cost = admitCost(team);
+      r.innerHTML = `<div class="ico">🚑</div><div class="grow"><b>${ltr(down.length)} מעולפים — אשפוז</b><span>${down.map(x => Ze(loc(SPECIES[x.species]))).join(" · ")} · ${ltr(Math.round(CLINIC.stayMs / 60000))} דקות החלמה, ואז לאסוף מכאן</span></div>`;
+      let b = el("button", "btn small primary", `אשפז · ${ltr(`${cost}⛁`)}`);
+      b.disabled = gold < cost, b.onclick = () => this.hooks.clinicAdmit?.(), r.appendChild(b), c.appendChild(r);
+    }
+    for (let w of care) {
+      let here = w.place === this.place, r = el("div", "row"), pct = Math.round(100 * (1 - w.left / CLINIC.stayMs));
+      r.innerHTML = `<div class="ico">🛏</div><div class="grow"><b>${Ze(loc(SPECIES[w.c.species]))}</b><span>${w.left ? `מחלים · עוד <span data-countdown="${w.c.ward.until}">${formatClock(w.left)}</span>` : "החלים!"}${here ? "" : ` · ב${Ze(w.he || "מרפאה אחרת")}`}</span><div class="bar"><i style="width:${pct}%"></i></div></div>`;
+      if (!w.left && here) {
+        let b = el("button", "btn small primary", "אסוף");
+        b.onclick = () => this.hooks.clinicCollect?.(), r.appendChild(b);
+      }
+      c.appendChild(r);
+    }
+    return c;
+  }
   renderDailyChip() {
     let c = $("#chip-daily");
     if (!c || !this.profile) return;
@@ -2614,7 +2657,7 @@ var UI = class {
       counter = COUNTERS[this.counter] ? this.counter : "shop",
       tab = this.shopTab === "sell" ? "sell" : "buy";
     e.appendChild(storeHead(counter === "clinic" ? "🩺" : counter === "smith" ? "⚒" : "🏪", COUNTERS[counter].he, gold));
-    if (counter === "clinic") e.appendChild(this.careCard());
+    if (counter === "clinic") { let w = this.wardCard(); w && e.appendChild(w); }
     let seg = el("div", "seg");
     for (let [id, label] of [["buy", "🛒 קנייה"], ["sell", "💰 מכירה"]]) {
       let b = el("button", id === tab ? "on" : "", label);
@@ -2676,17 +2719,6 @@ var UI = class {
       }
       e.appendChild(g);
     }
-  }
-  /** The clinic's care for the whole team, as one card (the camp's clinic counter). */
-  careCard() {
-    let t = this.profile || {}, n = t.gold || 0, s = t.team || [],
-      hurt = s.filter(p => p && p.hp < p.maxHp).length, down = s.filter(p => p && p.hp <= 0).length,
-      me = (t.trainerHp ?? 1) < (t.trainerMaxHp ?? 1), cost = clinicCost(s), need = hurt > 0 || down > 0 || me,
-      c = el("div", "care-card");
-    c.innerHTML = `<div class="ico">🩺</div><div class="grow"><b>טיפול מלא לצוות</b><span>${need ? `${down ? `${ltr(String(down))} מחוסרי הכרה · ` : ""}${hurt ? `${ltr(String(hurt))} פצועים` : ""}${me ? `${hurt ? " · " : ""}גם אתה` : ""}` : "הצוות שלך במצב מצוין"}</span></div>`;
-    let b = el("button", "btn small primary", need ? `טפל · ${ltr(`${cost}⛁`)}` : "תקין");
-    b.disabled = !need || n < cost, b.onclick = () => this.hooks.clinicHeal?.(cost), c.appendChild(b);
-    return c;
   }
   /** The boards: for all time (level, gold, captures), this arena season,
    *  and this week (the tower, the world bosses). */

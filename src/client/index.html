@@ -796,7 +796,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .tile{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;padding:10px 6px 8px;border-radius:var(--r3);background:var(--raise);border:1px solid var(--stroke);box-shadow:var(--e1);min-width:0}
 .tile .ico{font-size:30px;line-height:1.1}.tile .n{position:absolute;top:6px;inset-inline-start:6px;font-size:11px;font-weight:800;padding:1px 6px;border-radius:var(--pill);background:var(--sunken)}
 .tile b{font-size:var(--t-sm);line-height:1.15}.tile .eff{font-size:10.5px;color:var(--muted);line-height:1.2}.tile .btn{margin-top:4px;width:100%}
-</style>
+.chip-ward{--ev:#ff7a9a}.ward-card{flex:0 0 auto;display:flex;flex-direction:column;gap:var(--s2);padding:var(--s3);margin-bottom:var(--s3);border-radius:var(--r3);background:var(--raise);border:1px solid var(--stroke);box-shadow:var(--e1)}.ward-card .row{display:flex;align-items:center;gap:var(--s2)}.ward-card .row .grow{display:flex;flex-direction:column;flex:1}.ward-card .row span{font-size:var(--t-xs);color:var(--muted)}.ward-card .ico{font-size:24px}.ward-card .bar{height:6px;border-radius:3px;background:var(--sunken);overflow:hidden}.ward-card .bar i{display:block;height:100%;background:linear-gradient(90deg,#ff7a9a,#ffc861)}</style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
   <canvas id="world-canvas"></canvas>
@@ -821,6 +821,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
         <div class="sky"><b id="v-sky">—</b><span id="v-season"></span></div>
         <button id="btn-claim" class="claim hidden" type="button">🔒 שמור התקדמות</button>
         <button id="chip-daily" class="chip-daily hidden" type="button"></button>
+        <button id="chip-ward" class="chip-daily chip-ward hidden" type="button"></button>
       </div>
     </div>
 
