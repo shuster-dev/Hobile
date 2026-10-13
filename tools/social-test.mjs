@@ -179,17 +179,33 @@ ok('each member row says where they are and how they are', pv.members.every((m) 
 // ---------------------------------------------------------------- a fight together
 section('fighting together');
 const meA = () => [...P.alice.room.state.players.values()].find((p) => p.name === 'Alice');
-P.alice.room.send('gm', { op: 'summon', species: 'pebblin', level: 2 });
-let wildId = null;
-await until(() => {
-  const a = meA();
-  for (const [id, w] of P.alice.room.state.wilds) if (w.species === 'pebblin' && w.level === 2 && Math.hypot(w.x - a.x, w.z - a.z) < 6) wildId = id;
-  return !!wildId;
-}, 4000);
-ok('a wild is called up beside Alice', !!wildId);
-clear('alice', 'bob');
-P.alice.room.send('engage', { wildId });
-ok('she engages it', await waitFor('alice', 'goto', (d) => d.kind === 'battle'));
+// A wild called up beside Alice, and the fight with it started. A wild walks
+// on its own clock and the database can be slow to answer, so a summoned one
+// may have wandered past reach by the time the engage lands: it is called up
+// again (at most three times) rather than the run failing on where it went.
+const startFight = async (species, level) => {
+  const why = [];
+  for (let tries = 0; tries < 3; tries++) {
+    const known = new Set(P.alice.room.state.wilds.keys());
+    P.alice.room.send('gm', { op: 'summon', species, level });
+    let id = null;
+    await until(() => {
+      const a = meA();
+      for (const [k, w] of P.alice.room.state.wilds) if (!known.has(k) && w.species === species && !w.engagedBy && Math.hypot(w.x - a.x, w.z - a.z) < 8) id = k;
+      return !!id;
+    }, 6000);
+    if (!id) { why.push('not seen'); continue; }
+    clear('alice', 'bob');
+    P.alice.room.send('engage', { wildId: id });
+    if (await waitFor('alice', 'goto', (d) => d.kind === 'battle', 8000)) return { id };
+    why.push(got('alice', 'error').map((e) => e.data?.code).join('/') || 'no fight');
+  }
+  return { id: null, why: why.join(', ') };
+};
+const f1 = await startFight('pebblin', 2);
+let wildId = f1.id;
+ok('a wild is called up beside Alice', !!wildId, f1.why);
+ok('she engages it', !!wildId && got('alice', 'goto', (d) => d.kind === 'battle').length > 0);
 const fight = last('alice', 'goto').roomId;
 ok('and Bob, in her party and close by, is offered to join', await waitFor('bob', 'coopOffer', (d) => d.roomId === fight && d.fromName === 'Alice'));
 ok('Carol, not in the party, is not', !got('carol', 'coopOffer').length);
@@ -221,17 +237,9 @@ await enterWorld('alice'); await enterWorld('bob');
 ok('and it is gone for everyone in the port', !P.carol.room.state.wilds.get(wildId));
 
 // leaving a shared fight halfway leaves the other one in it
-P.alice.room.send('gm', { op: 'summon', species: 'pebblin', level: 3 });
-wildId = null;
-await until(() => {
-  const a = meA();
-  for (const [id, w] of P.alice.room.state.wilds) if (w.species === 'pebblin' && w.level === 3 && !w.engagedBy && Math.hypot(w.x - a.x, w.z - a.z) < 6) wildId = id;
-  return !!wildId;
-}, 4000);
-clear('alice', 'bob');
-P.alice.room.send('engage', { wildId });
-await waitFor('alice', 'goto', (d) => d.kind === 'battle');
-const fight2 = last('alice', 'goto').roomId;
+const f2 = await startFight('pebblin', 3);
+if (!f2.id) throw new Error(`no second fight could be started: ${f2.why}`);
+const fight2 = last('alice', 'goto', (d) => d.kind === 'battle').roomId;
 await waitFor('bob', 'coopOffer', (d) => d.roomId === fight2);
 await enterRoom('alice', fight2);
 P.bob.room.send('coopJoin', { roomId: fight2 });
