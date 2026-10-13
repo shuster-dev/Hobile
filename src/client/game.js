@@ -1854,11 +1854,17 @@ var Game = class {
       h = 46,
       d = t.querySelector(".arrow");
     if (a.visible && a.x > h && a.x < l - h && a.y > h && a.y < c - h) t.style.left = `${a.x}px`, t.style.top = `${Math.max(h, a.y)}px`, d.style.transform = "rotate(180deg)", t.classList.remove("edge");else {
-      let u = l / 2,
-        f = c / 2,
-        p = a.x - u,
-        x = a.y - f;
-      (a.z >= 1 || !a.visible) && (p = -p, x = -x);
+      // Off screen: point the way on the ground, as seen from the camera —
+      // ahead is up, behind is down, left and right are left and right. The
+      // old way flipped a projection of a point behind the camera, which
+      // swung the arrow round as the camera turned and could point back
+      // the way you had come.
+      let cam = this.world.camera, fx = Math.sin(this.world.camYaw || 0), fz = Math.cos(this.world.camYaw || 0),
+        fw = new Vector3(), dx = r.x - cam.position.x, dz = r.z - cam.position.z;
+      cam.getWorldDirection(fw), fw.y = 0, fw.lengthSq() > 1e-6 ? fw.normalize() : fw.set(fx, 0, fz);
+      let ahead = dx * fw.x + dz * fw.z, side = dx * -fw.z + dz * fw.x, u = l / 2, f = c / 2,
+        p = side, x = -ahead, m = Math.hypot(p, x) || 1;
+      p /= m, x /= m;
       let v = Math.min((u - 86) / Math.abs(p || 0.001), (f - 58) / Math.abs(x || 0.001));
       t.style.left = `${u + p * v}px`, t.style.top = `${f + x * v}px`, d.style.transform = `rotate(${Math.atan2(x, p) * 180 / Math.PI + 90}deg)`, t.classList.add("edge");
     }

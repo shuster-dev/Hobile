@@ -5345,7 +5345,14 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       if (!n) return;
       let s = Math.hypot(n.holder.position.x - e, n.holder.position.z - t);
       if (s < 0.6) return;
-      if (s > 9) {
+      // On the move the server's copy is always a step or two behind (it hears
+      // of each move a tenth of a second late) — at a gallop or in the air,
+      // several metres. Pulling toward it then was a pull backwards every
+      // frame: the stutter in flight. While moving, only a real disagreement
+      // counts; standing still, it settles as it always did.
+      let fast = !!(n.fly || n.mount);
+      if (n.moving && s < (fast ? 14 : 5)) return;
+      if (s > (fast ? 24 : 9)) {
         // A jump this big is a travel or a respawn, not drift: arrive looking
         // at open ground, as a fresh spawn does, rather than through whatever
         // the old camera angle now points at.
