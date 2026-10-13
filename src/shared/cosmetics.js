@@ -1,13 +1,13 @@
-// What a trainer can wear that is not their kind's: a hat, and a dye for the
-// kind's main cloth. Bought with gold at the tailor (or earned on the season's
+// What a trainer can wear that is not their kind's: a hat, glasses, something
+// on the back or round the neck, and a dye for the kind's main cloth. Bought with gold at the tailor (or earned on the season's
 // track, `pass`), owned for good, worn or taken off at will. None of it does
 // anything in a fight — it is how you look, nothing more.
 //
 // Pure: the server sells and checks by it (server/game/cosmetics.js), the
-// figure is built by it (client/gfx/people.js wearHat/dyeDesign), the shop
-// panel lists it.
+// figure is built by it (client/gfx/wardrobe3d.js on the models, people.js
+// HAT_SHAPES/dyeDesign on the code-sculpted figure), the shop panel lists it.
 
-/** Hats. `shape` is how it is built (people.js HAT_SHAPES); `color` its cloth. */
+/** Hats. `shape` is how it is built (wardrobe3d.js); `color` its cloth. */
 export const HATS = {
   cap_red: { he: 'מצחייה אדומה', shape: 'cap', color: 0xdc4436, price: 1200 },
   cap_blue: { he: 'מצחייה כחולה', shape: 'cap', color: 0x2f6ad8, price: 1200 },
@@ -19,10 +19,32 @@ export const HATS = {
   wizard: { he: 'כובע מכשף', shape: 'wizard', color: 0x6a3ac8, price: 4200 },
   tophat: { he: 'מגבעת', shape: 'tophat', color: 0x23232c, price: 5500 },
   crown: { he: 'כתר', shape: 'crown', color: 0xf2c14e, price: 25000 },
+  trainer_red: { he: 'כובע מאמן', shape: 'trainer', color: 0xdc4436, price: 1800 },
+  trainer_blue: { he: 'כובע מאמן כחול', shape: 'trainer', color: 0x2f6ad8, price: 1800 },
+  sphere_beanie: { he: 'כובע כדור לכידה', shape: 'sphere', color: 0xdc4436, price: 2600 },
+  headphones: { he: 'אוזניות', shape: 'headphones', color: 0x2fb27a, price: 2200 },
+  straw: { he: 'כובע קש', shape: 'straw', color: 0xe8c878, price: 1600 },
   // from the season's track only (shared/pass.js)
   halo: { he: 'הילה', shape: 'halo', color: 0xffe07a, pass: true },
   horns: { he: 'קרני אש', shape: 'horns', color: 0x2a1a1a, pass: true },
   riftcrown: { he: 'כתר הקרע', shape: 'crown', color: 0x2fe6d0, pass: true },
+};
+
+/** Glasses and the like. */
+export const FACES = {
+  glasses: { he: 'משקפיים עגולים', shape: 'round', color: 0x3a3036, price: 1100 },
+  shades: { he: 'משקפי שמש', shape: 'shades', color: 0x1a1a22, price: 1600 },
+  star_shades: { he: 'משקפי כוכב', shape: 'star', color: 0xff6aa8, price: 2400 },
+  goggles: { he: 'משקפי מגן', shape: 'goggles', color: 0xc8843a, price: 2000 },
+};
+
+/** On the back, or round the neck. */
+export const BACKS = {
+  backpack: { he: 'תיק גב', shape: 'backpack', color: 0xe8b23a, price: 1800 },
+  backpack_blue: { he: 'תיק גב כחול', shape: 'backpack', color: 0x2f6ad8, price: 1800 },
+  sphere_pack: { he: 'תיק כדור לכידה', shape: 'sphere', color: 0xdc4436, price: 3200 },
+  scarf: { he: 'צעיף', shape: 'scarf', color: 0xdc4436, price: 1200, keepsCape: true },
+  wings: { he: 'כנפי מלאך', shape: 'wings', color: 0xf4f6ff, price: 9000 },
 };
 
 /** Dyes for the kind's main cloth. */
@@ -41,7 +63,7 @@ export const DYES = {
   rift: { he: 'אור הקרע', color: 0x2fc8b8, pass: true },
 };
 
-export const SLOTS = { hat: HATS, dye: DYES };
+export const SLOTS = { hat: HATS, face: FACES, back: BACKS, dye: DYES };
 
 /** A cosmetic by id: { id, slot, ...def }, or null. */
 export function cosmeticById(id) {
@@ -54,14 +76,16 @@ export function wardrobeOf(doc) {
   const w = doc && typeof doc.cosmetics === 'object' && doc.cosmetics ? doc.cosmetics : {};
   const owned = Array.isArray(w.owned) ? w.owned.filter((id) => cosmeticById(id)) : [];
   const worn = (slot) => (owned.includes(w[slot]) && cosmeticById(w[slot])?.slot === slot ? w[slot] : null);
-  return { owned, hat: worn('hat'), dye: worn('dye') };
+  return { owned, hat: worn('hat'), face: worn('face'), back: worn('back'), dye: worn('dye') };
 }
 
 /** How the player looks, with what they wear: the appearance others are sent. */
 export function wornLook(doc) {
   const w = wardrobeOf(doc);
-  return { ...(doc?.appearance || {}), hat: w.hat, dye: w.dye };
+  return { ...(doc?.appearance || {}), hat: w.hat, face: w.face, back: w.back, dye: w.dye };
 }
 
 export const HAT_IDS = Object.keys(HATS);
 export const DYE_IDS = Object.keys(DYES);
+export const FACE_IDS = Object.keys(FACES);
+export const BACK_IDS = Object.keys(BACKS);

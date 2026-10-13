@@ -362,7 +362,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             if (!o.ok) return ctx.net.emit("error", { code: o.reason });
             e === "cosmeticBuy" && t?.wear && wearCosmetic(n, o.slot, o.id);
             let w = wardrobeOf(n);
-            s && (s.hat = w.hat || "", s.dye = w.dye || "");
+            s && (s.hat = w.hat || "", s.dye = w.dye || "", s.face = w.face || "", s.back = w.back || "");
             ctx.net.save(), ctx.net.emit("wardrobe", { ...w, bought: e === "cosmeticBuy" ? o.id : null }), ctx.net.emit("profile", publicProfile(n));
             break;
           }

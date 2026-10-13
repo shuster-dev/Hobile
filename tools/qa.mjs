@@ -1387,8 +1387,13 @@ section('the first fight');
 section('people');
 {
   const Pe = await import('../src/client/gfx/people.js');
-  ok('the kinds the server knows are the kinds the client can draw',
-    JSON.stringify(G.AVATAR.kinds) === JSON.stringify(Pe.KIND_IDS), `${G.AVATAR.kinds} vs ${Pe.KIND_IDS}`);
+  const He = await import('../src/client/gfx/heroes.js');
+  ok('the kinds the server knows are the kinds the client can draw, each a model',
+    G.AVATAR.kinds.every((k) => Pe.KINDS[k] && He.HEROES[k]), `${G.AVATAR.kinds} vs ${Pe.KIND_IDS}`);
+  ok('a kind from before the models still draws, as the adventurer nearest it',
+    Pe.KIND_IDS.every((k) => He.heroKind(k)) && Object.entries(G.AVATAR.kindAlias).every(([a, b]) => He.heroKind(a) === b));
+  ok('every adventurer\'s model and the clips are in assets/models',
+    [He.HERO_ANIMS, ...Object.values(He.HEROES).map((h) => h.file)].every((f) => fs.existsSync(`assets/models/${f}`)));
   const badMeta = Pe.KIND_IDS.filter((id) => {
     const k = Pe.KINDS[id];
     return !(k.he && k.en && k.line && /^#[0-9a-f]{6}$/i.test(k.accent) && k.hair?.length === 2);
@@ -1439,17 +1444,18 @@ section('people');
 
   // what a character is saved as
   const L = G.avatarLook;
-  ok('a kind and a look are kept as chosen', L({ kind: 'pirate', look: 'b' }).kind === 'pirate' && L({ kind: 'pirate', look: 'b' }).look === 'b');
+  ok('a kind and a look are kept as chosen', L({ kind: 'barbarian', look: 'b' }).kind === 'barbarian' && L({ kind: 'barbarian', look: 'b' }).look === 'b');
+  ok('a kind from before the models is the adventurer nearest it', L({ kind: 'pirate' }).kind === 'barbarian' && L({ kind: 'fire' }).kind === 'mage' && L({ kind: 'catcher' }).kind === 'knight');
   ok('a character from before kinds is dressed as the kind nearest its outfit',
     L({ outfit: 'scholar', body: 'slim' }).kind === 'mage' && L({ outfit: 'scholar', body: 'slim' }).look === 'b');
-  ok('an unknown kind or a bad skin falls back', L({ kind: 'dragon', skin: 'red' }).kind === 'explorer' && /^#[0-9a-f]{6}$/i.test(L({ skin: 'red' }).skin));
+  ok('an unknown kind or a bad skin falls back', L({ kind: 'dragon', skin: 'red' }).kind === 'knight' && /^#[0-9a-f]{6}$/i.test(L({ skin: 'red' }).skin));
   const doc = C.createPlayerDoc('qa-p', 'QA', { kind: 'ranger', look: 'b', skin: G.AVATAR.skins[3] }, G.STARTERS[0]);
   C.normalizeDoc(doc);
   ok('a new character keeps its kind, look and skin', doc.appearance.kind === 'ranger' && doc.appearance.look === 'b' && doc.appearance.skin === G.AVATAR.skins[3]);
   const old = C.createPlayerDoc('qa-o', 'QA', {}, G.STARTERS[0]);
   old.appearance = { body: 'stocky', skin: '#e0ac7e', hair: '#2a1c14', outfit: 'tide' };
   C.normalizeDoc(old);
-  ok('an old save loads as a kind', old.appearance.kind === 'pirate' && old.appearance.look === 'a');
+  ok('an old save loads as a kind', old.appearance.kind === 'barbarian' && old.appearance.look === 'a');
   const html = fs.readFileSync('src/client/index.html', 'utf8');
   ok('the creator has its two steps and every control',
     ['cc-step1', 'cc-step2', 'pick-kind', 'pick-look', 'pick-skin', 'pick-starter', 'in-charname', 'btn-next', 'btn-back', 'btn-create', 'creator-stage']
@@ -2348,6 +2354,18 @@ section('look and sound');
   td.gold = 5000;
   WM.handleWorldMessage({ doc: td, self: () => self, net: { save() {}, emit: (k, v) => out.push([k, v]) } }, 'cosmeticBuy', { id: 'ocean', wear: true });
   ok('bought at the counter and put on: the room shows it', self.dye === 'ocean' && out.some(([k, v]) => k === 'wardrobe' && v.bought === 'ocean'));
+  td.gold = 20000;
+  WM.handleWorldMessage({ doc: td, self: () => self, net: { save() {}, emit: () => {} } }, 'cosmeticBuy', { id: 'shades', wear: true });
+  WM.handleWorldMessage({ doc: td, self: () => self, net: { save() {}, emit: () => {} } }, 'cosmeticBuy', { id: 'backpack', wear: true });
+  ok('glasses and a pack are worn in their own slots, beside the hat', self.face === 'shades' && self.back === 'backpack' && C.publicProfile(td).appearance.face === 'shades' && C.publicProfile(td).appearance.back === 'backpack');
+  ok('glasses do not go on the back', CS.wearCosmetic(td, 'back', 'shades').reason === 'bad_slot' && CS.wearCosmetic(td, 'shoes', 'shades').reason === 'bad_slot');
+  const W3 = await import('../src/client/gfx/wardrobe3d.js');
+  const shapes = { hat: CO.HATS, face: CO.FACES, back: CO.BACKS };
+  const unbuilt = Object.entries(shapes).flatMap(([slot, t]) => Object.entries(t).filter(([, d]) => !W3.WEAR_SHAPES[slot].includes(d.shape)).map(([id]) => id));
+  ok('everything the tailor sells can be put on a model', unbuilt.length === 0, unbuilt.join(','));
+  const d0 = { hy: 1, hz: 1, ol: 0.05 };
+  ok('and builds', Object.values(CO.HATS).every((h) => W3.buildHat(h.shape, h.color, d0).children.length) && Object.values(CO.FACES).every((h) => W3.buildFace(h.shape, h.color, d0).children.length)
+    && Object.values(CO.BACKS).every((h) => W3.buildBack(h.shape, h.color, d0).children.length));
   // and it is drawn: the kind's own hat off, the dye on its cloth
   const PE = await import('../src/client/gfx/people.js');
   const plain = PE.personDesign({ kind: 'mage', look: 'a' }), hatted = PE.personDesign({ kind: 'mage', look: 'a', hat: 'cap_red' }), dyed = PE.personDesign({ kind: 'mage', look: 'a', dye: 'crimson' });

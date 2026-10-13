@@ -214,7 +214,7 @@ export class CreatorStage {
 
   /** Show this adventurer. Only a new kind, look or skin is rebuilt. */
   setHero(appearance) {
-    const key = `${appearance.kind}:${appearance.look}:${appearance.skin}:${appearance.hat || ''}:${appearance.dye || ''}`;
+    const key = `${appearance.kind}:${appearance.look}:${appearance.skin}:${appearance.hat || ''}:${appearance.dye || ''}:${appearance.face || ''}:${appearance.back || ''}`;
     if (key === this.heroKey) return;
     const kindChanged = !this.heroKey || this.heroKey.split(':')[0] !== appearance.kind;
     this.heroKey = key;
@@ -229,6 +229,9 @@ export class CreatorStage {
     if (kindChanged) {
       // a new kind shows what it does, and the pedestal answers
       personAct(this.hero, K?.pose || 'cheer', 1.7);
+      // and again when the model is in, if it came after
+      const hero = this.hero;
+      hero.userData.heroReady?.then((on) => on && this.hero === hero && personAct(hero, K?.pose || 'cheer', 1.7));
       this.nextAct = performance.now() + 9000;
       this.pulseAt = performance.now();
     }
@@ -421,7 +424,7 @@ export class PortraitPainter {
 
   /** A portrait of this look, as a data URL; `cb` when it is drawn. */
   want(appearance, cb) {
-    const key = `${appearance.kind}:${appearance.look}:${appearance.skin}`;
+    const key = `${appearance.kind}:${appearance.look}:${appearance.skin}:${appearance.hat || ''}:${appearance.face || ''}:${appearance.back || ''}:${appearance.dye || ''}`;
     if (this.cache.has(key)) { cb(this.cache.get(key)); return; }
     this.queue.push({ key, appearance, cb });
     this._pump();
@@ -434,14 +437,21 @@ export class PortraitPainter {
       await frame();
       const job = this.queue.shift();
       if (!this.renderer) break;
-      if (!this.cache.has(job.key)) this.cache.set(job.key, this._draw(job.appearance));
+      if (!this.cache.has(job.key)) {
+        const url = await this._draw(job.appearance);
+        if (!this.renderer) break;
+        this.cache.set(job.key, url);
+      }
       job.cb(this.cache.get(job.key));
     }
     this.busy = false;
   }
 
-  _draw(appearance) {
+  async _draw(appearance) {
     const g = buildPerson(appearance, { hi: true, outline: true });
+    // the model, not the figure standing in for it (a few seconds at most)
+    await Promise.race([g.userData.heroReady, new Promise((r) => setTimeout(r, 6000))]);
+    if (!this.renderer) return null;
     g.rotation.y = -0.32;
     this.scene.add(g);
     animateCreature(g, 1000, false);

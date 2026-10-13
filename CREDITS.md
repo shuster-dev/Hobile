@@ -13,10 +13,17 @@ for the years those models stood in.
 
 ## People
 
-Every person — the player's adventurer and everyone in the world — is sculpted
-in code the same way as the creatures: `src/client/gfx/people.js` describes the
-seven kinds and how they move, and `figurine.js` builds them. There is no
-third-party character art in the game.
+The adventurers — the player's, and everyone else's in the world — are the
+five characters of the **KayKit Character Pack Adventures** by **Kay Lousberg**
+(www.kaylousberg.com), released **CC0 1.0**, with the pack's own animation
+(https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0).
+`tools/models/heroes.mjs` converts them into `assets/models/kk_hero_*.glb` (the
+clips once, in `kk_hero_anims.glb`) and `src/client/gfx/heroes.js` puts them on.
+What the tailor sells is built in code (`src/client/gfx/wardrobe3d.js`).
+
+While a model is on its way, the person is the figure sculpted in code
+(`src/client/gfx/people.js`, built by `figurine.js`), as all of them were from
+v0.28 until v0.45.
 
 Until v0.28 the people were the `char_corin` and `char_renn` models from the
 **Aether Star Online open assets** (https://github.com/aether-star-online/aso-assets,
