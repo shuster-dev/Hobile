@@ -7,6 +7,7 @@ import { displayFrag, QUALITY, aimSun, blobGeo, glowMat, makeEnvironment, makeLi
 import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { capHeight, setStarLook } from './starlook.js';
+import { heroStrike } from './heroes.js';
 
 /** The tallest the creature walking behind you is drawn (a boss is built for raids). */
 const PET_MAX_H = 2.1;
@@ -4991,6 +4992,25 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         b = this.selfActor();
       return b && (b.holder.position.set(S.x, d, S.z), b.target.copy(b.holder.position), b.rotTarget = r, b.holder.rotation.y = r, b.moving = !1), this._camReach = void 0, e;
     }
+    /**
+     * Creatures in this clinic's care, walking about the room (game.js passes
+     * them in when you come in, and again when the ward changes). In the
+     * room's own frame: the door at z 0, the room going back to -d.
+     */
+    setInteriorGuests(list = []) {
+      let R = this._inside;
+      if (!R) return;
+      for (let g of R.guests || []) R.room.group.remove(g.holder), disposeTree(g.holder);
+      R.guests = [];
+      let D = R.room.dims, pick = () => ({ x: (Math.random() - 0.5) * (D.hw * 2 - 2.4), z: -1.8 - Math.random() * Math.max(1, D.d * 0.55 - 1.8) });
+      for (let c of list.slice(0, 6)) {
+        let group = buildCreature(c.species, { hi: !1 });
+        setStarLook(group, c.star || 1), capHeight(group, 1.1);
+        let holder = new Group(), at = pick();
+        holder.add(group, softShadowTexture(0.45, 0.22)), holder.position.set(at.x, 0, at.z), R.room.group.add(holder);
+        R.guests.push({ holder, group, to: pick(), pick, wait: Math.random() * 2, moving: !1 });
+      }
+    }
     exitInterior({
       move: e = !0
     } = {}) {
@@ -5318,6 +5338,25 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         color
       });
     }
+    /**
+     * The trainer's own blow (shared/arms.js): they turn to it, swing, smash,
+     * shoot or cast with what is in their hand, and it lands — a flash where
+     * a blade or a hammer meets it, an arrow or a bolt flying to it.
+     */
+    selfStrike(arm, item, targetKey) {
+      let me = this.selfActor(), to = this.actorPosition(targetKey, 0.7);
+      if (!me) return;
+      if (to) {
+        let p = me.holder.position, yaw = Math.atan2(to.x - p.x, to.z - p.z);
+        me.rotTarget = yaw, me.holder.rotation.y = yaw;
+      }
+      heroStrike(me.group, arm, item);
+      if (!to) return;
+      let from = me.holder.position.clone().setY(me.holder.position.y + 1.1);
+      if (arm === "bow") this.strike(from, to, 16775885);
+      else if (arm === "staff") this.strike(from, to, 9109503);
+      else setTimeout(() => this.ring(to.clone().setY(to.y - 0.6), arm === "hammer" ? 16756800 : 16777215, arm === "hammer" ? 1.15 : 0.9), arm === "hammer" ? 380 : 200);
+    }
     /** The actor (wild, player) by its key, for where a strike starts or lands. */
     actorPosition(key, up = 0.8) {
       let a = this.actors.get(key);
@@ -5344,6 +5383,17 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         for (let s of n.added) s.light.intensity = s.power * (s.src.flicker ?? 1);
         for (let s of this.actors.values()) s.key !== this.self && (s.holder.visible = !1);
         n.keeper.group.userData.baseY = 0, animateCreature(n.keeper.group, t, !1), n.keeper.group.rotation.y = Math.sin(this.time * 0.35) * 0.14;
+        // the ward's patients, wandering the room (shared/clinic.js)
+        for (let g of n.guests || []) {
+          let h = g.holder, dx = g.to.x - h.position.x, dz = g.to.z - h.position.z, d = Math.hypot(dx, dz);
+          if (g.wait > 0) g.wait -= e, g.moving = !1;
+          else if (d < 0.2) g.wait = 1.5 + Math.random() * 3, g.to = g.pick();
+          else {
+            let st = Math.min(d, e * 0.9);
+            h.position.x += dx / d * st, h.position.z += dz / d * st, h.rotation.y = Math.atan2(dx, dz), g.moving = !0;
+          }
+          g.group.userData.groundSpeed = g.moving ? 0.9 : 0, animateCreature(g.group, t, g.moving, 0.7);
+        }
       }
       if (this.city && !this._inside) {
         this.city.tick(this.time);
@@ -5509,6 +5559,22 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         return;
       }
       t.holder.visible = !0;
+      // Indoors: a camera up under the ceiling at the door's end of the room,
+      // looking in at you. A camera on an arm behind the player had the
+      // shelves, the desk and the walls to collide with in a room this size,
+      // and pulled in until it was in your back or showed a wall.
+      if (this._inside) {
+        let R = this._inside, D = R.room.dims,
+          dx = n.x - R.door.x, dz = n.z - R.door.z,
+          lx = dx * R.cos - dz * R.sin, lz = dx * R.sin + dz * R.cos,
+          cx = MathUtils.clamp(lx * 0.45, -D.hw + 0.6, D.hw - 0.6),
+          cz = MathUtils.clamp(lz + 5.2, -D.d + 1, -0.5),
+          cy = R.floorY + Math.min(D.h - 0.45, 3.9),
+          w = R.toWorld(cx, cz);
+        this.camera.position.lerp(X_.set(w.x, cy, w.z), Math.min(1, e * 6));
+        this.camera.lookAt(LOOK_.set(n.x, n.y + 0.9, n.z));
+        return;
+      }
       // on a mount the camera rides at the rider's height; in the air it
       // also pulls back and up, to show the ground going by underneath
       let rise = t.mount ? t.mount.holder.position.y + t.mount.saddle * 0.7 : 0,

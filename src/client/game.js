@@ -21,6 +21,8 @@ import { abilityInfo } from '../shared/traits.js';
 import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
 import { RIDE, leadMount, mountKind } from '../shared/riding.js';
 import { placesOf } from '../shared/services.js';
+import { armOf } from '../shared/arms.js';
+import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
@@ -258,7 +260,9 @@ var Game = class {
         kind: "knight",
         look: "a",
         skin: AVATAR.skins[1],
-        starter: STARTERS[0],
+        // nobody to start with: the first one is brought down and caught
+        // by the trainer themselves (shared/arms.js)
+        starter: "none",
         step: 1
       },
       stage = null,
@@ -269,14 +273,11 @@ var Game = class {
       hero = (swap = !0) => {
         let h = $("#cc-hero"), k = K();
         if (e.step === 1) $("#cc-en").textContent = k.en, $("#cc-name").textContent = k.he, $("#cc-line").textContent = k.line;
-        else {
-          let sp = SPECIES[e.starter], el = ELEMENTS[sp.types[0]];
-          $("#cc-en").textContent = el.name, $("#cc-name").textContent = loc(sp), $("#cc-line").textContent = STARTER_LINES[e.starter] || "";
-        }
+        else $("#cc-en").textContent = "THE JOURNEY", $("#cc-name").textContent = "יוצאים לדרך", $("#cc-line").textContent = "חרב עץ ביד, ואף יצור עדיין — את הראשון תפיל ותתפוס בעצמך";
         swap && (h.classList.remove("swap"), void h.offsetWidth, h.classList.add("swap"));
       },
       paint = () => {
-        let acc = e.step === 1 ? K().accent : ELEMENTS[SPECIES[e.starter].types[0]].ui || K().accent;
+        let acc = K().accent;
         root.style.setProperty("--acc", acc), stage?.setHero(look()), stage?.setAccent(e.step === 1 ? null : acc);
       },
       kinds = () => {
@@ -343,22 +344,17 @@ var Game = class {
         show.classList.remove("in"), void show.offsetWidth, show.classList.add("in");
         let dots = document.querySelectorAll("#screen-create .cc-steps i");
         dots.forEach((d, i) => d.classList.toggle("on", i === n - 1));
-        $("#cc-title").textContent = n === 1 ? "בחירת דמות" : "בחירת שותף";
+        $("#cc-title").textContent = n === 1 ? "בחירת דמות" : "יוצאים לדרך";
         $("#cc-prev").classList.toggle("hidden", n !== 1), $("#cc-next").classList.toggle("hidden", n !== 1);
-        hero(), paint(), stage?.focus(n === 1 ? "hero" : "duo"), stage?.setPet(n === 1 ? null : e.starter);
+        hero(), paint(), stage?.focus("hero"), stage?.setPet(null);
       },
       starters = () => {
+        // what you set out with: a weapon, and how the first one is caught
         let box = $("#pick-starter");
-        box.innerHTML = "";
-        for (let o of STARTERS) {
-          let a = SPECIES[o], el = ELEMENTS[a.types[0]], l = document.createElement("button");
-          l.type = "button", l.className = `starter ${e.starter === o ? "on" : ""}`, l.style.setProperty("--el", el.ui || "#6ea8ff");
-          l.setAttribute("role", "radio"), l.setAttribute("aria-checked", String(e.starter === o));
-          l.innerHTML = `${starterPics[o] ? `<img class="portrait" alt="" src="${starterPics[o]}">` : ""}<div class="dot" style="background:#${a.model.a.toString(16).padStart(6, "0")}"></div>
-          <b>${loc(a)}</b><span>${el.icon} ${loc(el)}</span>`, l.onclick = () => {
-            e.starter !== o && (e.starter = o, starters(), stage?.setPet(o), hero(), paint());
-          }, box.appendChild(l);
-        }
+        box.innerHTML = `<div class="starter on arm-start" role="radio" aria-checked="true">
+          <div class="arm-start-ico">🗡</div>
+          <div class="grow"><b>חרב עץ</b><span>אין לך יצור עדיין. מצא יצור פראי, הכה אותו בנשק שלך עד שייחלש — ואז "קרב" וזרוק כדור כדי לתפוס אותו.</span>
+          <span class="arm-start-tip">🏅 משימות ומבוכים נותנים נשקים חדשים: קשת, פטיש ומקל קסמים</span></div></div>`;
       };
     try {
       this.creatorStage?.dispose(), this.creatorStage = stage = new CreatorStage($("#creator-stage"), {
@@ -382,9 +378,6 @@ var Game = class {
     };
     $("#cc-next").onclick = () => cycle(1), $("#cc-prev").onclick = () => cycle(-1);
     $("#btn-next").onclick = () => step(2), $("#btn-back").onclick = () => step(1);
-    portraits(STARTERS).then(o => {
-      starterPics = o || {}, $("#screen-create:not(.hidden)") && starters();
-    }).catch(() => {});
     let done = () => {
       this.creatorStage?.dispose(), this.creatorStage = null, this.creatorPainter?.dispose(), this.creatorPainter = null;
     };
@@ -540,7 +533,7 @@ var Game = class {
       t.tutorial && this.coach.set(t.tutorial);
       // duplicates folded into one (server mergeDuplicates): said once
       this.sayMerged(t.merged);
-      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
+      this.profile = t, this.ui.setProfile(t), this.ui.renderWorldSkills(t.team?.[0]), this.syncWardGuests(), this.world.npcMarks = Object.fromEntries(Object.keys(NPCS).map(n => [n, giverMark(t, n)])), this.storyWorld();
     }), e.on("zone", t => {
       this.zone = t, this.ui.setZone(t), this.world.loadZone(t), this.storyWorld();
       // the town has your farm: ask for what is in its pods
@@ -665,6 +658,8 @@ var Game = class {
         this.leaveInterior();
         return;
       }
+      // which house: a clinic's ward is collected where it was left
+      this.ui.place = t.place || null;
       let n = {
         id: t.id,
         kind: t.kind,
@@ -673,7 +668,7 @@ var Game = class {
         he: t.he,
         door: t.door
       };
-      this.world.enterInterior(n) && (audio.sfx("ui"), this.ui.toast(`${t.he || t.name}`, "good"));
+      this.world.enterInterior(n) && (audio.sfx("ui"), this.ui.toast(`${t.he || t.name}`, "good"), this.syncWardGuests());
     }), e.on("dialogue", t => {
       let q = t.errand && QUESTS[t.errand.id];
       audio.sfx("ui"), this.ui.showDialogue({
@@ -867,6 +862,7 @@ var Game = class {
         s = 1500;
       }
       n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), Math.max(0, s - 1400)), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
+      t.milestones?.length && setTimeout(() => this.showMilestones(t.milestones), s + 300);
       t.dupInto && t.newSpecies && n.push(`${loc(SPECIES[t.captured.species])} נרשם באוסף`);
       if (t.captured && t.newSpecies && t.card) setTimeout(() => {
         audio.sfx("quest"), this.ui.celebrate(`${loc(SPECIES[t.captured.species])} — קלף חדש!`, "quest");
@@ -883,6 +879,7 @@ var Game = class {
       setTimeout(() => this.ui.toast(n.join(" · "), t.success ? "good" : ""), 400);
       evo.length && (await new Promise(r => setTimeout(r, 2000)), await this.playEvolutions(evo));
       setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), evo.length ? 900 : 2200);
+      t.milestones?.length && setTimeout(() => this.showMilestones(t.milestones), evo.length ? 1200 : 2500);
     }), e.on("dailyReward", t => {
       t.profile && (this.profile = t.profile, this.ui.setProfile(t.profile));
       let parts = [];
@@ -908,9 +905,16 @@ var Game = class {
       audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
       audio.sfx("bossRoar"), audio.playMusic("boss"), vibrate([60, 60, 120]), this.ui.toast(`⚠ ${t.he || t.name} הופיע באזור!`, "bad");
+    }), e.on("ward", t => {
+      t.admitted?.length ? (audio.sfx("ui"), this.ui.toast(`🚑 ${t.admitted.length} באשפוז — חזור לאסוף בעוד 5 דקות`, "good")) : t.collected?.length && (audio.sfx("quest"), this.ui.toast(`💚 ${t.collected.length} חזרו לצוות, בריאים`, "good"));
     }), e.on("sold", t => {
       audio.sfx("coin"), this.ui.toast(`נמכר ${loc(ITEMS[t.itemId] || {})}${t.qty > 1 ? ` ×${t.qty}` : ""} · +${t.gold.toLocaleString("en-US")}⛁`, "good");
     }), e.on("fieldHit", t => {
+      this.coach?.event?.("fight");
+      // your own blow (shared/arms.js): it was swung when you pressed
+      if (t.trainer) return setTimeout(() => {
+        this.floatOver(t.wildId, `-${t.dmg}`, t.eff > 1 ? "super" : "hit"), audio.sfx("hit"), vibrate(14);
+      }, t.arm === "bow" || t.arm === "staff" ? 260 : 120);
       // your lead's move, where the wild stands (server game/field-fight.js)
       let m = MOVES[t.skill], col = m?.type && ELEMENTS[m.type]?.color || 16772215,
         from = this.world.petPosition(0.5), to = this.world.actorPosition(t.wildId, 0.7);
@@ -919,6 +923,17 @@ var Game = class {
         this.floatOver(t.wildId, `-${t.dmg}`, t.eff > 1 ? "super" : t.eff < 1 ? "weak" : "hit"), audio.sfx("hit"), vibrate(12);
       }, 260);
     }), e.on("fieldCounter", t => {
+      if (t.trainer) {
+        // it hits back at you
+        let from = this.world.actorPosition(t.wildId, 0.7), to = this.world.actorPosition(this.world.self, 1);
+        from && to && this.world.strike(from, to, 16733525);
+        setTimeout(() => {
+          this.floatOver(this.world.self, `-${t.dmg}`, "hurt"), audio.sfx("hurt"), this.punch(0.45), vibrate(30);
+        }, 260);
+        t.profile && this.applyProfile(t.profile);
+        t.fainted && this.ui.toast(this.profile?.team?.some(c => c.hp > 0 && !c.ward) ? "נפלת — היצור שלך ממשיך לבד" : "נפלת!", "bad");
+        return;
+      }
       // it hits back, at the one beside you
       let from = this.world.actorPosition(t.wildId, 0.7), to = this.world.petPosition(0.5);
       from && to && this.world.strike(from, to, 16733525);
@@ -937,8 +952,9 @@ var Game = class {
       let lv = (t.events || []).filter(r => r.kind === "level").at(-1);
       lv && this.ui.toast(`⬆ ${loc(SPECIES[this.profile?.team?.[0]?.species] || {})} עלה לרמה ${lv.level}`, "good");
       for (let r of t.events || []) r.kind === "evolve" && SPECIES[r.into] && this.ui.toast(`✨ ${loc(SPECIES[r.from] || {})} התפתח ל${loc(SPECIES[r.into])}!`, "good");
+      this.showMilestones(t.milestones);
     }), e.on("fieldLost", t => {
-      audio.sfx("uiBack"), this.ui.toast(`הצוות שלך התעלף${t.gold ? ` · ${t.gold}⛁` : ""} — היצורים התאוששו`, "bad");
+      audio.sfx("uiBack"), this.ui.toast(`${this.profile?.team?.length ? "הצוות שלך התעלף" : "נפלת בקרב"}${t.gold ? ` · ${t.gold}⛁` : ""} — התאוששתם`, "bad");
       t.profile && this.applyProfile(t.profile);
     }), e.on("bossHit", () => {}), e.on("bossCounter", t => {
       audio.sfx("hurt"), this.punch(0.7), vibrate(30), this.ui.toast(`הבוס פגע בך (-${t.dmg})`, "bad");
@@ -1113,6 +1129,9 @@ var Game = class {
     }
     addEventListener("keydown", (ev) => { this.riding?.kind === "fly" && (ev.code === "Space" ? this.world.flyInput = 1 : (ev.code === "ShiftLeft" || ev.code === "KeyC") && (this.world.flyInput = -1)); });
     addEventListener("keyup", (ev) => { (ev.code === "Space" || ev.code === "ShiftLeft" || ev.code === "KeyC") && (this.world.flyInput = 0); });
+    // the trainer's own weapon (shared/arms.js): only there when a wild is near
+    $("#btn-arm") && ($("#btn-arm").onclick = () => this.armStrike());
+    addEventListener("keydown", (ev) => { ev.code === "KeyF" && !ev.repeat && this.mode === "world" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "") && this.armStrike(); });
     for (let e of document.querySelectorAll(".skill-btn")) e.onclick = () => {
       if (e.dataset.fly) return;
       // a trick for the one beside you, or a move at what is in front of you
@@ -1137,6 +1156,7 @@ var Game = class {
     return audio.sfx("ui"), this.ui.toast(t === "first" ? "מבט גוף ראשון" : "מבט גוף שלישי"), t;
   }
   leaveInterior() {
+    this._wardKey = null, this.ui.place = null;
     this.world.interior && (this.world.exitInterior(), this.net.send("exitBuilding"), audio.sfx("ui"));
   }
   interiorPrompt() {
@@ -1163,7 +1183,7 @@ var Game = class {
   openCounter(e) {
     // a camp's clinic is its shop too; the town's has its own market
     if (audio.sfx("ui"), e === "clinic") {
-      this.world.interior?.service ? (this.ui.counter = "clinic", this.ui.shopTab = "buy", this.ui.openPanel("shop")) : this.ui.openPanel("clinic");
+      this.ui.counter = "clinic", this.ui.shopTab = "buy", this.ui.openPanel("shop");
       return;
     }
     if (e === "shop" || e === "smith") {
@@ -1220,6 +1240,8 @@ var Game = class {
       gm: (op, data = {}) => e("gm", { ...data, op }),
       gmOpen: () => (e("gm", { op: "players" }), e("gm", { op: "log" }), e("gm", { op: "reports" }), e("gm", { op: "metrics" }), e("gm", { op: "errors" })),
       clinicHeal: () => e("clinicHeal"),
+      clinicAdmit: () => e("clinicAdmit"),
+      clinicCollect: () => e("clinicCollect"),
       // NB: swapCreature is defined once, further down in this same object.
       // It used to be declared here too, sending an unhandled "switchCreature"
       // message; the later key silently won, so this one never ran.
@@ -1501,9 +1523,37 @@ var Game = class {
     this._fieldTarget = w.id, this.net.send("wildAttack", { wildId: w.id, skill });
     return !0;
   }
+  /** A milestone reached (shared/milestones.js): what it gave, said once. */
+  showMilestones(list) {
+    (list || []).forEach((m, i) => setTimeout(() => {
+      let got = [...(m.items || []).map(id => `${ITEMS[id]?.icon || "🎁"} ${loc(ITEMS[id] || {})}`), ...(m.wear || []).map(id => `👒 ${cosmeticById(id)?.he || id}`)],
+        open = (m.unlocks || []).map(id => ITEMS[id] ? loc(ITEMS[id]) : cosmeticById(id)?.he || id);
+      audio.sfx("quest"), vibrate([20, 40, 60]), this.ui.celebrate(`${m.icon} ${m.he}`, "quest");
+      this.ui.toast(`🏅 ${[got.length ? `קיבלת: ${got.join(" · ")}` : "", open.length ? `נפתח לקנייה: ${open.join(" · ")}` : ""].filter(Boolean).join(" — ")}`, "good");
+    }, i * 2300));
+  }
+  /** The trainer hits the wild in reach with what is in their hand. */
+  armStrike() {
+    let me = this.world.selfPosition(), w = this.nearestWild(me), now = Date.now(), arm = armOf(this.profile);
+    if (!w || this.riding || this.world.interior) return !1;
+    if (w.d > arm.reach + 0.4) return this.ui.toast(`התקרב — ${arm.he} מגיע עד ${Math.round(arm.reach)} מטר`, ""), !0;
+    if ((this.cooldowns.__arm || 0) > now) return !0;
+    if ((this.profile?.trainerHp ?? 1) <= 0) return this.ui.toast("אין לך כוח — נוח במחנה או השתמש בתחבושת", "bad"), !0;
+    this.cooldowns.__arm = now + arm.cdMs, this.ui.armCooldown?.(arm.cdMs);
+    this._fieldTarget = w.id, this.world.selfStrike(arm.id, arm.item, w.id);
+    this.net.send("armStrike", { wildId: w.id });
+    return !0;
+  }
   /** A profile the server sent with something else (a fight in the open). */
   applyProfile(p) {
-    this.profile = p, this.ui.setProfile(p), this.ui.renderWorldSkills(p.team?.[0]);
+    this.profile = p, this.ui.setProfile(p), this.ui.renderWorldSkills(p.team?.[0]), this.syncWardGuests();
+  }
+  /** In a clinic: the ones in its care walk about the room (shared/clinic.js). */
+  syncWardGuests() {
+    if (this.world.interior?.kind !== "clinic") return;
+    let list = inCare(this.profile?.team || []).filter(w => w.place === this.ui.place).map(w => w.c),
+      key = list.map(c => c.uid).join(",");
+    key !== this._wardKey && (this._wardKey = key, this.world.setInteriorGuests(list));
   }
   /** A number that rises and fades over something in the world. */
   floatOver(key, text, cls, up = 2.2) {
@@ -2060,6 +2110,9 @@ var Game = class {
     // the small buttons: moves when something is there to fight, else play
     let wild = this.nearestWild(t);
     this.ui.setClusterMode(e.boss?.active && dist2d(e.boss, t) < 15 || wild && wild.d < 7.5 ? "moves" : "tricks");
+    // the weapon's circle, only with a wild close enough to go for
+    let arm = armOf(this.profile);
+    this.ui.setArm(!this.riding && !this.world.interior && wild && wild.d < arm.reach + 3.5 ? { ...arm, inReach: wild.d <= arm.reach + 0.4 } : null);
     if (e.boss?.active && dist2d(e.boss, t) < 15) {
       this.ui.setPrompt(`☠ תקוף את ${loc(SPECIES[e.boss.species])}`), $("#btn-action").textContent = "תקוף";
       return;
@@ -2251,6 +2304,8 @@ function Oc(i) {
     too_far: "רחוק מדי",
     not_leader: "רק מנהיג הקבוצה יכול",
     no_healthy_creature: "אין לך יצור כשיר לקרב",
+    trainer_down: "אין לך כוח — חכה רגע או השתמש בתחבושת",
+    locked: "עוד לא נפתח — השלם את האתגר שלו",
     wild_gone: "היצור נעלם",
     not_found: "לא נמצא",
     full: "הקבוצה מלאה",

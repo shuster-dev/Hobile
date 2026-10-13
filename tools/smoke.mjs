@@ -128,7 +128,8 @@ const dex = await page.evaluate(() => ({
   header: document.querySelector('#panel .dex-count')?.textContent.replace(/\s+/g, ' ').trim() || '',
 }));
 console.log(`  dex: ${dex.tiles} tiles, ${dex.locked} locked — "${dex.header}"`);
-if (dex.tiles - dex.locked !== 1) { console.log('  FAIL exactly the starter should be unlocked'); errors.push('dex unlock count'); }
+// a new trainer sets out with nobody (shared/arms.js): nothing caught yet
+if (dex.tiles !== dex.locked || !dex.tiles) { console.log('  FAIL a new trainer should have caught nothing yet'); errors.push('dex unlock count'); }
 await page.evaluate(() => window.__hobile.ui.closePanel());
 await page.waitForTimeout(400);
 

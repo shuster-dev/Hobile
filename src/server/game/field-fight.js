@@ -6,6 +6,12 @@
 // toward a saddle, the quests that count it. Catching still takes a battle —
 // the action button starts one, as it always has.
 //
+// The trainer can fight too, with what is in their hand (shared/arms.js): a
+// sword, a hammer, a bow, a staff. That is how one with no creature yet
+// brings down their first, before a battle to catch it. The wild hits back
+// at whoever hit it last — the creature, or the trainer — and once neither
+// is standing the fight is lost.
+//
 // A fierce wild that runs a trainer down (field.js) starts one of these too,
 // instead of pulling them into a battle.
 //
@@ -21,6 +27,10 @@ import { hpRatio } from './player.js';
 import { earn, spend } from './economy.js';
 import { huntMaterial } from './saddles.js';
 import { fieldLoot } from '../../shared/market.js';
+import { armOf, trainerStats } from '../../shared/arms.js';
+import { PROGRESSION } from '../../shared/gamedata.js';
+import { sumStats, trainerMaxHp } from './combat.js';
+import { claimMilestones } from './milestones.js';
 
 export const FIGHT = {
   reach: 8,          // metres: a move reaches this far
@@ -32,6 +42,8 @@ export const FIGHT = {
   giveUpMs: 15_000,  // nobody hits it for this long: it gives up
   restMs: 20_000,    // and leaves everyone alone this long after
   blackoutGold: 0.02,
+  trainerRegen: 0.03,      // of their health a second, out of a fight
+  trainerRegenAfter: 6,    // seconds after the last hit before it starts
 };
 
 const wildStats = (w) => statsFor(w.species, w.level);
@@ -93,22 +105,70 @@ export function wildAttack(ctx, wildId, skill, now = Date.now()) {
     // the one on you: nothing else starts on you while it is (field.js)
     ctx.chasedBy ||= wildId;
   } else d.fightUntil = now + FIGHT.giveUpMs;
+  d.by = 'lead'; d.leadHit = true;
   ctx.net.emit('fieldHit', { wildId, dmg, eff, hp: d.hp, maxHp: d.maxHp, skill: move?.id || null, uid: a.uid });
-  if (d.hp <= 0) return fieldWin(ctx, wildId, w);
+  if (d.hp <= 0) return fieldWin(ctx, wildId, w, d);
+  return { dmg, hp: d.hp };
+}
+
+/** A trainer gets their breath back out of a fight: a few percent a second
+ *  since they were last hit (FIGHT.trainerRegen), counted when it matters. */
+export function restTrainer(doc, now = Date.now()) {
+  const max = trainerMaxHp(doc);
+  if (doc.trainerHp == null || doc.trainerHp >= max) return;
+  const since = Math.max(0, now - (doc.trainerHitAt || 0)) / 1000 - FIGHT.trainerRegenAfter;
+  if (since <= 0) return;
+  doc.trainerHp = Math.min(max, Math.floor(doc.trainerHp + max * FIGHT.trainerRegen * since));
+  doc.trainerHitAt = now - FIGHT.trainerRegenAfter * 1000;
+}
+
+/** The trainer's own stats in the open: level, gear and what is worn. */
+export function trainerFieldStats(doc) {
+  return trainerStats(doc.level || 1, sumStats(doc), PROGRESSION.trainerHp(doc.level || 1));
+}
+
+/** The trainer hits a wild with what is in their hand (the `armStrike` message). */
+export function armStrike(ctx, wildId, now = Date.now()) {
+  const doc = ctx.doc, me = ctx.self?.();
+  const w = ctx.state.wilds.get(wildId), d = ctx.wildDocs.get(wildId);
+  if (!w || !d || w.engagedBy) return ctx.net.emit('error', { code: 'wild_gone' }), null;
+  if (d.mode === 'fight' && d.prey !== ctx.fieldKey) return ctx.net.emit('error', { code: 'wild_gone' }), null;
+  const arm = armOf(doc);
+  if (!me || Math.hypot(w.x - me.x, w.z - me.z) > arm.reach + 0.6) return ctx.net.emit('error', { code: 'too_far', reach: arm.reach }), null;
+  if (ctx.ride) return ctx.net.emit('error', { code: 'dismount_first' }), null;
+  if (now < (ctx._armCd || 0)) return null;
+  restTrainer(doc, now);
+  if ((doc.trainerHp ?? 1) <= 0) return ctx.net.emit('error', { code: 'trainer_down' }), null;
+  ctx._armCd = now + arm.cdMs;
+  ensureHp(w, d);
+  const { dmg, eff } = fieldDamage({ species: null, level: doc.level || 1 }, trainerFieldStats(doc), { power: arm.power, kind: arm.kind, type: null }, w, wildStats(w));
+  d.hp = Math.max(0, d.hp - dmg); w.hp = d.hp;
+  if (d.mode !== 'fight') {
+    startFight(w, d, ctx.fieldKey, doc.id, now);
+    ctx.chasedBy ||= wildId;
+  } else d.fightUntil = now + FIGHT.giveUpMs;
+  d.by = 'arm'; d.armHit = true;
+  ctx.net.emit('fieldHit', { wildId, dmg, eff, hp: d.hp, maxHp: d.maxHp, arm: arm.id, item: arm.item, trainer: true });
+  if (d.hp <= 0) return fieldWin(ctx, wildId, w, d);
   return { dmg, hp: d.hp };
 }
 
 /** Down: paid as a battle won is (base.js resolve), and gone from the field. */
-function fieldWin(ctx, wildId, w) {
+function fieldWin(ctx, wildId, w, d = {}) {
   const doc = ctx.doc, foe = { species: w.species, level: w.level };
-  const lead = activeCreature(doc);
+  // the lead learns from it only if it was in it
+  const lead = d.leadHit || !d.armHit ? activeCreature(doc) : null;
   const o = { wildId, species: w.species, won: true, xp: 0, gold: 0, items: [], events: [], questsDone: [] };
   const xp = Math.round(creaturePower(foe, doc.level) * eventMul('xp')), gold = Math.round(creatureScore(foe) * eventMul('gold'));
   earn(doc, gold, 'battle');
   o.xp = xp; o.gold = gold;
   lead && o.events.push(...grantXpTo(lead, xp, doc));
-  o.events.push(...grantXp(doc, Math.floor(xp * 0.6)));
-  doc.stats && (doc.stats.battlesWon = (doc.stats.battlesWon || 0) + 1);
+  // a trainer who fought it alone learns all of it
+  o.events.push(...grantXp(doc, Math.floor(xp * (lead && lead.hp > 0 ? 0.6 : 1))));
+  const stats = (doc.stats ||= {});
+  stats.battlesWon = (stats.battlesWon || 0) + 1;
+  stats.fieldKills = (stats.fieldKills || 0) + 1;
+  if (d.by === 'arm') stats.armKills = (stats.armKills || 0) + 1;
   o.questsDone = syncQuests(doc, { kind: 'defeat', zone: ctx.zoneId, species: w.species, elements: SPECIES[w.species]?.types || [] });
   const el = SPECIES[w.species]?.types?.[0] || 'metal';
   for (const it of grantItems(doc, DROPS.roll(el, doc.level, 'wild'))) o.items.push(it.id);
@@ -119,17 +179,24 @@ function fieldWin(ctx, wildId, w) {
   ctx.state.wilds.delete(wildId); ctx.wildDocs.delete(wildId);
   const me = ctx.self?.();
   me && (me.hpRatio = hpRatio(doc));
+  o.milestones = claimMilestones(doc);
   ctx.net.save();
   o.profile = publicProfile(doc);
   ctx.net.emit('fieldWin', o);
   return o;
 }
 
-/** It hits back: the trainer's lead (or the next one standing) takes it. */
+/** It hits back: at whoever hit it last — the lead, or the trainer — and at
+ *  the other when that one is down. Nobody standing: the fight is lost. */
 function counter(world, entry, wildId, w, d, now) {
   const { ctx, doc } = entry;
   const a = activeCreature(doc);
-  if (!a || a.hp <= 0) {
+  const leadUp = !!a && a.hp > 0, maxT = trainerMaxHp(doc);
+  if (doc.trainerHp == null) doc.trainerHp = maxT;
+  restTrainer(doc, now);
+  const meUp = doc.trainerHp > 0;
+  const atMe = meUp && (d.by === 'arm' || !leadUp);
+  if (!atMe && !leadUp) {
     // nobody left standing: as a blackout, without the walk back to camp
     const lost = spend(doc, Math.floor((doc.gold || 0) * FIGHT.blackoutGold), 'blackout');
     healTeam(doc, 1);
@@ -142,11 +209,22 @@ function counter(world, entry, wildId, w, d, now) {
   }
   const moves = skillsFor(w.species, w.level).map((m) => MOVES[m]).filter((m) => m && m.kind !== 'status' && m.power > 0);
   const move = moves.length ? moves[Math.floor(Math.random() * moves.length)] : null;
+  if (atMe) {
+    const { dmg, eff } = fieldDamage(w, wildStats(w), move, { species: null, level: doc.level || 1 }, trainerFieldStats(doc));
+    doc.trainerHp = Math.max(0, doc.trainerHp - dmg); doc.trainerHitAt = now;
+    ctx.net.save();
+    const down = doc.trainerHp <= 0;
+    ctx.net.emit('fieldCounter', { wildId, dmg, eff, trainer: true, hp: doc.trainerHp, maxHp: maxT, fainted: down, skill: move?.id || null, profile: publicProfile(doc) });
+    // down, with a creature still standing: it is the one fighting now
+    if (down) d.by = 'lead';
+    return;
+  }
   const { dmg, eff } = fieldDamage(w, wildStats(w), move, a, statsFor(a.species, a.level, a.iv, a.star || 1, a.nature));
   a.hp = Math.max(0, a.hp - dmg);
   entry.p && (entry.p.hpRatio = hpRatio(doc));
   ctx.net.save();
   const fainted = a.hp <= 0;
+  if (fainted) d.by = 'arm';
   ctx.net.emit('fieldCounter', { wildId, dmg, eff, uid: a.uid, hp: a.hp, maxHp: a.maxHp, fainted, skill: move?.id || null, ...(fainted ? { profile: publicProfile(doc) } : {}) });
 }
 

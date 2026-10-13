@@ -23,9 +23,10 @@ import {
 } from './combat.js';
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
-import { endFight, wildAttack } from './field-fight.js';
+import { armStrike, endFight, restTrainer, wildAttack } from './field-fight.js';
 import { placesOf } from '../../shared/services.js';
 import { sellPrice } from '../../shared/market.js';
+import { CLINIC, admitCost, toAdmit } from '../../shared/clinic.js';
 import { handleGm } from './gm.js';
 import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
@@ -38,6 +39,7 @@ import * as Social from '../social.js';
 import * as Reports from '../reports.js';
 import { sceneSeen, storyFoe } from './saga.js';
 import { buyCosmetic, wearCosmetic } from './cosmetics.js';
+import { isUnlocked } from '../../shared/milestones.js';
 import { GUARD, cadence, moveAllowance, spendMove, strike } from './guard.js';
 import { claimTier } from './pass.js';
 import { passView } from '../../shared/pass.js';
@@ -63,13 +65,18 @@ export function engageWild(ctx, wildId, { ambush = false } = {}) {
   const fd = ctx.wildDocs.get(wildId);
   if (fd?.mode === 'fight' && fd.prey !== ctx.fieldKey) return ctx.net.emit('error', { code: 'wild_gone' }), false;
   if (!s || Math.hypot(o.x - s.x, o.z - s.z) > 8) return ctx.net.emit('error', { code: 'too_far' }), false;
+  // with nobody yet (or nobody standing) the trainer fights it themselves,
+  // with what is in their hand (shared/arms.js)
   const a = activeCreature(n);
-  if (!a || a.hp <= 0) return ctx.net.emit('error', { code: 'no_healthy_creature' }), false;
+  restTrainer(n, now);
+  if ((!a || a.hp <= 0) && (n.trainerHp ?? 1) <= 0) return ctx.net.emit('error', { code: 'no_healthy_creature' }), false;
   // One fight at a time. The client guards its own button, but the server is
   // the one that knows a wild is also about to catch this player.
   if (now < (ctx.battlePending || 0)) return false;
   ctx.battlePending = now + FIELD.pendingMs;
-  // a fight in the open becomes the battle (to catch it): it starts whole
+  // a fight in the open becomes the battle (to catch it): it comes in with
+  // whatever health it had left out there
+  const hpLeft = fd?.mode === 'fight' && fd.maxHp ? Math.max(0.01, fd.hp / fd.maxHp) : 1;
   fd?.mode === 'fight' && (endFight(o, fd, now), ctx.chasedBy === wildId && (ctx.chasedBy = null));
   o.engagedBy = n.id;
   const d = ctx.wildDocs.get(wildId);
@@ -78,7 +85,7 @@ export function engageWild(ctx, wildId, { ambush = false } = {}) {
     zoneId: ctx.zoneId,
     wildId,
     ambush,
-    wild: { species: o.species, level: o.level },
+    wild: { species: o.species, level: o.level, hpLeft },
     onEnd: (captured) => {
       // Whatever became of the fight, this session is free to start another.
       ctx.battlePending = 0;
@@ -417,6 +424,11 @@ export function handleWorldMessage(ctx, e, t = {}) {
           if (ctx.inside) return;
           wildAttack(ctx, typeof t?.wildId == "string" ? t.wildId : "", typeof t?.skill == "string" ? t.skill : "");
           break;
+        case "armStrike":
+          // the trainer's own weapon at a wild (shared/arms.js)
+          if (ctx.inside) return;
+          armStrike(ctx, typeof t?.wildId == "string" ? t.wildId : "");
+          break;
         case "bossAttack":
           {
             let o = ctx.state.boss;
@@ -534,6 +546,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // Park the player in the doorway so stepping back out is sensible.
             s.x = a.x, s.z = a.z, s.moving = !1, s.status = "inside", keepSpot(n, ctx.zoneId, s);
             ctx.inside = o.interior;
+            // which house exactly: a clinic's ward is collected where it was left
+            ctx.insidePlace = o.id || `${ctx.zoneId}:${o.kind}`, ctx.insideKind = o.kind, ctx.insideHe = o.he || o.name || "";
             // nobody rides in through a door
             ctx.ride && (setRide(ctx, s, n, null), ctx.net.emit("ride", null));
             ctx.net.emit("building", {
@@ -541,6 +555,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
               kind: o.kind,
               // a camp's cottage (shared/services.js), not one of the town's
               service: !!o.service,
+              place: ctx.insidePlace,
               name: o.name,
               he: o.he,
               door: a
@@ -549,7 +564,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
           }
         case "exitBuilding":
           {
-            ctx.inside = null, s.status = "idle";
+            ctx.inside = null, ctx.insidePlace = null, ctx.insideKind = null, s.status = "idle";
             ctx.net.emit("building", null);
             break;
           }
@@ -663,6 +678,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = ITEMS[t.itemId],
               a = Math.max(1, Math.min(99, Number(t.qty) || 1));
             if (!o?.price) return;
+            // some wait on a milestone (shared/milestones.js)
+            if (!isUnlocked(n, o)) return ctx.net.emit("error", { code: "locked" });
             if (n.gold < o.price * a) {
               ctx.net.emit("error", {
                 code: "not_enough_gold"
@@ -670,6 +687,27 @@ export function handleWorldMessage(ctx, e, t = {}) {
               return;
             }
             spend(n, o.price * a, "shop"), giveItem(n, o.id, a), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
+        case "clinicAdmit":
+          {
+            // the ones that fainted, into this clinic's care (shared/clinic.js)
+            if (ctx.insideKind !== "clinic") return ctx.net.emit("error", { code: "not_here" });
+            let team = teamCreaturesOf(n), down = toAdmit(team), cost = admitCost(team);
+            if (!down.length) return ctx.net.emit("error", { code: "nobody_down" });
+            if ((n.gold || 0) < cost) return ctx.net.emit("error", { code: "not_enough_gold" });
+            spend(n, cost, "clinic");
+            for (let c of down) c.ward = { place: ctx.insidePlace, zone: ctx.zoneId, he: ctx.insideHe, until: r + CLINIC.stayMs };
+            ctx.net.save(), ctx.net.emit("ward", { admitted: down.map(c => c.uid), cost }), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
+        case "clinicCollect":
+          {
+            // only at the clinic they are in, and only once they are better
+            let ready = teamCreaturesOf(n).filter(c => c?.ward && c.ward.place === ctx.insidePlace && c.ward.until <= r);
+            if (!ready.length) return ctx.net.emit("error", { code: "not_ready" });
+            for (let c of ready) c.hp = c.maxHp, delete c.ward;
+            s.hpRatio = hpRatio(n), ctx.net.save(), ctx.net.emit("ward", { collected: ready.map(c => c.uid) }), ctx.net.emit("profile", publicProfile(n));
             break;
           }
         case "shopSell":
@@ -690,6 +728,7 @@ export function handleWorldMessage(ctx, e, t = {}) {
             let o = ITEMS[t.itemId];
             if (!o) return;
             let a = n.creatures[t.uid] || activeCreature(n);
+            if (a?.ward) return ctx.net.emit("error", { code: "in_care" });
             if (o.kind === "heal" && a && a.hp > 0 && takeItem(n, o.id)) a.hp = Math.min(a.maxHp, a.hp + o.amount);else if (o.kind === "revive" && a && a.hp <= 0 && takeItem(n, o.id)) a.hp = Math.floor(a.maxHp * o.ratio);else if (o.kind === "gear") {
               if (!equipGear(n, o.id)) {
                 ctx.net.emit("error", {

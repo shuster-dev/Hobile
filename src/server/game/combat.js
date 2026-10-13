@@ -3,7 +3,7 @@ import { ABILITIES, NATURES, rollAbility, rollNature } from '../../shared/traits
 import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
 import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwork.js';
-import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
+import { wardrobeOf, wornLook, wornBonus } from '../../shared/cosmetics.js';
 import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { mountKind } from '../../shared/riding.js';
@@ -51,6 +51,8 @@ var Combatant = class {
         let o = Array.isArray(s.skills) && s.skills.length ? s.skills : SPECIES[this.species].learn.map(([, a]) => a);
         this.skills = o.filter(a => typeof a == "string" && Object.prototype.hasOwnProperty.call(MOVES, a)).slice(0, 4);
       }
+      // what a trainer fights with (shared/arms.js): their Strike is it
+      this.arm = this.kind === "trainer" && e.arm ? e.arm : null;
       // guild house and buffs that are not stats (server/guilds.js)
       this.stamMul = 1 + Math.max(0, num(n.stam)), this.cdr = Math.min(0.3, Math.max(0, num(n.cdr)));
       this.ai = AI_TIERS[e.ai] || AI_TIERS.standard;
@@ -564,9 +566,10 @@ var Combatant = class {
         ok: !1,
         reason: "no_target"
       };
+      // the Strike is the weapon in their hand: its power, and a staff's is magic
       let c = {
-        kind: r.kind,
-        power: r.power,
+        kind: t === "strike" && s.arm ? s.arm.kind : r.kind,
+        power: t === "strike" && s.arm ? Math.max(r.power, s.arm.power) : r.power,
         type: null,
         acc: 1
       };
@@ -897,8 +900,10 @@ function statsOf(i) {
   return statsFor(i.species, i.level, i.iv, i.star || 1, i.nature);
 }
 
+// `n` the starter, or "none": a trainer who sets out with nobody, a wooden
+// sword in hand, and brings down and catches their first themselves.
 function createPlayerDoc(i, e, t = {}, n = "sproutle") {
-  let s = makeCreature(n, 5);
+  let s = n === "none" || !n ? null : makeCreature(n, 5);
   return {
     id: i,
     name: e,
@@ -913,17 +918,17 @@ function createPlayerDoc(i, e, t = {}, n = "sproutle") {
     y: 0,
     z: 4,
     appearance: avatarLook(t || {}),
-    team: [s.uid],
+    team: s ? [s.uid] : [],
     box: [],
-    creatures: {
+    creatures: s ? {
       [s.uid]: s
-    },
+    } : {},
     inventory: {
       sphere_basic: 10,
       potion_s: 5
     },
     gear: {
-      weapon: null,
+      weapon: s ? null : "sword_wood",
       armor: null,
       trinket: null
     },
@@ -987,6 +992,8 @@ function settleHp(sim, owner, doc) {
   if (!sim || !owner || !doc?.creatures) return;
   const key = ownerKey(owner);
   for (const c of sim.combatants.values()) {
+    // the trainer goes home as hurt as they came out (field-fight.js counts it too)
+    if (c.kind === "trainer" && c.side === owner.side && ownerKey(c) === key && !c.benched) doc.trainerHp = Math.max(0, Math.round(c.hp));
     if (c.kind !== "creature" || c.side !== owner.side || ownerKey(c) !== key) continue;
     const cr = doc.creatures[c.creature?.uid];
     if (!cr) continue;
@@ -1010,6 +1017,8 @@ function addCreature(i, e) {
 
 function healTeam(i, e = 1) {
   for (let n of teamCreatures(i)) {
+    // one in a clinic's care gets better there, and is collected (shared/clinic.js)
+    if (n.ward) continue;
     let s = statsOf(n);
     n.maxHp = s.hp, n.hp = Math.min(s.hp, Math.floor(n.hp + s.hp * e)), n.stamina = PROGRESSION.staminaMax;
   }
@@ -1102,9 +1111,11 @@ function sumStats(i) {
     spe: 0
   };
   for (let t of ["weapon", "armor", "trinket"]) {
-    let n = i.gear[t];
+    let n = i.gear?.[t];
     if (!(!n || !ITEMS[n]?.bonus)) for (let [s, r] of Object.entries(ITEMS[n].bonus)) e[s] = (e[s] || 0) + r;
   }
+  // and what is worn from the tailor's (shared/cosmetics.js)
+  for (let [s, r] of Object.entries(wornBonus(i))) e[s] = (e[s] || 0) + r;
   return e;
 }
 
@@ -1486,6 +1497,7 @@ function publicProfile(i) {
     arena: arenaView(i),
     weekly: { ...weekly(i) },
     records: i.records || {},
+    milestones: Array.isArray(i.milestones) ? i.milestones : [],
     // the end of the story (shared/saga.js): scenes watched, anchors broken
     story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] },
     // the season's track (shared/pass.js)

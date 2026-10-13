@@ -75,6 +75,44 @@ const DRAW = {
       <path d="M22 42 12 52" stroke="#6a4428" stroke-width="5.5" stroke-linecap="round"/>
       <circle cx="11" cy="53" r="3.6" fill="#c9a24a" stroke="${INK}" stroke-width="2"/>`;
   },
+  bow(c) {
+    return `<defs>${grad('w', light(c, 0.35), dark(c, 0.3))}</defs>${shadow}
+      <path d="M44 6C22 12 12 30 18 52" stroke="${INK}" stroke-width="7.5" fill="none" stroke-linecap="round"/>
+      <path d="M44 6C22 12 12 30 18 52" stroke="url(#w)" stroke-width="4.2" fill="none" stroke-linecap="round"/>
+      <path d="M44 6 18 52" stroke="#eef2f8" stroke-width="1.4"/>
+      <path d="M50 22 22 38" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M50 22l-7 0 3 5z" fill="#d8dee8" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M22 38l-4-1M22 38l-2 4" stroke="#dc4436" stroke-width="2.4" stroke-linecap="round"/>`;
+  },
+  hammer(c) {
+    return `<defs>${grad('m', light(c, 0.5), dark(c, 0.3))}</defs>${shadow}
+      <path d="M36 26 14 52" stroke="${INK}" stroke-width="8" stroke-linecap="round"/><path d="M36 26 14 52" stroke="#8a5a2e" stroke-width="4.5" stroke-linecap="round"/>
+      <path d="M26 16 40 4 56 18 42 30z" fill="url(#m)" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M30 15 41 6" stroke="#fff" stroke-width="1.6" opacity=".55"/>
+      <path d="M33 23 47 11" stroke="#e8c05a" stroke-width="2.6"/>`;
+  },
+  staff(c) {
+    return `<defs>${radial('q', light(c, 0.8), dark(c, 0.2))}</defs>${shadow}
+      <path d="M38 20 16 54" stroke="${INK}" stroke-width="7.5" stroke-linecap="round"/><path d="M38 20 16 54" stroke="#9a6a40" stroke-width="4" stroke-linecap="round"/>
+      <path d="M36 22c-6-4-4-14 4-16" stroke="#6a4428" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="44" cy="14" r="12" fill="${c}" opacity=".25"/>
+      <circle cx="44" cy="14" r="7.5" fill="url(#q)" stroke="${INK}" stroke-width="2.5"/>
+      <circle cx="41.5" cy="11.5" r="2" fill="#fff" opacity=".85"/>`;
+  },
+  ring(c) {
+    return `<defs>${radial('n', light(c, 0.7), dark(c, 0.2))}</defs>${shadow}
+      <ellipse cx="32" cy="38" rx="16" ry="14" fill="none" stroke="${INK}" stroke-width="8"/>
+      <ellipse cx="32" cy="38" rx="16" ry="14" fill="none" stroke="#e8c05a" stroke-width="4.5"/>
+      <path d="M24 20 32 10 40 20 32 28z" fill="url(#n)" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/>
+      <circle cx="30" cy="17" r="1.8" fill="#fff" opacity=".85"/>`;
+  },
+  cloak(c) {
+    return `<defs>${grad('o', light(c, 0.3), dark(c, 0.35))}</defs>${shadow}
+      <path d="M24 8h16l4 8 10 36H10l10-36z" fill="url(#o)" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M24 8c2 6 14 6 16 0" fill="${dark(c, 0.3)}" stroke="${INK}" stroke-width="2"/>
+      <circle cx="32" cy="16" r="2.6" fill="#e8c05a" stroke="${INK}" stroke-width="1.5"/>
+      <path d="M22 22 18 50M42 22l4 28" stroke="${dark(c, 0.4)}" stroke-width="1.6" opacity=".6"/>`;
+  },
   vest(c) {
     return `<defs>${grad('v', light(c, 0.3), dark(c, 0.25))}</defs>${shadow}
       <path d="M22 8 32 14 42 8 52 16 48 26 46 52H18L16 26 12 16z" fill="url(#v)" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/>
@@ -158,7 +196,15 @@ function drawItem(it) {
   if (id === 'ether') return DRAW.vial(0x2fe6d0);
   if (id === 'bandage') return DRAW.bandage();
   if (id === 'medkit') return DRAW.medkit();
-  if (id.startsWith('blade_')) return DRAW.blade(id === 'blade_storm' ? 0x6ab8ff : 0xb8c2d0);
+  if (id.startsWith('blade_')) return DRAW.blade(id === 'blade_storm' ? 0x6ab8ff : id === 'blade_ember' ? 0xff7a3a : 0xb8c2d0);
+  if (it.arm === 'bow') return DRAW.bow(id === 'bow_wind' ? 0x5ad8b8 : 0xa8743e);
+  if (it.arm === 'hammer') return DRAW.hammer(id === 'hammer_titan' ? 0xe8b23a : 0x9aa4b4);
+  if (it.arm === 'staff') return DRAW.staff(id === 'staff_rift' ? 0x2fe6d0 : id === 'staff_star' ? 0xffd86a : 0x6ad86a);
+  if (id === 'sword_wood') return DRAW.blade(0xc8955a);
+  if (id === 'cloak_ranger') return DRAW.cloak(0x3a8a4a);
+  if (id === 'ring_champion') return DRAW.ring(0xdc4436);
+  if (id === 'vest_wyrm') return DRAW.shield(0xb8283c);
+  if (id === 'charm_moon') return DRAW.charm(0xc8d4ff);
   if (id === 'vest_hide') return DRAW.vest(0x9a6a40);
   if (id === 'vest_aegis') return DRAW.shield(0x3a6ad8);
   if (id.startsWith('charm_')) return DRAW.charm(id === 'charm_swift' ? 0x6ad8ff : 0xff6a9a);

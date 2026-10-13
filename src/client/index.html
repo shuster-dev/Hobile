@@ -796,6 +796,33 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .tile{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;padding:10px 6px 8px;border-radius:var(--r3);background:var(--raise);border:1px solid var(--stroke);box-shadow:var(--e1);min-width:0}
 .tile .ico{font-size:30px;line-height:1.1}.tile .n{position:absolute;top:6px;inset-inline-start:6px;font-size:11px;font-weight:800;padding:1px 6px;border-radius:var(--pill);background:var(--sunken)}
 .tile b{font-size:var(--t-sm);line-height:1.15}.tile .eff{font-size:10.5px;color:var(--muted);line-height:1.2}.tile .btn{margin-top:4px;width:100%}
+.chip-ward{--ev:#ff7a9a}.ward-card{flex:0 0 auto;display:flex;flex-direction:column;gap:var(--s2);padding:var(--s3);margin-bottom:var(--s3);border-radius:var(--r3);background:var(--raise);border:1px solid var(--stroke);box-shadow:var(--e1)}.ward-card .row{display:flex;align-items:center;gap:var(--s2)}.ward-card .row .grow{display:flex;flex-direction:column;flex:1}.ward-card .row span{font-size:var(--t-xs);color:var(--muted)}.ward-card .ico{font-size:24px}.ward-card .bar{height:6px;border-radius:3px;background:var(--sunken);overflow:hidden}.ward-card .bar i{display:block;height:100%;background:linear-gradient(90deg,#ff7a9a,#ffc861)}
+/* the trainer's own weapon (shared/arms.js) */
+.arm-btn{position:absolute;right:136px;bottom:2px;width:60px;height:60px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffd2c2,var(--coral) 58%,var(--coral-deep));border:2.5px solid #fff;display:grid;place-items:center;overflow:hidden;box-shadow:var(--e2),0 0 0 4px rgba(255,122,89,.22);z-index:3;transition:transform .09s var(--ease),opacity var(--dur) var(--ease),filter var(--dur) var(--ease);animation:arm-in .22s var(--ease)}
+.arm-btn .ico{font-size:28px;position:relative;z-index:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+.arm-btn .cd{position:absolute;inset:0;background:rgba(6,9,20,.5);transform-origin:bottom;transform:scaleY(0)}
+.arm-btn:active{transform:scale(.9)}
+.arm-btn.far{filter:saturate(.35) brightness(.85);opacity:.82;box-shadow:var(--e2)}
+@keyframes arm-in{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.power-card{display:flex;gap:12px;align-items:center;padding:10px 12px;margin:8px 0 4px;border-radius:var(--r2);background:linear-gradient(135deg,rgba(255,122,89,.16),rgba(47,230,208,.08));border:1px solid var(--stroke-strong)}
+.power-card .ico{font-size:28px;width:40px;text-align:center}
+.power-card b{display:block}
+.power-card span{color:var(--muted);font-size:var(--t-sm)}
+.icard.locked{opacity:.62;filter:grayscale(.55)}
+.icard .lock{font-size:var(--t-xs);color:var(--gold)}
+.icard .eff.stat{color:var(--aether)}
+.list-item.milestone{align-items:center}
+.list-item.milestone.done{opacity:.66}
+.list-item.milestone .ms-ico{font-size:24px;width:34px;text-align:center}
+.list-item.milestone .ms-prize{display:flex;gap:2px;align-items:center}
+.list-item.milestone .ms-prize .iicon{width:30px;height:30px}
+.list-item.milestone .ms-open{display:block;color:var(--gold);font-size:var(--t-xs);margin-top:3px}
+
+.starter.arm-start{display:flex;gap:12px;align-items:center;text-align:start;padding:12px 14px;grid-column:1/-1}
+.arm-start .arm-start-ico{font-size:34px;width:52px;height:52px;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffd2c2,var(--coral) 60%,var(--coral-deep));border:2px solid #fff;flex:0 0 auto}
+.arm-start .grow{display:flex;flex-direction:column;gap:4px}
+.arm-start .grow span{font-size:var(--t-sm);color:var(--muted);line-height:1.4}
+.arm-start .arm-start-tip{color:var(--gold)!important;font-size:var(--t-xs)!important}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">
@@ -821,6 +848,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
         <div class="sky"><b id="v-sky">—</b><span id="v-season"></span></div>
         <button id="btn-claim" class="claim hidden" type="button">🔒 שמור התקדמות</button>
         <button id="chip-daily" class="chip-daily hidden" type="button"></button>
+        <button id="chip-ward" class="chip-daily chip-ward hidden" type="button"></button>
       </div>
     </div>
 
@@ -867,6 +895,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
     <div id="action-cluster">
       <button class="action-main" id="btn-action">פעולה</button>
       <button class="ride-btn hidden" id="btn-ride" type="button" aria-label="רכיבה">🐎</button>
+      <button class="arm-btn hidden" id="btn-arm" type="button" aria-label="הכה"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">🗡</span></button>
       <button class="skill-btn s0 hidden" data-slot="0" aria-label="כישור 1"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
       <button class="skill-btn s1 hidden" data-slot="1" aria-label="כישור 2"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
       <button class="skill-btn s2 hidden" data-slot="2" aria-label="כישור 3"><span class="cd" style="transform:scaleY(0)"></span><span class="ico">✦</span></button>
@@ -957,8 +986,8 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
         <button class="btn cc-cta" id="btn-next" type="button">המשך</button>
       </section>
       <section class="cc-step hidden" id="cc-step2">
-        <div class="cc-head"><button class="cc-back" id="btn-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>חזרה</button><b>בחר שותף ראשון</b></div>
-        <div class="starter-grid" id="pick-starter" role="radiogroup" aria-label="יצור פתיחה"></div>
+        <div class="cc-head"><button class="cc-back" id="btn-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>חזרה</button><b>יוצאים לדרך</b></div>
+        <div class="starter-grid" id="pick-starter" role="radiogroup" aria-label="מה לוקחים לדרך"></div>
         <div class="field cc-namefield"><label for="in-charname">שם הדמות</label><input id="in-charname" maxlength="16" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="איך יקראו לך?" /></div>
         <div class="error-text" id="create-error" role="alert"></div>
         <button class="btn cc-cta" id="btn-create" type="button">התחל את המסע</button>

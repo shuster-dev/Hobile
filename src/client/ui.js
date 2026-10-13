@@ -17,8 +17,11 @@ import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
 import { DYES, HATS, SLOTS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
+import { ARMS, armOf } from '../shared/arms.js';
+import { MILESTONE, isUnlocked, lockText, milestoneView } from '../shared/milestones.js';
 import { COUNTERS, SELL_RATE, catalog, sellPrice } from '../shared/market.js';
 import { placesOf } from '../shared/services.js';
+import { CLINIC, admitCost, inCare, toAdmit } from '../shared/clinic.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
 import { face, faceNow, lazyFaces } from './faces.js';
@@ -70,6 +73,8 @@ var STRINGS = {
     wild_gone: "היצור כבר לא כאן",
     too_far: "רחוק מדי — התקרב",
     no_healthy_creature: "אין לך יצור כשיר לקרב — נוח במחנה כדי להבריא",
+    trainer_down: "אין לך כוח — חכה רגע או השתמש בתחבושת",
+    locked: "עוד לא נפתח — השלם את האתגר שלו",
     battle_unavailable: "אי אפשר לפתוח קרב כרגע — נסה שוב",
     not_here: "השחקן כבר לא באזור",
     no_portal: "אין שער במקום הזה",
@@ -316,7 +321,7 @@ var UI = class {
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
     }
-    this.renderTracker(), this.renderDailyChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
+    this.renderTracker(), this.renderDailyChip(), this.renderWardChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
   }
   /** The ride button: shown when the lead (the one beside you) can carry
    *  you, its icon how — fly, swim or ride (shared/riding.js) — lit while riding. */
@@ -333,6 +338,48 @@ var UI = class {
     this._clusterKey = null, this.syncCluster();
   }
   /** Under the vitals: a gift waiting today, or else the season that is on. */
+  /** Who is in a clinic's care, and how long until the first can be collected. */
+  renderWardChip() {
+    let c = $("#chip-ward");
+    if (!c) return;
+    let paint = () => {
+      let list = inCare(this.profile?.team || []);
+      if (!list.length) return c.classList.add("hidden"), clearInterval(this._wardTick), this._wardTick = null;
+      let ready = list.filter(x => !x.left).length, next = Math.min(...list.map(x => x.left).filter(x => x > 0), Infinity);
+      c.classList.remove("hidden"), c.textContent = `🏥 ${list.length} · ${ready ? "מוכן לאיסוף" : formatClock(next)}`, c.title = `${list.length} במרפאה`;
+    };
+    paint(), !this._wardTick && inCare(this.profile?.team || []).length && (this._wardTick = setInterval(paint, 1e3));
+    c.onclick = () => {
+      let w = inCare(this.profile?.team || [])[0];
+      w && this.toast(`${loc(SPECIES[w.c.species])} ב${w.he || "מרפאה"}${w.left ? ` · עוד ${formatClock(w.left)}` : " — מוכן, לך לאסוף"}`, "good");
+    };
+  }
+  /**
+   * The clinic's ward (shared/clinic.js): the ones who fainted are brought
+   * in for five minutes and collected here, whole. Nothing to show when the
+   * team is well.
+   */
+  wardCard() {
+    let t = this.profile || {}, gold = t.gold || 0, team = t.team || [], down = toAdmit(team), care = inCare(team);
+    if (!down.length && !care.length) return null;
+    let c = el("div", "ward-card");
+    if (down.length) {
+      let r = el("div", "row"), cost = admitCost(team);
+      r.innerHTML = `<div class="ico">🚑</div><div class="grow"><b>${ltr(down.length)} מעולפים — אשפוז</b><span>${down.map(x => Ze(loc(SPECIES[x.species]))).join(" · ")} · ${ltr(Math.round(CLINIC.stayMs / 60000))} דקות החלמה, ואז לאסוף מכאן</span></div>`;
+      let b = el("button", "btn small primary", `אשפז · ${ltr(`${cost}⛁`)}`);
+      b.disabled = gold < cost, b.onclick = () => this.hooks.clinicAdmit?.(), r.appendChild(b), c.appendChild(r);
+    }
+    for (let w of care) {
+      let here = w.place === this.place, r = el("div", "row"), pct = Math.round(100 * (1 - w.left / CLINIC.stayMs));
+      r.innerHTML = `<div class="ico">🛏</div><div class="grow"><b>${Ze(loc(SPECIES[w.c.species]))}</b><span>${w.left ? `מחלים · עוד <span data-countdown="${w.c.ward.until}">${formatClock(w.left)}</span>` : "החלים!"}${here ? "" : ` · ב${Ze(w.he || "מרפאה אחרת")}`}</span><div class="bar"><i style="width:${pct}%"></i></div></div>`;
+      if (!w.left && here) {
+        let b = el("button", "btn small primary", "אסוף");
+        b.onclick = () => this.hooks.clinicCollect?.(), r.appendChild(b);
+      }
+      c.appendChild(r);
+    }
+    return c;
+  }
   renderDailyChip() {
     let c = $("#chip-daily");
     if (!c || !this.profile) return;
@@ -1558,6 +1605,13 @@ var UI = class {
       worn.appendChild(c);
     }
     e.appendChild(section("מה שאתה לובש")), e.appendChild(worn);
+    // what it all adds up to: the smith's gear and what is worn from the tailor's
+    let tot = {}, add = b => { for (let [k, v] of Object.entries(b || {})) tot[k] = (tot[k] || 0) + v; };
+    for (let id of Object.values(gear)) id && add(ITEMS[id]?.bonus);
+    for (let sl of ["hat", "face", "back"]) { let id = p.wardrobe?.[sl]; id && add(SLOTS[sl]?.[id]?.bonus); }
+    let arm = armOf(p), pw = el("div", "power-card");
+    pw.innerHTML = `<div class="ico">${arm.icon}</div><div class="grow"><b>${Ze(arm.he)}${arm.fists ? "" : ` · עוצמה ${ltr(arm.power)}`}</b><span>${bonusText(tot) || "אין תוספות עדיין — ציוד מהנפח, בגדים מהחייט ופרסים מאתגרים"}</span></div>`;
+    e.appendChild(pw);
     let all = Object.entries(inv).filter(([id, n]) => n > 0 && ITEMS[id]);
     if (!all.length) return e.appendChild(emptyState("🎒", "התיק ריק", "שלל מקרבות ומבוכים מגיע לכאן"));
     let groups = [["use", "🧪 שיקויים", ["heal", "revive", "trainerHeal", "stamina"]], ["sphere", "🔴 כדורים", ["sphere"]], ["gear", "⚔️ ציוד", ["gear"]], ["material", "💎 חומרים", ["material"]]],
@@ -1600,7 +1654,7 @@ var UI = class {
     if (!t) return;
     let team = t.team || [], box = t.box || [], away = t.away || [];
     if (!team.length && !box.length && !away.length) {
-      e.appendChild(emptyState("🐾", "אין לך עדיין יצורים", "לכידה בקרב מוסיפה יצור לצוות"));
+      e.appendChild(emptyState("🐾", "אין לך עדיין יצורים", "הכה יצור פראי בנשק שלך, ואז \"קרב\" וזרוק כדור כדי לתפוס אותו"));
       return;
     }
     let sum = el("div", "roster-sum");
@@ -2074,6 +2128,20 @@ var UI = class {
     };
     (Object.keys(t.quests.active || {}).length || Object.keys(t.quests.dailies || {}).length) && e.appendChild(el("div", "hint", "לא בטוח מה לעשות? הקש על משימה."));
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
+    // what is given for what is done (shared/milestones.js): weapons, gear,
+    // things to wear, and what the smith and the tailor will sell after
+    let ms = milestoneView(t);
+    e.appendChild(section("🏅 אתגרים ופרסים", ltr(`${ms.filter(m => m.done).length}/${ms.length}`)));
+    for (let m of ms.sort((a, b) => a.done - b.done)) {
+      let d = el("div", `list-item milestone ${m.done ? "done" : ""}`),
+        prize = [...m.items.map(id => itemIcon(id, "sm")), ...m.wear.map(id => `<span class="iicon-e">👒</span>`)].join(""),
+        opens = m.unlocks.map(id => ITEMS[id] ? loc(ITEMS[id]) : cosmeticById(id)?.he || id);
+      d.innerHTML = `<div class="ms-ico">${m.icon}</div><div class="grow"><b>${Ze(m.he)}</b><span>${Ze(m.desc)}</span>
+        ${m.done ? "" : `<div class="bar xp" style="margin-top:6px"><i style="width:${Math.min(100, m.at / m.goal * 100)}%"></i></div><span class="mono">${rangeLabel(m.at, m.goal, " / ")}</span>`}
+        ${opens.length ? `<span class="ms-open">🔓 ${Ze(opens.join(" · "))}</span>` : ""}</div><div class="ms-prize">${prize}</div>`;
+      m.done && d.appendChild(el("span", "pill good", "✓"));
+      e.appendChild(d);
+    }
     // the story's scenes already seen, to watch again (client/cutscene.js)
     let seen = SCENE_ORDER.filter(id => (t.story?.seen || []).includes(id));
     if (seen.length) {
@@ -2590,18 +2658,18 @@ var UI = class {
         c = el("div", `icard tappable ${trying ? "trying" : ""} ${worn ? "worn" : ""} ${!own && !d.pass && gold < d.price ? "lacking" : ""}`),
         ico = slot === "dye" ? `<div class="swatch big" style="background:${oo(d.color)}"></div>` : `<div class="ico">${wearIcon({ ...d, slot })}</div>`;
       c.innerHTML = `<div class="top">${ico}${worn ? '<span class="have">✓ לבוש</span>' : own ? '<span class="have">שלך</span>' : ""}</div>
-        <b>${Ze(d.he)}</b><span class="eff">${d.pass && !own ? "🎟 ממסלול העונה" : trying ? "👀 מודד עכשיו" : "הקש למדידה"}</span><div class="foot">${!own && !d.pass ? `<span class="price">${ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span>` : ""}</div>`;
+        <b>${Ze(d.he)}</b>${d.bonus ? `<span class="eff stat">${bonusText(d.bonus)}</span>` : ""}<span class="eff">${d.pass && !own ? "🎟 ממסלול העונה" : !own && !isUnlocked(p, d) ? `🔒 ${Ze(lockText(d))}` : trying ? "👀 מודד עכשיו" : "הקש למדידה"}</span><div class="foot">${!own && !d.pass && isUnlocked(p, d) ? `<span class="price">${ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span>` : ""}</div>`;
       c.onclick = () => (this._tryOn = { ...(this._tryOn || {}), [slot]: id }, this.renderPanel("tailor"));
       let b;
       if (worn) b = el("button", "btn small", "הסר"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, null));
       else if (own) b = el("button", "btn small primary", "לבש"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, id));
-      else if (!d.pass) b = el("button", "btn small primary", "קנה"), b.disabled = gold < d.price, b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticBuy?.(id));
+      else if (!d.pass && isUnlocked(p, d)) b = el("button", "btn small primary", "קנה"), b.disabled = gold < d.price, b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticBuy?.(id));
       else b = el("span", "pill", "🔒");
       c.querySelector(".foot").appendChild(b), g.appendChild(c);
     }
     e.appendChild(g);
     let n = el("div", "hint");
-    n.textContent = "רק מראה — שום דבר כאן לא משנה כוח בקרב. כוח נותן הנפח.", e.appendChild(n);
+    n.textContent = "כל כובע, משקפיים ותיק מוסיפים קצת כוח — לך ולצוות שלך. צבע הוא רק מראה.", e.appendChild(n);
   }
   /**
    * A counter (shared/market.js): the camp clinic's potions and spheres (and
@@ -2614,7 +2682,7 @@ var UI = class {
       counter = COUNTERS[this.counter] ? this.counter : "shop",
       tab = this.shopTab === "sell" ? "sell" : "buy";
     e.appendChild(storeHead(counter === "clinic" ? "🩺" : counter === "smith" ? "⚒" : "🏪", COUNTERS[counter].he, gold));
-    if (counter === "clinic") e.appendChild(this.careCard());
+    if (counter === "clinic") { let w = this.wardCard(); w && e.appendChild(w); }
     let seg = el("div", "seg");
     for (let [id, label] of [["buy", "🛒 קנייה"], ["sell", "💰 מכירה"]]) {
       let b = el("button", id === tab ? "on" : "", label);
@@ -2633,6 +2701,15 @@ var UI = class {
         e.appendChild(section(KIND_TITLE[kind] || kind));
         let g = el("div", "cards");
         for (let it of list) {
+          // some wait on a milestone (shared/milestones.js)
+          if (!isUnlocked(p, it)) {
+            let c = el("div", "icard gear locked");
+            c.innerHTML = `<div class="top"><div class="ico">${itemIcon(it.id)}</div><span class="have">🔒</span></div>
+              <b>${Ze(loc(it))}</b><span class="eff">${itemEffect(it)}</span>
+              <div class="foot"><span class="lock">נפתח ב: ${Ze(lockText(it))}</span></div>`;
+            g.appendChild(c);
+            continue;
+          }
           let c = el("div", `icard ${gold >= it.price ? "" : "lacking"} ${it.kind === "gear" ? "gear" : ""}`);
           c.innerHTML = `<div class="top"><div class="ico">${itemIcon(it.id)}</div>${inv[it.id] ? `<span class="have">${ltr(`×${inv[it.id]}`)}</span>` : ""}</div>
             <b>${Ze(loc(it))}</b><span class="eff">${itemEffect(it)}</span>
@@ -2676,17 +2753,6 @@ var UI = class {
       }
       e.appendChild(g);
     }
-  }
-  /** The clinic's care for the whole team, as one card (the camp's clinic counter). */
-  careCard() {
-    let t = this.profile || {}, n = t.gold || 0, s = t.team || [],
-      hurt = s.filter(p => p && p.hp < p.maxHp).length, down = s.filter(p => p && p.hp <= 0).length,
-      me = (t.trainerHp ?? 1) < (t.trainerMaxHp ?? 1), cost = clinicCost(s), need = hurt > 0 || down > 0 || me,
-      c = el("div", "care-card");
-    c.innerHTML = `<div class="ico">🩺</div><div class="grow"><b>טיפול מלא לצוות</b><span>${need ? `${down ? `${ltr(String(down))} מחוסרי הכרה · ` : ""}${hurt ? `${ltr(String(hurt))} פצועים` : ""}${me ? `${hurt ? " · " : ""}גם אתה` : ""}` : "הצוות שלך במצב מצוין"}</span></div>`;
-    let b = el("button", "btn small primary", need ? `טפל · ${ltr(`${cost}⛁`)}` : "תקין");
-    b.disabled = !need || n < cost, b.onclick = () => this.hooks.clinicHeal?.(cost), c.appendChild(b);
-    return c;
   }
   /** The boards: for all time (level, gold, captures), this arena season,
    *  and this week (the tower, the world bosses). */
@@ -2845,6 +2911,21 @@ var UI = class {
   renderWorldSkills(e) {
     this._worldSkills = e?.skills || [], this.syncCluster();
   }
+  /** The weapon's circle (shared/arms.js): shown with a wild near, dim until it is in reach. */
+  setArm(arm) {
+    let b = $("#btn-arm");
+    if (!b) return;
+    let key = arm ? `${arm.id}|${arm.inReach}` : "";
+    if (key === this._armKey) return;
+    this._armKey = key, b.classList.toggle("hidden", !arm);
+    if (!arm) return;
+    b.classList.toggle("far", !arm.inReach), b.querySelector(".ico").textContent = arm.icon;
+    b.setAttribute("aria-label", `הכה ב${arm.he}`), b.title = `${arm.he} (F)`;
+  }
+  armCooldown(ms) {
+    let c = $("#btn-arm .cd");
+    c && (c.style.transition = "none", c.style.transform = "scaleY(1)", c.offsetWidth, c.style.transition = `transform ${ms}ms linear`, c.style.transform = "scaleY(0)");
+  }
   /** "moves" when there is something to fight in reach, "tricks" otherwise. */
   setClusterMode(mode) {
     this._clusterMode !== mode && (this._clusterMode = mode, this.syncCluster());
@@ -2862,14 +2943,15 @@ var UI = class {
       canRide = riding || !!leadMount(this.profile?.team || []),
       rideShown = riding || canRide && mode === "tricks",
       moves = this._worldSkills || [],
-      key = `${mode}|${riding}|${rideShown}|${moves.join(",")}`;
+      key = `${mode}|${riding}|${rideShown}|${moves.join(",")}|${this.profile?.team?.length || 0}`;
     if (key === this._clusterKey) return;
     this._clusterKey = key;
     $("#btn-ride")?.classList.toggle("hidden", !rideShown);
     document.querySelectorAll(".skill-btn").forEach((n, s) => {
       let r = null, trick = null, fly = mode === "flight" && s < 2 ? s ? "down" : "up" : "";
       if (mode === "moves") s === 3 && rideShown || (r = moves[s] || null);
-      else mode === "tricks" && !riding && s <= 2 && (trick = TRICKS[TRICK_IDS[s]]);
+      // tricks are for the one walking beside you: nobody yet, none
+      else mode === "tricks" && !riding && s <= 2 && this.profile?.team?.length && (trick = TRICKS[TRICK_IDS[s]]);
       let o = r && MOVES[r];
       n.dataset.skill = o ? r : "", n.dataset.trick = trick ? trick.id : "", n.dataset.fly = fly, n.classList.toggle("trick", !!trick), n.classList.toggle("fly", !!fly);
       let on = !!(o || trick || fly);
@@ -3001,7 +3083,7 @@ var UI = class {
     }
     let s = $("#battle-trainer");
     s.innerHTML = "";
-    let r = [["strike", "👊"], ["sphere", "🔵"], ["potion", "🧪"], ["rally", "📣"], ["flee", "🏃"]];
+    let r = [["strike", armOf(this.profile).icon], ["sphere", "🔵"], ["potion", "🧪"], ["rally", "📣"], ["flee", "🏃"]];
     for (let [o, a] of r) {
       let l = ACTIONS[o],
         c = el("button", "tb");
@@ -3193,7 +3275,14 @@ var STAT_HE = { hp: "חיים", atk: "כוח", def: "הגנה", spa: "כוח מ�
 
 var KIND_TITLE = { sphere: "🔴 כדורי לכידה", heal: "🧪 שיקויים", revive: "✨ החייאה", stamina: "⚡ מרץ", trainerHeal: "🩹 בשבילך", gear: "⚔️ ציוד — נשק, שריון וקמע", material: "💎 חומרים" };
 
+/** "כוח +8 · מהירות +4" */
+function bonusText(b) {
+  return Object.entries(b || {}).map(([e, t]) => `${STAT_HE[e] || e} ${ltr(`+${t}`)}`).join(" · ");
+}
+
 function itemEffect(i) {
+  // a weapon says what it is and how hard it hits (shared/arms.js)
+  if (i.kind === "gear" && i.arm && ARMS[i.arm]) return `${ARMS[i.arm].icon} ${ARMS[i.arm].he} · עוצמה ${ltr(i.power || 0)} · ${bonusText(i.bonus)}`;
   return i.kind === "sphere" ? `סיכוי לכידה ${ltr(`×${i.rate}`)}` : i.kind === "heal" ? `מרפא ${ltr(`${i.amount} HP`)}` : i.kind === "revive" ? i.ratio >= 1 ? "מחייה יצור במלוא החיים" : "מחייה יצור מעולף" : i.kind === "trainerHeal" ? `מרפא לך ${ltr(`${i.amount} HP`)}` : i.kind === "stamina" ? `${ltr(`+${i.amount}`)} מרץ` : i.kind === "gear" ? Object.entries(i.bonus).map(([e, t]) => `${STAT_HE[e] || e} ${ltr(`+${t}`)}`).join(" · ") : "חומר גלם";
 }
 

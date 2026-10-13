@@ -212,7 +212,8 @@ app.post('/api/character', requireAuth, async (req, res) => {
   if (await store.getDoc(req.userId)) return res.status(409).json({ error: 'already_exists' });
   const name = String(req.body?.name ?? '').trim().slice(0, 16);
   if (name.length < 2) return res.status(400).json({ error: 'invalid_name' });
-  const starter = STARTERS.includes(req.body?.starter) ? req.body.starter : STARTERS[0];
+  // "none": they set out with nobody and catch their first themselves
+  const starter = req.body?.starter === 'none' ? 'none' : STARTERS.includes(req.body?.starter) ? req.body.starter : STARTERS[0];
   const a = req.body?.appearance || {};
   // A kind, a look and a skin from the palette; anything else falls back.
   // (A client from before kinds sends an outfit, which picks the kind.)

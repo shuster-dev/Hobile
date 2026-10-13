@@ -18,7 +18,7 @@ import { Color, Euler, Group, Matrix4, Quaternion, Vector3 } from 'three';
 import { BOX, CONE, ELLIPSOID, PAINT, SPHERE, TORUS, CARVE, instance, setFigurineLod } from './figurine.js';
 import { AVATAR } from '../../shared/gamedata.js';
 import { BACKS, DYES, FACES, HATS } from '../../shared/cosmetics.js';
-import { dressHero, heroAct } from './heroes.js';
+import { dressHero, heroAct, heroStrike } from './heroes.js';
 
 // -- the vocabulary (as in figurine-designs.js) ---------------------------------
 const S = (bone, c, p, r, k = 0.03, o) => ({ t: SPHERE, bone, c, p, r, k, ...o });
@@ -930,4 +930,4 @@ export function personAct(group, name, dur = 1.3) {
   return true;
 }
 
-export { setFigurineLod };
+export { setFigurineLod, heroStrike };

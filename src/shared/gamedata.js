@@ -2141,6 +2141,8 @@ var MOVES = {
       he: "להב ברזל",
       kind: "gear",
       slot: "weapon",
+      arm: "sword",
+      power: 40,
       bonus: {
         atk: 8
       },
@@ -2153,6 +2155,9 @@ var MOVES = {
       he: "חרב הסופה",
       kind: "gear",
       slot: "weapon",
+      arm: "sword",
+      power: 58,
+      unlock: "dungeon_hard",
       bonus: {
         atk: 22,
         spe: 6
@@ -2179,6 +2184,7 @@ var MOVES = {
       he: "שריון אגיס",
       kind: "gear",
       slot: "armor",
+      unlock: "dungeon_hard",
       bonus: {
         def: 26,
         hp: 70
@@ -2214,9 +2220,23 @@ var MOVES = {
     // Never sold: found, now and then, on a wild beaten in the open
     // (shared/market.js fieldLoot). Worth more at the counter than they cost
     // anyone, because nobody bought them.
-    blade_ember: { id: "blade_ember", name: "Ember Edge", he: "להב הגחלים", kind: "gear", slot: "weapon", bonus: { atk: 16, spa: 8 }, value: 2600, rare: true, icon: "⚔️" },
+    blade_ember: { id: "blade_ember", name: "Ember Edge", he: "להב הגחלים", kind: "gear", slot: "weapon", arm: "sword", power: 52, bonus: { atk: 16, spa: 8 }, value: 2600, rare: true, icon: "⚔️" },
     vest_wyrm: { id: "vest_wyrm", name: "Wyrmscale Coat", he: "מעיל קשקשי דרקון", kind: "gear", slot: "armor", bonus: { def: 16, hp: 60 }, value: 3000, rare: true, icon: "🛡" },
     charm_moon: { id: "charm_moon", name: "Moonstone", he: "אבן הירח", kind: "gear", slot: "trinket", bonus: { spd: 10, spe: 10, hp: 25 }, value: 2800, rare: true, icon: "🌙" },
+    // What a trainer fights with themselves (shared/arms.js): four kinds, each
+    // with its power on top of its stats. `unlock` is a milestone that must
+    // be reached before the smith sells it (shared/milestones.js); `reward`
+    // ones are never sold, only given for one.
+    sword_wood: { id: "sword_wood", name: "Wooden Sword", he: "חרב עץ", kind: "gear", slot: "weapon", arm: "sword", power: 30, bonus: { atk: 3 }, price: 150, icon: "🗡" },
+    bow_hunter: { id: "bow_hunter", name: "Hunter's Bow", he: "קשת צייד", kind: "gear", slot: "weapon", arm: "bow", power: 32, bonus: { atk: 6, spe: 4 }, price: 900, icon: "🏹" },
+    hammer_stone: { id: "hammer_stone", name: "Stone Maul", he: "פטיש אבן", kind: "gear", slot: "weapon", arm: "hammer", power: 46, bonus: { atk: 10, def: 4 }, price: 1100, icon: "🔨" },
+    staff_oak: { id: "staff_oak", name: "Oak Staff", he: "מקל אלון", kind: "gear", slot: "weapon", arm: "staff", power: 32, bonus: { spa: 8 }, price: 900, icon: "🪄" },
+    bow_wind: { id: "bow_wind", name: "Windstring", he: "קשת הרוח", kind: "gear", slot: "weapon", arm: "bow", power: 52, bonus: { atk: 14, spe: 12 }, price: 3600, unlock: "hunter_50", icon: "🏹" },
+    staff_star: { id: "staff_star", name: "Starwood Rod", he: "מטה הכוכבים", kind: "gear", slot: "weapon", arm: "staff", power: 56, bonus: { spa: 22, spd: 8 }, price: 3800, unlock: "dungeon_hard", icon: "🪄" },
+    hammer_titan: { id: "hammer_titan", name: "Titan's Maul", he: "פטיש הטיטאן", kind: "gear", slot: "weapon", arm: "hammer", power: 74, bonus: { atk: 26, def: 12 }, value: 6000, reward: true, icon: "🔨" },
+    staff_rift: { id: "staff_rift", name: "Rift Scepter", he: "שרביט הקרע", kind: "gear", slot: "weapon", arm: "staff", power: 72, bonus: { spa: 28, spd: 12, hp: 20 }, value: 6000, reward: true, icon: "🪄" },
+    cloak_ranger: { id: "cloak_ranger", name: "Ranger's Cloak", he: "גלימת סייר", kind: "gear", slot: "armor", bonus: { def: 12, hp: 40, spe: 6 }, value: 2400, reward: true, icon: "🧥" },
+    ring_champion: { id: "ring_champion", name: "Champion's Ring", he: "טבעת האלוף", kind: "gear", slot: "trinket", bonus: { atk: 10, spa: 10, hp: 30 }, value: 4000, reward: true, icon: "💍" },
     mat_emberdust: {
       id: "mat_emberdust",
       name: "Ember Dust",
