@@ -32,6 +32,7 @@ const xpProgress = (c) => {
   return { have: Math.max(0, Math.min(hi - lo, (c?.xp || 0) - lo)), need: hi - lo };
 };
 import { LEADERS, LEADER_REACH, badgeNeeded, leaderSpot, weakTo } from '../shared/leaders.js';
+import { nextBoss } from '../shared/worldboss.js';
 import { LEAGUE, leagueOpen } from '../shared/league.js';
 import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
@@ -1787,6 +1788,10 @@ var Game = class {
         petSpecies: d.petSpecies,
         petStar: d.petStar || 1
       });
+      // what you are riding is what the server says you are riding: back from
+      // a fight in which your mount fainted, the server put you down, and the
+      // flight buttons stayed up with nothing under you
+      u === n.sessionId && this.syncRide(d);
       u !== n.sessionId ? (this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving), this.world.setActorAlt(u, d.alt)) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0), this.hangChampions()), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1), this.world.setMount(f, d.mount, d.mountKind, d.mountStar || 1);
     }), s.wilds.forEach((d, u) => {
       r.add(u), this.world.ensureActor(u, {
@@ -1819,6 +1824,8 @@ var Game = class {
       a = this.world.moveSelf(x, g, e), this.walkPhase += p * e, this.walkPhase > 1.55 && (this.walkPhase = 0, audio.sfx("step"));
     } else a = this.world.moveSelf(0, 0, e), this.walkPhase = 1.2;
     let l = Date.now();
+    // where the world boss is, or when it comes (the "world boss" step)
+    l - (this._bossHintAt || 0) > 5e3 && (this._bossHintAt = l, this.updateBossHint(l));
     // landing from the air: down first, then off (rideToggle)
     this.world.flyLanding && this.riding && (this.world.flightAlt() < 0.4 || l - (this._landAt || 0) > 8e3) && (this.world.flyLanding = !1, this.net.send("ride", {}));
     a && l - this.lastNetSend > 1e3 / zb && (this.lastNetSend = l, this.net.send("move", a));
@@ -1969,6 +1976,33 @@ var Game = class {
   leaderNear(t) {
     let l = this.world.leader;
     return l && t && Math.hypot(l.at.x - t.x, l.at.z - t.z) < LEADER_REACH ? l : null;
+  }
+  /** One line for a step that waits on a world boss: here now, coming here
+   *  at a time, or out now (or next) in which world (shared/worldboss.js). */
+  bossHint(now = Date.now()) {
+    let b = this.worldState()?.boss, here = this.zone?.id,
+      at = (t) => new Date(t).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }),
+      name = (sp) => loc(SPECIES[sp]) || sp;
+    if (b?.active) return `☠ ${name(b.species)} כאן עכשיו — לך אליו (☠ במכ״ם) ופגע בו`;
+    if (b?.nextSpawnAt > now && b.species) return `☠ ${name(b.species)} יופיע כאן ב־${at(b.nextSpawnAt)} (בעוד ${Math.max(1, Math.ceil((b.nextSpawnAt - now) / 6e4))} דק׳)`;
+    let n = nextBoss(now);
+    if (!n) return "";
+    let z = loc(ZONES[n.def.zone]) || n.def.zone;
+    return n.active ? `☠ ${name(n.def.species)} בחוץ עכשיו ב${z} — עד ${at(n.endsAt)}. לך לשם (החץ מראה את הדרך)` : `☠ הבוס הבא: ${name(n.def.species)} ב${z}, ב־${at(n.startsAt)} (בעוד ${Math.max(1, Math.ceil((n.startsAt - now) / 6e4))} דק׳)`;
+  }
+  updateBossHint(now) {
+    let q = this.profile?.quests?.active || {}, wants = Object.entries(q).some(([id, r]) => !r.done && QUESTS[id]?.goal?.kind === "boss");
+    let h = wants ? this.bossHint(now) : "";
+    h !== this.ui.bossHint && (this.ui.bossHint = h, this.ui.renderTracker());
+  }
+  /** The ride as the shared state has it, when ours disagrees (no toast:
+   *  nothing new happened, ours was only out of date). */
+  syncRide(d) {
+    let want = d.mount ? { species: d.mount, kind: d.mountKind, star: d.mountStar || 1 } : null, have = this.riding;
+    if (!!want === !!have && (!want || (want.species === have.species && want.kind === have.kind))) return;
+    this.riding = want ? { ...want, uid: have?.species === want.species ? have.uid : null } : null;
+    want || (this.world.flyLanding = !1, this.world.flyInput = 0);
+    this.ui.renderRide(this.riding);
   }
   /** A word from the leader, and then the fight. */
   leaderChallenge() {
@@ -2137,10 +2171,13 @@ var Game = class {
       let l = r.find(c => c.kind === "portal" && c.to === FINALE.zone);
       return l ? o(l.x, l.z) : null;
     }
-    if (s.kind === "boss") return t?.boss?.active ? {
-      x: t.boss.x,
-      z: t.boss.z
-    } : null;
+    if (s.kind === "boss") {
+      if (t?.boss?.active) return { x: t.boss.x, z: t.boss.z };
+      if (t?.boss?.nextSpawnAt > Date.now()) return o(t.boss.x, t.boss.z);
+      // none here: toward the world where one is out now, or comes next
+      let nb = nextBoss(), way = nb && this.zone?.id && nb.def.zone !== this.zone.id && route(this.zone.id, nb.def.zone), l = way && r.find(c => c.kind === "portal" && c.to === way[1]);
+      return l ? o(l.x, l.z) : null;
+    }
     let a = this.nearestWild(n);
     return a ? {
       x: a.w.x,

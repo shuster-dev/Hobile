@@ -486,7 +486,7 @@ var UI = class {
     let e = $("#tracker-list");
     if (!this.profile) return;
     let t = [...Object.entries(this.profile.quests.active || {}), ...Object.entries(this.profile.quests.dailies || {})].map(([u, f]) => [u, qLive(this.profile, u, f), QUESTS[u]]).filter(([, u, f]) => f && !u.claimed),
-      n = t.map(([u, f]) => `${u}:${f.progress || 0}:${f.done ? 1 : 0}`).join("|") + `|${(this.profile.team || []).map(x => x.level).join(",")}`;
+      n = t.map(([u, f]) => `${u}:${f.progress || 0}:${f.done ? 1 : 0}`).join("|") + `|${(this.profile.team || []).map(x => x.level).join(",")}|${this.bossHint || ""}`;
     if (e.dataset.sig === n) return;
     if (e.dataset.sig = n, e.innerHTML = "", !t.length) {
       e.innerHTML = "<div class=\"q-empty\">אין משימות פעילות</div>";
@@ -501,6 +501,8 @@ var UI = class {
       d = el("div", `q-lead ${l.chain} ${h ? "done" : ""}`);
     // what to do, in one plain line, under the step (shared/journey.js)
     let hint = h ? l.chain === "npc" ? `חזור אל ${giverName(l.giver)} לקבל את הפרס` : "" : l.hint || l.descHe || "";
+    // a world boss: here now, when it comes, or where it is (game.bossHint)
+    !h && l.goal?.kind === "boss" && this.bossHint && (hint = this.bossHint);
     // the partner's level up: where it is, and where it has to get
     if (!h && l.goal?.kind === "grow") {
       let top = Math.max(0, ...(this.profile.team || []).map(x => x.level || 1));
