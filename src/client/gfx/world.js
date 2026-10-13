@@ -2202,6 +2202,9 @@ function buildRug(i, e, t, n, s) {
   return v.renderOrder = 3, v.userData.noOutline = !0, v;
 }
 
+// The tailor's: the shop's room in softer colours, cloth on the walls.
+INTERIORS.tailor = { ...INTERIORS.shop, floor: 13092807, floor2: 11975609, wall: 15520975, wain: 10506358, trim: 16046558, ceil: 14209977, beam: 9070160, wood: 12357239, lit: { ...INTERIORS.shop.lit, sky: 16769245, rim: 16758247 } };
+
 function buildInterior(i, e) {
   let t = INTERIORS[i] || INTERIORS.shop,
     n = t.hw,
@@ -4880,7 +4883,8 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     enterInterior(e) {
       if (this.interior || !e || !e.door) return null;
       let t = e.door,
-        n = e.kind || "shop",
+        // the room by what it is: a camp's smith is a workshop, its tailor its own
+        n = INTERIORS[e.kind] ? e.kind : INTERIORS[e.id] ? e.id : "shop",
         s = interiorOf(t, this.props, this.zone, e),
         r = Math.atan2(s.x, s.z),
         o = r + Math.PI,
@@ -4960,7 +4964,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           top: T.top
         };
       });
-      let f = npcNear(e, n),
+      let f = npcNear(e, e.kind || n),
         p = buildAvatar({ ...f, hairC: f.hair });
       let m = new Group();
       m.add(p, softShadowTexture(0.6, 0.26)), m.position.set(h.npc.x, 0, h.npc.z), m.rotation.y = h.npc.ry, h.group.add(m), u.keeper = {
@@ -6027,6 +6031,30 @@ function npcNear(i, e) {
       hair: "#d8d4cc",
       outfit: "scholar",
       kind: "explorer",
+      look: "a"
+    },
+    tailor: {
+      id: "tailor",
+      name: "Tailor",
+      he: "החייטת",
+      icon: "👒",
+      body: "slim",
+      skin: "#e2b08a",
+      hair: "#7a3b2a",
+      outfit: "scholar",
+      kind: "mage",
+      look: "b"
+    },
+    smith: {
+      id: "smith",
+      name: "Smith",
+      he: "הנפח",
+      icon: "⚒",
+      body: "stocky",
+      skin: "#6f452c",
+      hair: "#151515",
+      outfit: "ranger",
+      kind: "barbarian",
       look: "a"
     },
     workshop: {

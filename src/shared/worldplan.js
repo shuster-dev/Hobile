@@ -103,7 +103,11 @@ class Plan {
     for (const f of S(spec.flats)) this.flats.push({ edge: 8, ...f });
     for (const f of this.flats) f.y = this.rawHeight(f.x, f.z);
     // what is built
-    this.structures = S(spec.structures).map((s, i) => ({ rot: 0, ...s, i }));
+    // a home is drawn as a model now (client propmap.js), a house's height
+    // against the trainer: its footprint a third again what the plan says
+    this.structures = S(spec.structures).map((s, i) => (HOME_KINDS.has(s.kind)
+      ? { rot: 0, ...s, w: s.w * HOME_K, d: s.d * HOME_K, h: (s.h || 4) * HOME_K, i }
+      : { rot: 0, ...s, i }));
     this.decks = [];
     for (const s of this.structures) this.deckOf(s);
     for (const s of this.structures) {
@@ -392,6 +396,8 @@ class Plan {
 }
 
 /** A structure's colliders in the world, from its kind (FOOTPRINTS below). */
+const HOME_KINDS = new Set(['dwelling', 'cabin', 'stonehouse']), HOME_K = 1.3;
+
 export function footprintOf(s) {
   const rot = s.rot || 0;   // a haystack or a pond is laid without one
   const box = (lx, lz, hw, hd, top, kind = 'structure') => {

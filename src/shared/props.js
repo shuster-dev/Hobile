@@ -139,11 +139,11 @@ var BUILDING_STYLES = [{
 /** Where your farm's training pods stand, in a curve facing the middle of the
  *  yard as you come in by its gate — one for each a pod building can have. */
 const INCUBATOR_R = 1.15;
-// A camp's cottages: half again the size they were drawn at before they were
+// A camp's cottages: twice the size they were drawn at before they were
 // models, so a door is taller than the trainer and the roof is a house's
 // (propmap.js villageModel fits the model to this footprint), and set back
 // from the camp's middle by as much, so the ring round it stays as open.
-const HOUSE_K = 1.5, HOUSE_OUT = 2;
+const HOUSE_K = 2, HOUSE_OUT = 3.5;
 function incubatorSpots(zone) {
   const f = zone?.landmarks?.find((l) => l.kind === "base");
   if (!f) return [];
@@ -590,7 +590,8 @@ function generateProps(i) {
         w: y,
         d: M,
         h: P,
-        rot: _ + Math.PI / 2,
+        // its door to the camp's middle (shared/services.js: it is a place to go in)
+        rot: Math.atan2(-Math.cos(_), -Math.sin(_)),
         kind: E === 0 && m.kind === "town" ? "hall" : "house",
         seed: e()
       }), l.push({
@@ -783,7 +784,7 @@ function generatePlannedProps(i, P) {
         d = (2.9 + e() * 1) * HOUSE_K,
         h = (2.5 + e() * 0.9) * HOUSE_K;
       if (!P.walkable(x, z) || nearBuilt(x, z, 2)) continue;
-      buildings.push({ x, z, w, d, h, rot: a + Math.PI / 2, kind: "house", seed: e() }), cols.push({ x, z, r: Math.max(w, d) * 0.62, kind: "building" });
+      buildings.push({ x, z, w, d, h, rot: Math.atan2(-Math.cos(a), -Math.sin(a)), kind: "house", seed: e() }), cols.push({ x, z, r: Math.max(w, d) * 0.62, kind: "building" });
     }
   }
   const look = P.spec.props || {};

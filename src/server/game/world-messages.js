@@ -24,6 +24,8 @@ import {
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
 import { endFight, wildAttack } from './field-fight.js';
+import { placesOf } from '../../shared/services.js';
+import { sellPrice } from '../../shared/market.js';
 import { handleGm } from './gm.js';
 import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
@@ -506,7 +508,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
           {
             // The client has sent this since v0.7 and nothing handled it, so
             // every door in the game was decorative.
-            let o = ctx.zone.landmarks.find(a => a.interior && (a.interior === t.id || a.id === t.id || a.kind === t.id));
+            // the town's houses, or a camp's cottages (shared/services.js)
+            let o = placesOf(ctx.zone).find(a => a.interior && (a.id === t.id || a.interior === t.id || a.kind === t.id));
             if (!o) {
               ctx.net.emit("error", {
                 code: "no_such_building"
@@ -517,7 +520,12 @@ export function handleWorldMessage(ctx, e, t = {}) {
               x: o.x,
               z: o.z
             };
-            if (Math.hypot(a.x - s.x, a.z - s.z) > 6) {
+            // At the door, or anywhere close round the house: the client offers
+            // the door from as far as the house's own circle and a step, and
+            // its position runs a little ahead of the one here — so the two
+            // must agree generously, or a player standing in the doorway is
+            // told they are too far.
+            if (Math.hypot(a.x - s.x, a.z - s.z) > 8 && Math.hypot(o.x - s.x, o.z - s.z) > (o.r || 4) + 4) {
               ctx.net.emit("error", {
                 code: "too_far"
               });
@@ -531,6 +539,8 @@ export function handleWorldMessage(ctx, e, t = {}) {
             ctx.net.emit("building", {
               id: o.interior,
               kind: o.kind,
+              // a camp's cottage (shared/services.js), not one of the town's
+              service: !!o.service,
               name: o.name,
               he: o.he,
               door: a
@@ -660,6 +670,19 @@ export function handleWorldMessage(ctx, e, t = {}) {
               return;
             }
             spend(n, o.price * a, "shop"), giveItem(n, o.id, a), ctx.net.save(), ctx.net.emit("profile", publicProfile(n));
+            break;
+          }
+        case "shopSell":
+          {
+            // what you carry, back to the counter for part of what it costs
+            // (shared/market.js); what is worn is not in the bag to sell
+            let o = ITEMS[t.itemId],
+              a = Math.max(1, Math.min(999, Math.floor(Number(t.qty) || 1))),
+              have = n.inventory?.[t.itemId] || 0,
+              each = o ? sellPrice(o) : 0;
+            if (!o || !each) return ctx.net.emit("error", { code: "cannot_sell" });
+            if (have < a) return ctx.net.emit("error", { code: "not_enough_items" });
+            takeItem(n, o.id, a), earn(n, each * a, "sell"), ctx.net.save(), ctx.net.emit("sold", { itemId: o.id, qty: a, gold: each * a }), ctx.net.emit("profile", publicProfile(n));
             break;
           }
         case "useItem":

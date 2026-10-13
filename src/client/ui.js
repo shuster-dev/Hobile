@@ -17,6 +17,8 @@ import { SAGA_FOUND, SCENE_ORDER, SCENE_TITLES } from '../shared/saga.js';
 import { DYES, HATS, SLOTS, cosmeticById, wardrobeOf } from '../shared/cosmetics.js';
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
+import { COUNTERS, SELL_RATE, catalog, sellPrice } from '../shared/market.js';
+import { placesOf } from '../shared/services.js';
 import { REPORT_LIMITS, REPORT_REASONS, REPORT_STATUS } from '../shared/reports.js';
 import { STATUS, disabledBy, immuneTo, moveStatus, moveTags, statusLabel } from '../shared/status.js';
 import { face, faceNow, lazyFaces } from './faces.js';
@@ -513,7 +515,7 @@ var UI = class {
       s.beginPath(), s.moveTo(tx, ty), s.lineTo(c + Math.cos(a2 - 0.09) * (R - 7), c + Math.sin(a2 - 0.09) * (R - 7)), s.lineTo(c + Math.cos(a2 + 0.09) * (R - 7), c + Math.sin(a2 + 0.09) * (R - 7)), s.closePath(), s.fillStyle = color, s.fill();
     };
     let onRim = [];
-    for (let h of z?.landmarks || []) {
+    for (let h of placesOf(z)) {
       let [x, y] = at(h.x, h.z), col = MAP_PIN[h.kind] || MAP_PIN._, way = h.kind === "portal" || h.kind === "dungeon";
       if (inside(x, y, 6)) badge(x, y, h.r ? 6.2 : 5.4, col, MAP_GLYPH[h.kind] || "", way ? col : "#fff");
       else if (way) {
@@ -620,7 +622,7 @@ var UI = class {
     // Pins first, then labels, so a label can never be painted under a disc
     // drawn after it.
     let pins = [];
-    for (let x of t.landmarks || []) {
+    for (let x of placesOf(ZONES[t.id] || t)) {
       let [g, m] = h(x.x, x.z),
         v = MAP_PIN[x.kind] || MAP_PIN._,
         E = x.r ? Math.max(5, x.r * c) : 0;
@@ -760,7 +762,7 @@ var UI = class {
         friends: "חברים",
         guild: "גילדה",
         chat: "צ'אט",
-        shop: "חנות",
+        shop: COUNTERS[this.counter]?.he || "חנות",
         party: "קבוצה",
         player: "שחקן",
         leaders: "טבלת מובילים",
@@ -1412,7 +1414,6 @@ var UI = class {
         ["שלי", [["🐾", "יצורים", "team"], ["🎒", "תיק", "bag"], ["📕", "אוסף", "dex"], ["🏕", "הבסיס", "base"]]],
         ["קרבות", [["⚔", "זירה", "arena"], ["🗼", "המגדל", "__tower"]]],
         ["חברים", [["👥", "חברים", "friends"], ["🛡", "גילדה", "guild"], ["🤝", "קבוצה", "party"], ["🏆", "מובילים", "leaders"]]],
-        ["קניות", [["🏪", "חנות", "shop"], ["👒", "החייט", "tailor"]]],
         ["העולם", [["🗺", "מפה", "map"], ...(this.social ? [["📡", `ערוץ ${this.zone?.channel || 1}`, "channels"]] : [])]],
       ];
     // Only a session the server called a GM's ever gets the hello that sets this.
@@ -1542,31 +1543,50 @@ var UI = class {
     t && t.classList.toggle("hidden", !e?.guest);
     this.openPanelId === "account" && this.renderPanel("account");
   }
+  /**
+   * The bag: what you wear first (three slots, what each adds), then what you
+   * carry as tiles, by kind, with a filter along the top. A potion or a
+   * piece of gear has its button on its tile; the rest is for selling or
+   * building (the counters, the yard).
+   */
   panelBag(e) {
-    let t = this.profile?.inventory || {},
-      n = Object.entries(t).filter(([, a]) => a > 0);
-    if (!n.length) {
-      e.appendChild(emptyState("🎒", "התיק ריק", "שלל מקרבות ומבוכים מגיע לכאן"));
-      return;
+    let p = this.profile || {}, inv = p.inventory || {}, gear = p.gear || {},
+      worn = el("div", "worn-row");
+    for (let [slot, label, none] of [["weapon", "נשק", "🗡"], ["armor", "שריון", "🥋"], ["trinket", "קמע", "📿"]]) {
+      let it = gear[slot] && ITEMS[gear[slot]], c = el("div", `worn-slot ${it ? "on" : ""} ${it?.rare ? "rare" : ""}`);
+      c.innerHTML = `<div class="ico">${it ? itemIcon(it.id) : none}</div><b>${it ? Ze(loc(it)) : label}</b><span>${it ? itemEffect(it) : "ריק — הנפח מוכר"}</span>`;
+      worn.appendChild(c);
     }
-    for (let [a, l] of n) {
-      let c = ITEMS[a];
-      if (!c) continue;
-      let h = el("div", "list-item");
-      if (h.innerHTML = `<div class="ico-lg">${itemIcon(a)}</div>
-        <div class="grow"><b>${Ze(loc(c))}</b><span>${itemEffect(c)}</span></div>
-        <div class="mono pill">${ltr(`×${l}`)}</div>`, c.kind === "heal" || c.kind === "revive" || c.kind === "gear") {
-        let d = el("button", "btn small", c.kind === "gear" ? "צייד" : "השתמש");
-        d.onclick = () => this.hooks.useItem?.(a), h.appendChild(d);
+    e.appendChild(section("מה שאתה לובש")), e.appendChild(worn);
+    let all = Object.entries(inv).filter(([id, n]) => n > 0 && ITEMS[id]);
+    if (!all.length) return e.appendChild(emptyState("🎒", "התיק ריק", "שלל מקרבות ומבוכים מגיע לכאן"));
+    let groups = [["use", "🧪 שיקויים", ["heal", "revive", "trainerHeal", "stamina"]], ["sphere", "🔴 כדורים", ["sphere"]], ["gear", "⚔️ ציוד", ["gear"]], ["material", "💎 חומרים", ["material"]]],
+      f = groups.some(([id]) => id === this.bagTab) ? this.bagTab : "all",
+      seg = el("div", "seg");
+    for (let [id, label] of [["all", "הכל"], ...groups.map(([id, label]) => [id, label])]) {
+      let n = id === "all" ? all.length : all.filter(([k]) => groups.find(g => g[0] === id)[2].includes(ITEMS[k].kind)).length;
+      if (id !== "all" && !n) continue;
+      let b = el("button", id === f ? "on" : "");
+      b.innerHTML = `${label} <small>${ltr(n)}</small>`, b.onclick = () => (this.bagTab = id, this.renderPanel("bag")), seg.appendChild(b);
+    }
+    e.appendChild(seg);
+    for (let [id, label, kinds] of groups) {
+      if (f !== "all" && f !== id) continue;
+      let list = all.filter(([k]) => kinds.includes(ITEMS[k].kind));
+      if (!list.length) continue;
+      f === "all" && e.appendChild(section(label));
+      let g = el("div", "tiles");
+      for (let [k, n] of list) {
+        let it = ITEMS[k], t = el("div", `tile ${it.rare ? "rare" : ""}`);
+        t.innerHTML = `<div class="ico">${itemIcon(k)}</div><span class="n">${ltr(`×${n}`)}</span><b>${Ze(loc(it))}</b><span class="eff">${itemEffect(it)}</span>`;
+        if (it.kind === "heal" || it.kind === "revive" || it.kind === "gear") {
+          let b = el("button", "btn small", it.kind === "gear" ? "צייד" : "השתמש");
+          b.onclick = () => this.hooks.useItem?.(k), t.appendChild(b);
+        }
+        g.appendChild(t);
       }
-      e.appendChild(h);
+      e.appendChild(g);
     }
-    e.appendChild(section("ציוד"));
-    let s = el("div", "list-item"),
-      r = this.profile?.gear || {},
-      o = (a, l) => `${a}: ${r[l] ? Ze(loc(ITEMS[r[l]])) : "—"}`;
-    s.innerHTML = `<div class="grow"><b>מה שאתה לובש</b><span>
-      ${o("נשק", "weapon")} · ${o("שריון", "armor")} · ${o("קמע", "trinket")}</span></div>`, e.appendChild(s);
   }
   /**
    * My creatures, as cards: the team first (the one at its head marked),
@@ -2555,48 +2575,118 @@ var UI = class {
     this.hooks.lookPortrait?.(look, url => {
       pic.isConnected && (pic.innerHTML = `<img src="${url}" alt="איך זה נראה עליך" />`);
     });
-    let row = (slot, id, d) => {
+    let slot = SLOTS[this.tailorTab] ? this.tailorTab : "hat",
+      seg = el("div", "seg");
+    for (let [id, label] of [["hat", "👒 כובעים"], ["face", "👓 משקפיים"], ["back", "🎒 גב וצוואר"], ["dye", "🎨 צבע"]]) {
+      let n = Object.keys(SLOTS[id]).filter(k => w.owned.includes(k)).length,
+        b = el("button", id === slot ? "on" : "", `${label} <small>${ltr(`${n}/${Object.keys(SLOTS[id]).length}`)}</small>`);
+      b.innerHTML = `${label} <small>${ltr(`${n}/${Object.keys(SLOTS[id]).length}`)}</small>`;
+      b.onclick = () => (this.tailorTab = id, this.renderPanel("tailor")), seg.appendChild(b);
+    }
+    e.appendChild(seg);
+    let g = el("div", "cards");
+    for (let [id, d] of Object.entries(SLOTS[slot])) {
       let own = w.owned.includes(id), worn = w[slot] === id, trying = tryOn[slot] === id,
-        r = el("div", `list-item tappable ${trying ? "ready" : ""} ${!own && !d.pass && gold < d.price ? "lacking" : ""}`),
-        sw = slot === "dye" ? `<div class="swatch" style="background:${oo(d.color)}"></div>` : `<div class="ico-lg">${wearIcon({ ...d, slot })}</div>`;
-      r.innerHTML = `${sw}<div class="grow"><b>${Ze(d.he)}</b><span>${worn ? "לבוש עכשיו" : own ? "שלך" : d.pass ? "🎟 ממסלול העונה" : ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span></div>`;
-      r.onclick = () => (this._tryOn = { ...(this._tryOn || {}), [slot]: id }, this.renderPanel("tailor"));
+        c = el("div", `icard tappable ${trying ? "trying" : ""} ${worn ? "worn" : ""} ${!own && !d.pass && gold < d.price ? "lacking" : ""}`),
+        ico = slot === "dye" ? `<div class="swatch big" style="background:${oo(d.color)}"></div>` : `<div class="ico">${wearIcon({ ...d, slot })}</div>`;
+      c.innerHTML = `<div class="top">${ico}${worn ? '<span class="have">✓ לבוש</span>' : own ? '<span class="have">שלך</span>' : ""}</div>
+        <b>${Ze(d.he)}</b><span class="eff">${d.pass && !own ? "🎟 ממסלול העונה" : trying ? "👀 מודד עכשיו" : "הקש למדידה"}</span><div class="foot">${!own && !d.pass ? `<span class="price">${ltr(`${d.price.toLocaleString("en-US")}⛁`)}</span>` : ""}</div>`;
+      c.onclick = () => (this._tryOn = { ...(this._tryOn || {}), [slot]: id }, this.renderPanel("tailor"));
       let b;
       if (worn) b = el("button", "btn small", "הסר"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, null));
       else if (own) b = el("button", "btn small primary", "לבש"), b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticWear?.(slot, id));
-      else if (!d.pass) b = el("button", `btn small ${gold >= d.price ? "primary" : ""}`, "קנה"), b.disabled = gold < d.price, b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticBuy?.(id));
+      else if (!d.pass) b = el("button", "btn small primary", "קנה"), b.disabled = gold < d.price, b.onclick = f => (f.stopPropagation(), this._tryOn = null, this.hooks.cosmeticBuy?.(id));
       else b = el("span", "pill", "🔒");
-      r.appendChild(b), e.appendChild(r);
-    };
-    for (let [slot, title] of [["hat", "👒 כובעים"], ["face", "👓 משקפיים"], ["back", "🎒 על הגב ועל הצוואר"], ["dye", "🎨 צבע לבגד"]]) {
-      let table = SLOTS[slot];
-      e.appendChild(section(title, `${ltr(Object.keys(table).filter(k => w.owned.includes(k)).length)}/${ltr(Object.keys(table).length)}`));
-      for (let [id, d] of Object.entries(table)) row(slot, id, d);
+      c.querySelector(".foot").appendChild(b), g.appendChild(c);
     }
+    e.appendChild(g);
     let n = el("div", "hint");
-    n.textContent = "רק מראה — שום דבר כאן לא משנה כוח בקרב.", e.appendChild(n);
+    n.textContent = "רק מראה — שום דבר כאן לא משנה כוח בקרב. כוח נותן הנפח.", e.appendChild(n);
   }
+  /**
+   * A counter (shared/market.js): the camp clinic's potions and spheres (and
+   * its care for the team), the smith's gear, the town market's all of it.
+   * Buy and Sell are two tabs; what is for sale is cards in rows of two by
+   * kind, each with what it does, what it costs and how many you have.
+   */
   panelShop(e) {
-    let t = this.profile?.gold || 0,
-      n = Object.values(ITEMS).filter(s => s.price);
-    {
-      // the tailor is next door
-      let tl = el("button", "btn", "👒 לחייט — כובעים, משקפיים, תיקים וצבעים");
-      tl.style.width = "100%", tl.onclick = () => this.openPanel("tailor"), e.appendChild(tl);
+    let p = this.profile || {}, gold = p.gold || 0, inv = p.inventory || {},
+      counter = COUNTERS[this.counter] ? this.counter : "shop",
+      tab = this.shopTab === "sell" ? "sell" : "buy";
+    e.appendChild(storeHead(counter === "clinic" ? "🩺" : counter === "smith" ? "⚒" : "🏪", COUNTERS[counter].he, gold));
+    if (counter === "clinic") e.appendChild(this.careCard());
+    let seg = el("div", "seg");
+    for (let [id, label] of [["buy", "🛒 קנייה"], ["sell", "💰 מכירה"]]) {
+      let b = el("button", id === tab ? "on" : "", label);
+      b.onclick = () => (this.shopTab = id, this.renderPanel("shop")), seg.appendChild(b);
     }
-    if (!n.length) {
-      e.appendChild(emptyState("🏪", "החנות ריקה"));
+    // the town's market has the tailor's corner
+    if (counter === "shop") {
+      let b = el("button", "", "👒 חייט");
+      b.onclick = () => this.openPanel("tailor"), seg.appendChild(b);
+    }
+    e.appendChild(seg);
+    if (tab === "buy") {
+      let groups = new Map();
+      for (let it of catalog(counter)) (groups.get(it.kind) || groups.set(it.kind, []).get(it.kind)).push(it);
+      for (let [kind, list] of groups) {
+        e.appendChild(section(KIND_TITLE[kind] || kind));
+        let g = el("div", "cards");
+        for (let it of list) {
+          let c = el("div", `icard ${gold >= it.price ? "" : "lacking"} ${it.kind === "gear" ? "gear" : ""}`);
+          c.innerHTML = `<div class="top"><div class="ico">${itemIcon(it.id)}</div>${inv[it.id] ? `<span class="have">${ltr(`×${inv[it.id]}`)}</span>` : ""}</div>
+            <b>${Ze(loc(it))}</b><span class="eff">${itemEffect(it)}</span>
+            <div class="foot"><span class="price">${ltr(`${it.price.toLocaleString("en-US")}⛁`)}</span></div>`;
+          let buy = el("button", "btn small primary", "קנה");
+          buy.disabled = gold < it.price, buy.setAttribute("aria-label", `קנה ${loc(it)}`), buy.onclick = () => this.hooks.buy?.(it.id, 1);
+          c.querySelector(".foot").appendChild(buy);
+          if (it.kind !== "gear" && gold >= it.price * 5) {
+            let five = el("button", "btn small ghost", "×5");
+            five.setAttribute("aria-label", `קנה 5 ${loc(it)}`), five.onclick = () => this.hooks.buy?.(it.id, 5), c.querySelector(".foot").appendChild(five);
+          }
+          g.appendChild(c);
+        }
+        e.appendChild(g);
+      }
       return;
     }
-    e.appendChild(section("למכירה", ltr(`${t.toLocaleString("en-US")}⛁`)));
-    for (let s of n) {
-      let r = el("div", `list-item ${t >= s.price ? "" : "lacking"}`);
-      r.innerHTML = `<div class="ico-lg">${itemIcon(s.id)}</div>
-        <div class="grow"><b>${Ze(loc(s))}</b><span>${itemEffect(s)}</span></div>
-        <div class="mono pill">${ltr(`${s.price}⛁`)}</div>`;
-      let o = el("button", "btn small primary", "קנה");
-      o.disabled = t < s.price, o.setAttribute("aria-label", `קנה ${loc(s)}`), o.onclick = () => this.hooks.buy?.(s.id, 1), r.appendChild(o), e.appendChild(r);
+    // selling: what you carry, at what this counter pays
+    let have = Object.entries(inv).filter(([id, n]) => n > 0 && ITEMS[id] && sellPrice(ITEMS[id]) > 0);
+    if (!have.length) return e.appendChild(emptyState("💰", "אין מה למכור", "שלל מקרבות, חומרים וציוד שאתה לא צריך — כאן הם הופכים לזהב"));
+    let hint = el("div", "hint");
+    hint.innerHTML = `הקונה משלם ${ltr(Math.round(SELL_RATE * 100) + "%")} ממחיר החנות. מה שאתה לובש לא נמכר.`, e.appendChild(hint);
+    let byKind = new Map();
+    for (let [id, n] of have) (byKind.get(ITEMS[id].kind) || byKind.set(ITEMS[id].kind, []).get(ITEMS[id].kind)).push([id, n]);
+    for (let kind of ["gear", "heal", "revive", "sphere", "trainerHeal", "stamina", "material"]) {
+      let list = byKind.get(kind);
+      if (!list) continue;
+      e.appendChild(section(KIND_TITLE[kind] || kind));
+      let g = el("div", "cards");
+      for (let [id, n] of list.sort((x, y) => sellPrice(ITEMS[y[0]]) - sellPrice(ITEMS[x[0]]))) {
+        let it = ITEMS[id], each = sellPrice(it), c = el("div", `icard sell ${it.rare ? "rare" : ""}`);
+        c.innerHTML = `<div class="top"><div class="ico">${itemIcon(id)}</div><span class="have">${ltr(`×${n}`)}</span></div>
+          <b>${Ze(loc(it))}</b><span class="eff">${ltr(`${each}⛁`)} ליחידה</span><div class="foot"></div>`;
+        let one = el("button", "btn small primary", "מכור");
+        one.onclick = () => this.hooks.sell?.(id, 1), c.querySelector(".foot").appendChild(one);
+        if (n > 1) {
+          let all = el("button", "btn small ghost", `הכל ${ltr(`${(each * n).toLocaleString("en-US")}⛁`)}`);
+          all.onclick = () => this.hooks.sell?.(id, n), c.querySelector(".foot").appendChild(all);
+        }
+        g.appendChild(c);
+      }
+      e.appendChild(g);
     }
+  }
+  /** The clinic's care for the whole team, as one card (the camp's clinic counter). */
+  careCard() {
+    let t = this.profile || {}, n = t.gold || 0, s = t.team || [],
+      hurt = s.filter(p => p && p.hp < p.maxHp).length, down = s.filter(p => p && p.hp <= 0).length,
+      me = (t.trainerHp ?? 1) < (t.trainerMaxHp ?? 1), cost = clinicCost(s), need = hurt > 0 || down > 0 || me,
+      c = el("div", "care-card");
+    c.innerHTML = `<div class="ico">🩺</div><div class="grow"><b>טיפול מלא לצוות</b><span>${need ? `${down ? `${ltr(String(down))} מחוסרי הכרה · ` : ""}${hurt ? `${ltr(String(hurt))} פצועים` : ""}${me ? `${hurt ? " · " : ""}גם אתה` : ""}` : "הצוות שלך במצב מצוין"}</span></div>`;
+    let b = el("button", "btn small primary", need ? `טפל · ${ltr(`${cost}⛁`)}` : "תקין");
+    b.disabled = !need || n < cost, b.onclick = () => this.hooks.clinicHeal?.(cost), c.appendChild(b);
+    return c;
   }
   /** The boards: for all time (level, gold, captures), this arena season,
    *  and this week (the tower, the world bosses). */
@@ -3093,8 +3183,18 @@ function costRow(i, e) {
   return t.childElementCount || t.appendChild(el("span", "c", "חינם")), t;
 }
 
+/** The header of a counter: who it is, and your gold. */
+function storeHead(icon, name, gold) {
+  let h = el("div", "store-head");
+  return h.innerHTML = `<div class="ico">${icon}</div><b>${Ze(name)}</b><span class="gold">${ltr(`${gold.toLocaleString("en-US")}⛁`)}</span>`, h;
+}
+
+var STAT_HE = { hp: "חיים", atk: "כוח", def: "הגנה", spa: "כוח מיוחד", spd: "הגנה מיוחדת", spe: "מהירות" };
+
+var KIND_TITLE = { sphere: "🔴 כדורי לכידה", heal: "🧪 שיקויים", revive: "✨ החייאה", stamina: "⚡ מרץ", trainerHeal: "🩹 בשבילך", gear: "⚔️ ציוד — נשק, שריון וקמע", material: "💎 חומרים" };
+
 function itemEffect(i) {
-  return i.kind === "sphere" ? `סיכוי לכידה ${ltr(`×${i.rate}`)}` : i.kind === "heal" ? `מרפא ${ltr(`${i.amount} HP`)}` : i.kind === "revive" ? i.ratio >= 1 ? "מחייה יצור במלוא החיים" : "מחייה יצור מעולף" : i.kind === "trainerHeal" ? `מרפא לך ${ltr(`${i.amount} HP`)}` : i.kind === "stamina" ? `${ltr(`+${i.amount}`)} מרץ` : i.kind === "gear" ? Object.entries(i.bonus).map(([e, t]) => ltr(`${e} +${t}`)).join(" · ") : "חומר גלם";
+  return i.kind === "sphere" ? `סיכוי לכידה ${ltr(`×${i.rate}`)}` : i.kind === "heal" ? `מרפא ${ltr(`${i.amount} HP`)}` : i.kind === "revive" ? i.ratio >= 1 ? "מחייה יצור במלוא החיים" : "מחייה יצור מעולף" : i.kind === "trainerHeal" ? `מרפא לך ${ltr(`${i.amount} HP`)}` : i.kind === "stamina" ? `${ltr(`+${i.amount}`)} מרץ` : i.kind === "gear" ? Object.entries(i.bonus).map(([e, t]) => `${STAT_HE[e] || e} ${ltr(`+${t}`)}`).join(" · ") : "חומר גלם";
 }
 
 function Cb(i) {
@@ -3159,6 +3259,8 @@ var MAP_PIN = {
   clinic: "#7ff0d8",
   archive: "#b9a3ff",
   workshop: "#ffa273",
+  smith: "#ffa273",
+  tailor: "#ff9ac8",
   base: "#9ae6a0",
   plaza: "#e6dcc4",
   town: "#e6dcc4",
@@ -3170,7 +3272,7 @@ var MAP_PIN = {
 // And the sign on each place's badge, on the radar.
 var MAP_GLYPH = {
   portal: "🌀", gate: "🚪", dungeon: "⚔️", shop: "🛒", npc: "💬", clinic: "➕", archive: "📜",
-  workshop: "🔨", base: "🏡", plaza: "⛲", town: "🏘", camp: "⛺", pier: "⚓", garden: "🌷"
+  workshop: "🔨", smith: "⚒", tailor: "👒", base: "🏡", plaza: "⛲", town: "🏘", camp: "⛺", pier: "⚓", garden: "🌷"
 };
 
 /**

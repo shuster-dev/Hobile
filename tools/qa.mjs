@@ -1497,6 +1497,33 @@ section('people');
 }
 
 // ---------------------------------------------------------------- the farm
+section('camps, counters and loot');
+{
+  const SV = await import('../src/shared/services.js'), MK = await import('../src/shared/market.js');
+  const fields = Object.values(G.ZONES).filter((z) => !z.urban && z.landmarks.some((l) => l.kind === 'camp'));
+  const bad = fields.filter((z) => {
+    const s = SV.servicesOf(z), PP = P.propsFor(z);
+    return SV.SERVICE_KINDS.some((k) => !s.find((x) => x.kind === k))
+      || s.some((x) => PP.colliders.some((c) => c.r !== undefined && Math.hypot(c.x - x.door.x, c.z - x.door.z) < c.r - 0.2));
+  }).map((z) => z.id);
+  ok('every camp has its clinic, archive, tailor and smith, each door outside the walls', fields.length > 0 && bad.length === 0, bad.join(','));
+  ok('the town keeps its own houses', SV.servicesOf(G.ZONES.aetherport).length === 0);
+  ok('a counter pays part of what a thing costs, and nothing for what nobody buys', MK.sellPrice(G.ITEMS.potion_s) === Math.floor(60 * MK.SELL_RATE) && MK.sellPrice(G.ITEMS.blade_ember) > 0 && MK.sellPrice({}) === 0);
+  ok('the clinic sells potions and spheres, the smith gear, and neither sells the other', MK.catalog('clinic').every((it) => it.kind !== 'gear') && MK.catalog('clinic').some((it) => it.kind === 'sphere')
+    && MK.catalog('smith').every((it) => it.kind === 'gear') && !MK.catalog('shop').some((it) => it.rare));
+  let r = 1;
+  const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647, got = {};
+  for (let k = 0; k < 20000; k++) for (const id of MK.fieldLoot(30, rnd)) got[G.ITEMS[id].kind] = (got[G.ITEMS[id].kind] || 0) + 1;
+  ok('beaten in the open: a potion every six or so, a sphere every eight, gear now and then', got.heal > 2800 && got.heal < 3600 && got.sphere > 2000 && got.sphere < 2800 && got.gear > 150 && got.gear < 450, JSON.stringify(got));
+  const sd = C.createPlayerDoc('qa-sell', 'QA', {}, 'cindcub');
+  C.normalizeDoc(sd);
+  sd.inventory.potion_m = 3; const g0 = sd.gold, out = [];
+  WM.handleWorldMessage({ doc: sd, self: () => ({}), net: { save() {}, emit: (k, v) => out.push([k, v]) } }, 'shopSell', { itemId: 'potion_m', qty: 2 });
+  ok('selling: paid, and gone from the bag', sd.gold === g0 + 2 * MK.sellPrice(G.ITEMS.potion_m) && sd.inventory.potion_m === 1 && out.some(([k]) => k === 'sold'));
+  WM.handleWorldMessage({ doc: sd, self: () => ({}), net: { save() {}, emit: (k, v) => out.push([k, v]) } }, 'shopSell', { itemId: 'potion_m', qty: 5 });
+  ok('not more than you have', sd.inventory.potion_m === 1 && out.some(([k, v]) => k === 'error' && v.code === 'not_enough_items'));
+}
+
 section('the farm');
 {
   // a trainer with a lead, one more in the team and one in the box, and

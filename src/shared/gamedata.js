@@ -2211,6 +2211,12 @@ var MOVES = {
       price: 1200,
       icon: "📿"
     },
+    // Never sold: found, now and then, on a wild beaten in the open
+    // (shared/market.js fieldLoot). Worth more at the counter than they cost
+    // anyone, because nobody bought them.
+    blade_ember: { id: "blade_ember", name: "Ember Edge", he: "להב הגחלים", kind: "gear", slot: "weapon", bonus: { atk: 16, spa: 8 }, value: 2600, rare: true, icon: "⚔️" },
+    vest_wyrm: { id: "vest_wyrm", name: "Wyrmscale Coat", he: "מעיל קשקשי דרקון", kind: "gear", slot: "armor", bonus: { def: 16, hp: 60 }, value: 3000, rare: true, icon: "🛡" },
+    charm_moon: { id: "charm_moon", name: "Moonstone", he: "אבן הירח", kind: "gear", slot: "trinket", bonus: { spd: 10, spe: 10, hp: 25 }, value: 2800, rare: true, icon: "🌙" },
     mat_emberdust: {
       id: "mat_emberdust",
       name: "Ember Dust",
