@@ -97,7 +97,8 @@ export class Coach {
       this.current = step.id, this.shownAt = performance.now();
       this.el.querySelector('.coach-ico').textContent = step.icon;
       this.el.querySelector('.coach-text').textContent = step.he;
-      this.el.querySelector('.coach-n').textContent = `${(this.tut.steps || []).length + 1}/${TUTORIAL.length}`;
+      // counted over today's steps only: an older save also lists the walking lessons
+      this.el.querySelector('.coach-n').textContent = `${(this.tut.steps || []).filter((id) => TUTORIAL.some((t) => t.id === id)).length + 1}/${TUTORIAL.length}`;
       this.el.classList.toggle('in-battle', mode === 'battle');
       this.el.classList.remove('hidden');
     }
