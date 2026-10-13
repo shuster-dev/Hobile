@@ -1045,6 +1045,20 @@ function trainerMaxHp(i) {
 
 // `doc`, when given, is the owner: an evolution fills in the new species in
 // their collection, as owning one does.
+/**
+ * A win's experience: all of it to the one who fought it, and a share to the
+ * rest of the team — the whole of it to one five levels or more behind the
+ * fighter, so a new catch catches up. Only the one on the field used to learn
+ * anything, so a team was one strong creature and five that a leader's
+ * second creature swept away (tools/journey-bot.mjs found it).
+ */
+function teamXp(doc, lead, xp) {
+  let ev = [], top = lead?.level || 0;
+  lead && ev.push(...grantXpTo(lead, xp, doc));
+  for (let c of teamCreatures(doc)) c && c.uid !== lead?.uid && ev.push(...grantXpTo(c, Math.round(xp * (c.level <= top - 5 ? 1 : PROGRESSION.teamXpShare)), doc));
+  return ev;
+}
+
 function grantXpTo(i, e, doc = null) {
   let t = [];
   for (i.xp += e; i.level < PROGRESSION.maxLevel && i.xp >= PROGRESSION.xpToLevel(i.level + 1);) {
@@ -1425,6 +1439,12 @@ function syncQuests(i, e) {
     let o = QUESTS[s];
     if (o?.chain !== "main" || r.done) continue;
     if (o.goal?.kind === "dex") r.progress = dexCount(i), r.progress >= (o.goal.count || 1) && (r.done = !0, t.push(s));
+    // the league may have been beaten before this step came round
+    else if (o.goal?.kind === "league") i.league?.at && (r.progress = 1, r.done = !0, t.push(s));
+    // ...and so may a world's errands, or its leader: a player who got there
+    // first is not left waiting on a claim or a badge that already happened
+    else if (o.goal?.kind === "claim") i.quests.done.includes(o.goal.target) && (r.progress = 1, r.done = !0, t.push(s));
+    else if (o.goal?.kind === "badge") (i.badges || []).includes(LEADERS[o.goal.target]?.badge.id) && (r.progress = 1, r.done = !0, t.push(s));
     else if (o.goal?.kind === "grow") {
       let top = teamTop(i);
       r.base ??= top;
@@ -1450,12 +1470,16 @@ function autoClaim(i, ids) {
     let r = claimQuest(i, id);
     if (!r) continue;
     // the whole collection: up on the Wall of Champions, for good
-    id === "q_main_dex" && !i.champion && (i.champion = { at: Date.now(), level: i.level || 1 });
+    // (a league champion already has a frame: it says the collection too)
+    id === "q_main_dex" && (i.champion ? (i.champion.dex = Date.now()) : (i.champion = { at: Date.now(), level: i.level || 1, dex: Date.now() }));
     let next = q.chain === "main" ? MAIN_QUEST_IDS[MAIN_QUEST_IDS.indexOf(id) + 1] || null : null;
     // what the client shows once: done, what it paid, and what is next
     let news = (i.quests.news ||= []);
     news.push({ id, at: Date.now(), next, reward: q.reward ? { gold: questGold(q, i.level), items: q.reward.items || [], xp: q.reward.xp || 0 } : null, creature: r.creature?.species || null });
     news.length > 6 && news.splice(0, news.length - 6);
+    // the step just opened may already be done (a held goal: the errands or
+    // the leader got to first): judge it now, not at the next fight
+    q.chain === "main" && next && syncQuests(i, { kind: "open" });
   }
 }
 
@@ -1571,6 +1595,7 @@ function publicProfile(i) {
     records: i.records || {},
     milestones: Array.isArray(i.milestones) ? i.milestones : [],
     champion: i.champion || null,
+    league: i.league || null,
     badges: Array.isArray(i.badges) ? i.badges : [],
     // the end of the story (shared/saga.js): scenes watched, anchors broken
     story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] },
@@ -2218,4 +2243,4 @@ function recruitFromBox(sim, doc, you, uid, { roster = null, gearBonus = null, g
   return c;
 }
 
-export { WEATHER_BOOST, familyOwned, mergeDuplicates, setMoves, settleHp, takeIn, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, recruitFromBox, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };
+export { teamXp, WEATHER_BOOST, familyOwned, mergeDuplicates, setMoves, settleHp, takeIn, fieldCreature, inherit, assignWorker, unassignWorker, collectWork, workersOf, isWorker, workBoost, workView, atFarm, returnFromFarm, acceptQuest, activateZoneQuests, swapToUid, recruitFromBox, dexRow, dexRecord, duplicateReward, dexView, Combat, Combatant, DAY_MS, HOUR_MS, RALLY_ATK_BONUS, RALLY_DURATION_MS, SAVE_KEY, SWITCH_COOLDOWN_MS, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseOf, baseView, buildingEffect, buildingLevel, buildingNext, canAfford, cancelTraining, claimQuest, collectCrafts, collectGarden, collectTraining, combatantId, combatantSeq, craftsAt, createPlayerDoc, creatureCard, creatureOf, creaturePower, creatureScore, dayStamp, emptyBase, ensureQuests, equipGear, freeTrainingSlots, gardenYield, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, num, ownerKey, payCost, publicProfile, recipesAt, startCraft, startTraining, statsOf, sumStats, syncQuests, takeItem, teamCreatures, trainerMaxHp, uid, upgradeBuilding, upgradeCostOf, writeSave };

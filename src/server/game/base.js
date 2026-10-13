@@ -1,4 +1,4 @@
-import { Combat, Combatant, takeIn, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, recruitFromBox, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
+import { teamXp, Combat, Combatant, takeIn, settleHp, fieldCreature, inherit, acceptQuest, activateZoneQuests, swapToUid, recruitFromBox, teamCreatures, dexRecord, duplicateReward, dexView, DAY_MS, SAVE_KEY, TICK_MS, WILD_COUNT, activeCreature, addCreature, baseView, cancelTraining, claimQuest, collectGarden, collectTraining, createPlayerDoc, creatureCard, creaturePower, creatureScore, equipGear, giveItem, grantItems, grantXp, grantXpTo, healTeam, loadSave, makeCreature, normalizeDoc, publicProfile, startCraft, startTraining, sumStats, syncQuests, takeItem, uid, upgradeBuilding, writeSave } from './combat.js';
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
@@ -600,7 +600,7 @@ var StoreBase = class {
         // the season pays its share (shared/events.js)
         let a = Math.round(creaturePower(this.foe, t.level) * eventMul("xp")),
           l = Math.round(creatureScore(this.foe) * eventMul("gold"));
-        if (earn(t, l, r ? "capture" : "battle"), o.xp = a, o.gold = l, n && o.events.push(...grantXpTo(n, Math.round(a * PROGRESSION.creatureXpMul), t)), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
+        if (earn(t, l, r ? "capture" : "battle"), o.xp = a, o.gold = l, o.events.push(...teamXp(t, n, Math.round(a * PROGRESSION.creatureXpMul))), o.events.push(...grantXp(t, Math.floor(a * 0.6))), s) {
           let foeSp = [...this.sim.combatants.values()].find(d => d.side === "b")?.creature?.species;
           t.stats.battlesWon += 1, o.questsDone = syncQuests(t, {
             kind: "defeat",

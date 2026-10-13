@@ -2425,7 +2425,7 @@ section('the story\'s end');
   const WP = await import('../src/shared/worldplan.js');
   const P4 = await import('../src/shared/props.js');
   const main = Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step);
-  ok('the journey runs from the town to the last world, and the full collection after the story', main.at(-1)?.id === 'q_main_dex' && main.at(-2)?.id === 'q_main_16' && main.at(-2).outro === 'credits' && main.length === 30, main.map((q) => q.id).join(','));
+  ok('the journey runs from the town to the last world, then the league, and the full collection after it', main.at(-1)?.id === 'q_main_dex' && main.at(-2)?.id === 'q_main_league' && main.at(-3)?.id === 'q_main_16' && main.at(-3).outro === 'credits' && main.length === 31, main.map((q) => q.id).join(','));
   ok('every step that opens with a scene has one written', main.every((q) => !q.scene || SG.SCENES[q.scene]?.length) && SG.SCENES.credits.some((l) => l.roll));
   const SHOTS = new Set(['self', 'orbit', 'sky', 'holo', 'rift']), FX = new Set(['pulse', 'shake', 'flash', 'holo-in', 'holo-out', 'tear', 'seal', 'dark']);
   ok('every line has a speaker, words, a shot and effects the player knows', Object.values(SG.SCENES).flat().every((l) => SG.SPEAKERS[l.who] && l.he?.length > 8 && (!l.shot || SHOTS.has(l.shot)) && (l.fx || []).every((f) => FX.has(f))));
@@ -2641,7 +2641,17 @@ section('from the phone');
   const leadHp = lead.hp, leadXp = lead.xp, bigXp = big.xp;
   bs.resolve({ kind: 'end', outcome: 'a' });
   ok('each creature takes its own health home (not the lead: 423 of 86)', lead.hp === leadHp && big.hp === Math.min(400, big.maxHp) && lead.hp <= lead.maxHp, `${lead.hp}/${lead.maxHp} ${big.hp}/${big.maxHp}`);
-  ok('the one that finished the fight earns its XP', big.xp > bigXp && lead.xp === leadXp);
+  ok('the one that finished the fight earns its XP, and one far behind it the same, to catch up', big.xp > bigXp && lead.xp - leadXp === big.xp - bigXp, `${big.xp - bigXp} ${lead.xp - leadXp}`);
+  {
+    // two of a level: the one who watched learns half
+    const d2 = C.createPlayerDoc('qa-share', 'QA', {}, 'sparkit');
+    C.normalizeDoc(d2);
+    const a = C.creatureOf(d2, d2.team[0]), b = C.makeCreature('mossnail', a.level);
+    C.addCreature(d2, b);
+    const ax = a.xp, bx = b.xp;
+    C.teamXp(d2, a, 100);
+    ok('a teammate of the same level learns half of a win it watched', a.xp - ax === 100 && b.xp - bx === Math.round(100 * G.PROGRESSION.teamXpShare), `${a.xp - ax} ${b.xp - bx}`);
+  }
   {
     // any creature can fight: one in the box is called in, not only the six
     const d3 = C.createPlayerDoc('qa-box', 'QA', {}, 'cindcub');
@@ -3015,6 +3025,25 @@ section('levels');
   C.normalizeDoc(cd);
   const card = C.creatureCard(cd, cd.team[0]);
   ok('a creature\'s card says its XP and the next move it will learn', Number.isFinite(card.xp) && card.xp >= P.xpToLevel(card.level) && (card.nextMove === null || card.nextMove.level > card.level));
+}
+
+// The whole journey, played (tools/journey-bot.mjs): every step completes
+// from its own goal and opens the next, every leader and the league fall to
+// a fair team in a fair number of fights — and a player who runs ahead
+// (a world's errands and its leader before the journey asks) is not stuck.
+section('journey bot');
+{
+  const JB = await import('./journey-bot.mjs');
+  for (const seed of [1, 2, 3]) {
+    const r = JB.playJourney({ seed });
+    ok(`the whole journey, start to the league and the wall (seed ${seed})`, !r.problems.length, r.problems.slice(0, 3).join(' | '));
+  }
+  const e = JB.playJourney({ seed: 4, eager: true });
+  ok('a player who runs ahead of the journey is never left waiting on it', !e.problems.length, e.problems.slice(0, 3).join(' | '));
+  const r = JB.playJourney({ seed: 5 }), lead = r.steps.filter((x) => x.id.startsWith('q_l_'));
+  ok('no leader takes more than a long evening of fights (60)', lead.every((x) => x.fights <= 60), lead.map((x) => `${x.id}:${x.fights}`).join(' '));
+  const team = C.teamCreatures(r.doc).map((c) => c.level), spread = Math.max(...team) - Math.min(...team);
+  ok('the team grows together: no creature in it left 12 levels behind', spread <= 12, team.join(','));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

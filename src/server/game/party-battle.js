@@ -21,6 +21,7 @@ import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
   takeIn, settleHp, fieldCreature, giveItem, grantItems, grantXp, grantXpTo, healTeam, inherit, makeCreature, publicProfile,
   statsOf, sumStats, swapToUid, recruitFromBox, syncQuests, takeItem, teamCreatures,
+  teamXp,
 } from './combat.js';
 import { DROPS, ITEMS, PROGRESSION, SPECIES, WILD_TIERS, ZONES, skillsFor, statsFor } from '../../shared/gamedata.js';
 import { ARENA } from '../../shared/endgame.js';
@@ -310,7 +311,7 @@ export class PartyBattle {
       // the season and the guild's fortune each pay their share
       const a = Math.round(creaturePower(this.foe, t.level) * eventMul('xp') * (1 + (t.guildPerks?.xp || 0))), l = Math.round(creatureScore(this.foe) * eventMul('gold') * (1 + (t.guildPerks?.gold || 0)));
       earn(t, l, captured ? 'capture' : 'battle'); o.xp = a; o.gold = l;
-      n && o.events.push(...grantXpTo(n, Math.round(a * PROGRESSION.creatureXpMul), t));
+      o.events.push(...teamXp(t, n, Math.round(a * PROGRESSION.creatureXpMul)));
       o.events.push(...grantXp(t, Math.floor(a * 0.6)));
       if (won || (captured && !mine)) {
         const sp = this.foe?.creature?.species;

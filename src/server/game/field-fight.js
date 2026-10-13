@@ -22,7 +22,7 @@
 import { MOVES, SPECIES, DROPS, statsFor, typeMultiplier, skillsFor } from '../../shared/gamedata.js';
 import { stepWithin } from '../../shared/worldplan.js';
 import { eventMul } from '../../shared/events.js';
-import { activeCreature, creaturePower, creatureScore, giveItem, grantItems, grantXp, grantXpTo, healTeam, publicProfile, syncQuests } from './combat.js';
+import { teamXp, activeCreature, creaturePower, creatureScore, giveItem, grantItems, grantXp, grantXpTo, healTeam, publicProfile, syncQuests } from './combat.js';
 import { hpRatio } from './player.js';
 import { earn, spend } from './economy.js';
 import { huntMaterial } from './saddles.js';
@@ -163,7 +163,7 @@ function fieldWin(ctx, wildId, w, d = {}) {
   const xp = Math.round(creaturePower(foe, doc.level) * eventMul('xp')), gold = Math.round(creatureScore(foe) * eventMul('gold'));
   earn(doc, gold, 'battle');
   o.xp = xp; o.gold = gold;
-  lead && o.events.push(...grantXpTo(lead, Math.round(xp * PROGRESSION.creatureXpMul), doc));
+  o.events.push(...teamXp(doc, lead, Math.round(xp * PROGRESSION.creatureXpMul)));
   o.leadXp = lead ? { uid: lead.uid, gained: Math.round(xp * PROGRESSION.creatureXpMul) } : null;
   // a trainer who fought it alone learns all of it
   o.events.push(...grantXp(doc, Math.floor(xp * (lead && d.leadHit ? 0.6 : 1))));
