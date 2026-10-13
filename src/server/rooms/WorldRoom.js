@@ -4,7 +4,7 @@ import * as Push from '../push.js';
 import { Room } from '@colyseus/core';
 import { earn } from '../game/economy.js';
 import { WorldState, PlayerState, WildState, BossContributor } from '../state.js';
-import { engageWild, handleWorldMessage, restoreRide, speakTo, visitCheck } from '../game/world-messages.js';
+import { handleWorldMessage, restoreRide, speakTo, visitCheck } from '../game/world-messages.js';
 import { hpRatio } from '../game/player.js';
 import {
   HOME_ZONE, ZONES, SPECIES, WORLD_BOSSES, PROGRESSION,
@@ -189,7 +189,6 @@ export class WorldRoom extends Room {
       wildDocs: this.wildDocs,
       players: () => this.fieldPlayers(),
       player: (key) => this.fieldPlayer(key),
-      engage: (entry, wildId) => engageWild(entry.ctx, wildId, { ambush: true }),
     };
 
     this.setSimulationInterval(() => this.tick(), TICK_MS);
@@ -282,6 +281,8 @@ export class WorldRoom extends Room {
     const room = this, seen = new Set(), admin = isAdmin(user);
     const ctx = {
       doc,
+      // who field.js knows this session as (a fight in the open is on it)
+      fieldKey: client.sessionId,
       zone: this.zone,
       zoneId: this.zoneId,
       roomId: this.roomId,

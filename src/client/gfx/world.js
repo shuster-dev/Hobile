@@ -3477,7 +3477,7 @@ var CAM_DIST = 9.6,
   // takes off, the lowest and highest it goes, how fast it climbs, how
   // quickly it gathers and loses speed (it glides on after the stick is let
   // go), and how far the camera pulls back to show the ground going by.
-  FLY = { cruise: 9, min: 2.4, max: 34, climb: 8, accel: 2.4, drag: 0.9, camBack: 1.55, camUp: 3.5 },
+  FLY = { cruise: 9, min: 0.5, max: 34, climb: 8, accel: 2.4, drag: 0.9, camBack: 1.55, camUp: 3.5 },
   CAM_LEAD = 1.8,
   CAM_RISE_MAX = 9,
   CAM_RISE_STEPS = 6;
@@ -5299,6 +5299,35 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         scale: n
       });
     }
+    /**
+     * A move in the open (server/game/field-fight.js): a glowing shot from
+     * the one who made it to the one it hits, then a ring where it lands.
+     */
+    strike(from, to, color = 16777215) {
+      let s = new Mesh(new SphereGeometry(0.22, 12, 8), glowMat(color, 1));
+      s.userData.noOutline = !0, s.position.copy(from), this.scene.add(s), this.effects.push({
+        kind: "bolt",
+        mesh: s,
+        t: 0,
+        from: from.clone(),
+        to: to.clone(),
+        color
+      });
+    }
+    /** The actor (wild, player) by its key, for where a strike starts or lands. */
+    actorPosition(key, up = 0.8) {
+      let a = this.actors.get(key);
+      return a ? a.holder.position.clone().setY(a.holder.position.y + up) : null;
+    }
+    /** Where the one walking beside you is (a strike of yours starts there). */
+    petPosition(up = 0.6) {
+      let a = this.actors.get(this.self), p = a?.pet?.group || a?.pet?.holder;
+      if (p?.getWorldPosition) {
+        let v = p.getWorldPosition(new Vector3());
+        return v.setY(v.y + up);
+      }
+      return this.actorPosition(this.self, up);
+    }
     update(e, t) {
       this.time += e, this.adapt(e);
       for (let n of this.windMaterials) n.userData.shader && (n.userData.shader.uniforms.uTime.value = this.time);
@@ -5357,7 +5386,13 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.tricks?.tick(e);
       for (let n = this.effects.length - 1; n >= 0; n--) {
         let s = this.effects[n];
-        s.t += e, s.kind === "ring" ? (s.mesh.scale.setScalar((1 + s.t * 7) * s.scale), s.mesh.material.opacity = Math.max(0, 0.95 - s.t * 1.7), s.t > 0.65 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1))) : s.t > 1.4 && this.effects.splice(n, 1);
+        if (s.t += e, s.kind === "bolt") {
+          let k = Math.min(1, s.t / 0.28);
+          s.mesh.position.lerpVectors(s.from, s.to, k).setY(MathUtils.lerp(s.from.y, s.to.y, k) + Math.sin(k * Math.PI) * 0.6);
+          k >= 1 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1), this.ring(s.to.clone().setY(s.to.y - 0.7), s.color, 0.8));
+          continue;
+        }
+        s.kind === "ring" ? (s.mesh.scale.setScalar((1 + s.t * 7) * s.scale), s.mesh.material.opacity = Math.max(0, 0.95 - s.t * 1.7), s.t > 0.65 && (this.scene.remove(s.mesh), disposeTree(s.mesh), this.effects.splice(n, 1))) : s.t > 1.4 && this.effects.splice(n, 1);
       }
       this.tickWeather(e), this.updateCamera(e), this.cullCanopies(), aimSun(this.lights.sun, this.selfPosition(), SUN_DIR), this.sky && this.sky.position.copy(this.camera.position), this.grade ? (this.grade.setNight(this.night || 0), this.grade.render(this.scene, this.camera)) : this.renderer.render(this.scene, this.camera);
     }

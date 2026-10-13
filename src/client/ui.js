@@ -7,7 +7,7 @@ import { HABITATS, HOURS, foundWhere, whereLine } from '../shared/habitats.js';
 import { abilityInfo, natureInfo } from '../shared/traits.js';
 import { DAILY_REWARDS, activeEvents, eventEnds, nextEvent } from '../shared/events.js';
 import { ARENA, ARENA_TIERS, DUNGEON_TIERS, TOWER, arenaTier, canEnter, seasonEnds, weekEnds } from '../shared/endgame.js';
-import { RIDE, mountKind, mountsOf } from '../shared/riding.js';
+import { RIDE, leadMount, mountKind } from '../shared/riding.js';
 import { familyMembers, familyOf, materialName, saddleCost } from '../shared/saddles.js';
 import { TRICKS, TRICK_IDS } from '../shared/tricks.js';
 import { CELL, planFor } from '../shared/worldplan.js';
@@ -316,15 +316,15 @@ var UI = class {
     }
     this.renderTracker(), this.renderDailyChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
   }
-  /** The ride button: shown when the team has something that can carry
-   *  you, its icon how (shared/riding.js), lit while riding. */
+  /** The ride button: shown when the lead (the one beside you) can carry
+   *  you, its icon how — fly, swim or ride (shared/riding.js) — lit while riding. */
   renderRide(riding = this._riding) {
     this._riding = riding;
     let b = $("#btn-ride");
     if (!b) return;
-    let ms = mountsOf(this.profile?.team || []);
+    let lm = leadMount(this.profile?.team || []);
     b.classList.toggle("on", !!riding);
-    let k = riding?.kind || ms[0]?.kind;
+    let k = riding?.kind || lm?.kind;
     b.textContent = riding ? riding.kind === "fly" ? "🛬" : "⬇" : RIDE[k]?.icon || "🐎", b.setAttribute("aria-label", riding ? riding.kind === "fly" ? "לנחות ולרדת" : "לרדת" : RIDE[k]?.he || "רכיבה");
     b.onclick = () => this.hooks.rideToggle?.();
     // shown or not by the cluster: it takes the fourth place on the arc
@@ -1403,38 +1403,56 @@ var UI = class {
   }
 
   panelMenu(e) {
-    let t = el("div", "grid2"),
-      n = [["🎁 פרס יומי", "daily"], ["⚔ זירה", "arena"], ["🗼 המגדל", "__tower"], ["🎒 תיק", "bag"], ["🐾 יצורים", "team"], ["📜 משימות", "quests"], ["👥 חברים", "friends"], ["🛡 גילדה", "guild"], ["⚔ קבוצה", "party"], ["🎟 מסלול העונה" + (this.profile?.pass?.ready ? ` (${this.profile.pass.ready})` : ""), "pass"], ["🏪 חנות", "shop"], ["👒 החייט", "tailor"], ["🏆 מובילים", "leaders"], ["🏕 הבסיס", "base"], ["📕 אוסף", "dex"], ["🗺 מפה", "map"], ["👁 מבט", "__view"], ["🖐 מצלמה", "__look"], ["⛶ מסך מלא", "__fullscreen"]];
-    // the phone's bell and the zone's channels need the server (server/push.js, WorldRoom)
-    this.social && n.push(["🔔 התראות", "notify"], [`📡 ערוץ ${this.zone?.channel || 1}`, "channels"]);
-    n = n.filter(([, h]) => h !== "guild" || GUILDS), this.social || (n = n.filter(([, h]) => !SOCIAL_PANELS.has(h)));
+    // Groups of tiles, an icon over a short name, four to a row; the settings
+    // as a row of small switches under them. (It was one long column of
+    // buttons, every one the same, which read as a wall.)
+    let ready = this.profile?.pass?.ready || 0,
+      groups = [
+        ["היום", [["🎁", "פרס יומי", "daily"], ["📜", "משימות", "quests"], ["🎟", "מסלול העונה", "pass", ready]]],
+        ["שלי", [["🐾", "יצורים", "team"], ["🎒", "תיק", "bag"], ["📕", "אוסף", "dex"], ["🏕", "הבסיס", "base"]]],
+        ["קרבות", [["⚔", "זירה", "arena"], ["🗼", "המגדל", "__tower"]]],
+        ["חברים", [["👥", "חברים", "friends"], ["🛡", "גילדה", "guild"], ["🤝", "קבוצה", "party"], ["🏆", "מובילים", "leaders"]]],
+        ["קניות", [["🏪", "חנות", "shop"], ["👒", "החייט", "tailor"]]],
+        ["העולם", [["🗺", "מפה", "map"], ...(this.social ? [["📡", `ערוץ ${this.zone?.channel || 1}`, "channels"]] : [])]],
+      ];
     // Only a session the server called a GM's ever gets the hello that sets this.
-    this.gm?.on && n.unshift([`👑 כלי GM${this.gm.reports ? ` · ⚑ ${this.gm.reports}` : ""}`, "gm"]);
-    for (let [c, h] of n) {
-      let d = el("button", "btn", c);
-      if (h === "__view") {
-        let u = () => this.hooks.viewMode?.() === "first" ? "גוף ראשון" : "גוף שלישי";
-        d.textContent = `👁 ${u()}`, d.onclick = () => {
-          this.hooks.toggleView?.(), d.textContent = `👁 ${u()}`;
-        };
-      } else if (h === "__look") {
-        let u = () => `🖐 מצלמה: ${lookSpeed().he}`;
-        d.textContent = u(), d.title = "כמה מהר גרירה מסובבת את המצלמה", d.onclick = () => (cycleLookSpeed(), d.textContent = u(), this.toast(`רגישות המצלמה: ${lookSpeed().he}`));
-      } else if (h === "__fullscreen") {
-        d.onclick = () => this.hooks.fullscreen?.();
-      } else if (h === "__tower") {
-        d.onclick = () => (this.gate = TOWER.id, this.openPanel("gate"));
-      } else d.onclick = () => this.openPanel(h);
-      t.appendChild(d);
+    this.gm?.on && groups[0][1].unshift(["👑", "כלי GM", "gm", this.gm.reports || 0]);
+    let keep = h => (h !== "guild" || GUILDS) && (this.social || !SOCIAL_PANELS.has(h));
+    for (let [title, items] of groups) {
+      items = items.filter(([, , h]) => keep(h));
+      if (!items.length) continue;
+      e.appendChild(section(title));
+      let g = el("div", "menu-grid");
+      for (let [ico, label, h, badge] of items) {
+        let d = el("button", "mtile");
+        d.innerHTML = `<span class="ico">${ico}</span><span class="lbl"></span>${badge ? `<span class="badge">${ltr(badge)}</span>` : ""}`;
+        d.querySelector(".lbl").textContent = label, d.setAttribute("aria-label", label);
+        d.onclick = h === "__tower" ? () => (this.gate = TOWER.id, this.openPanel("gate")) : () => this.openPanel(h);
+        g.appendChild(d);
+      }
+      e.appendChild(g);
     }
-    e.appendChild(t);
-    let s = el("div", "sound-row");
+    // the settings: small switches in one row that wraps
+    e.appendChild(section("הגדרות"));
+    let s = el("div", "menu-settings"),
+      chip = (text, on, fn, title = "") => {
+        let b = el("button", `mchip ${on === false ? "off" : ""}`, text);
+        title && (b.title = title), b.onclick = () => fn(b), s.appendChild(b);
+        return b;
+      },
+      view = () => this.hooks.viewMode?.() === "first" ? "👁 גוף ראשון" : "👁 גוף שלישי",
+      look = () => `🖐 מצלמה: ${lookSpeed().he}`;
+    chip(view(), null, b => (this.hooks.toggleView?.(), b.textContent = view()));
+    chip(look(), null, b => (cycleLookSpeed(), b.textContent = look(), this.toast(`רגישות המצלמה: ${lookSpeed().he}`)), "כמה מהר גרירה מסובבת את המצלמה");
+    chip("⛶ מסך מלא", null, () => this.hooks.fullscreen?.());
+    // the phone's bell needs the server (server/push.js)
+    this.social && chip("🔔 התראות", null, () => this.openPanel("notify"));
     for (let [c, h, d] of [["music", "מוזיקה", "🎵"], ["sfx", "אפקטים", "🔊"]]) {
-      let u = el("button", `btn ${audio.enabled[c] ? "" : "off"}`, `${d} ${h}`);
-      u.setAttribute("aria-pressed", String(!!audio.enabled[c])), u.onclick = () => {
+      let u = chip(`${d} ${h}`, !!audio.enabled[c], () => {
         let f = audio.toggle(c);
         u.classList.toggle("off", !f), u.setAttribute("aria-pressed", String(!!f)), f && c === "music" && audio.playMusic(audio.currentTrack || this.zone?.id || "verdant_meadow", !0);
-      }, s.appendChild(u);
+      });
+      u.setAttribute("aria-pressed", String(!!audio.enabled[c]));
     }
     e.appendChild(s), e.appendChild(section("היכן אתה"));
     let r = el("div", "list-item");
@@ -2745,13 +2763,13 @@ var UI = class {
    * The small buttons round the big one, on one arc so none sits on another:
    * the lead's moves when a wild or a boss is in reach; otherwise three
    * tricks to play with the one walking beside you (shared/tricks.js), and
-   * the ride button in the fourth place when something can carry you.
+   * the ride button in the fourth place when that one can carry you.
    */
   syncCluster() {
     let flying = this._riding?.kind === "fly",
       // in the air the circles climb and dive, whatever is about
       mode = flying ? "flight" : this._clusterMode || "tricks", riding = !!this._riding,
-      canRide = riding || mountsOf(this.profile?.team || []).length > 0,
+      canRide = riding || !!leadMount(this.profile?.team || []),
       rideShown = riding || canRide && mode === "tricks",
       moves = this._worldSkills || [],
       key = `${mode}|${riding}|${rideShown}|${moves.join(",")}`;
@@ -3002,6 +3020,13 @@ var UI = class {
     if (!e?.visible) return;
     let s = el("div", `dmg ${n}`);
     s.textContent = t, s.style.left = `${e.x}px`, s.style.top = `${e.y}px`, $("#overlay").appendChild(s), setTimeout(() => s.remove(), 1200);
+  }
+  /** A number that rises from a point on screen and fades (a hit in the open). */
+  floatText(x, y, text, cls = "") {
+    let t = $("#overlay");
+    if (!t) return;
+    let d = el("div", `float-num ${cls}`, text);
+    d.style.left = `${x}px`, d.style.top = `${y}px`, t.appendChild(d), setTimeout(() => d.remove(), 1100);
   }
   syncNameplates(e) {
     let t = $("#overlay");

@@ -912,15 +912,49 @@ section('the field');
   const seenAt = { ...fw.state.wilds.get(id) };
   run(F.FIELD.alertMs - 100);
   ok('and stands still while the "!" shows', Math.hypot(fw.state.wilds.get(id).x - seenAt.x, fw.state.wilds.get(id).z - seenAt.z) < 0.01);
-  ok('then comes for you and the fight starts where it caught you',
-    run(4000, () => fev.some(([k]) => k === 'goto')), JSON.stringify({ d: dist(id).toFixed(2), mode: fw.wildDocs.get(id)?.mode }));
-  const g = fev.find(([k]) => k === 'goto')?.[1];
-  ok('as an ambush, through the same battle path as pressing the button',
-    g?.kind === 'battle' && g.ambush === true && fw.state.wilds.get(id).engagedBy === fdoc.id && fnet.pendingRooms.has(g.roomId));
+  ok('then comes for you and the fight starts where it caught you — in the open',
+    run(4000, () => fw.wildDocs.get(id)?.mode === 'fight') && dist(id) < F.FIELD.catchR + 0.3, JSON.stringify({ d: dist(id).toFixed(2), mode: fw.wildDocs.get(id)?.mode }));
+  ok('no battle screen: nobody is sent anywhere', !fev.some(([k]) => k === 'goto'));
+  {
+    const hp0 = lead.hp;
+    ok('it hits your lead, where you stand', run(4000, () => fev.some(([k]) => k === 'fieldCounter')) && lead.hp < hp0
+      && fw.state.wilds.get(id).maxHp > 0, `${hp0} -> ${lead.hp}`);
+  }
   ok('a caught player is not caught twice', (() => {
-    const id2 = put('voltmane', 6, 3);
-    return !run(3000, () => fev.filter(([k]) => k === 'goto').length > 1);
+    put('voltmane', 6, 3);
+    return !run(3000, () => [...fw.wildDocs.values()].filter((d) => d.mode === 'fight').length > 1);
   })());
+
+  // ...and you hit back: the circles are the lead's moves (field-fight.js)
+  {
+    const FF = await import('../src/server/game/field-fight.js');
+    reset();
+    lead.hp = lead.maxHp;
+    const wid = put('sparkit', 4, 3);
+    const xp0 = lead.xp || 0, gold0 = fdoc.gold || 0, won0 = fdoc.stats.battlesWon || 0;
+    fw._fieldCd = 0;
+    const r1 = FF.wildAttack(fw, wid, lead.skills[0], T);
+    ok('a move hits a wild where it stands', r1 && r1.dmg > 0 && fev.some(([k, v]) => k === 'fieldHit' && v.wildId === wid && v.dmg === r1.dmg));
+    ok('and it turns on you, its health on the shared state', fw.wildDocs.get(wid)?.mode === 'fight' && fw.state.wilds.get(wid)?.hp < fw.state.wilds.get(wid)?.maxHp);
+    ok('not faster than the moves come round', FF.wildAttack(fw, wid, lead.skills[0], T + 100) === null);
+    let won = null;
+    for (let k = 1; k < 80 && !won; k++) { const r = FF.wildAttack(fw, wid, lead.skills[0], T + k * 1000); r?.won && (won = r); }
+    ok('beaten in the open, it pays as a battle won', !!won && won.xp > 0 && won.gold > 0 && (fdoc.gold || 0) > gold0 && fdoc.stats.battlesWon === won0 + 1, JSON.stringify(won && { xp: won.xp, gold: won.gold }));
+    ok('and is gone from the field', !fw.state.wilds.has(wid) && fev.some(([k]) => k === 'fieldWin'));
+    reset();
+    const far = put('sparkit', 4, 3);
+    fw._fieldCd = 0;
+    FF.wildAttack(fw, far, lead.skills[0], T);
+    const p = self();
+    Object.assign(p, { x: p.x + 40, z: p.z });
+    ok('walk away and it gives up, whole again', run(1000, () => fw.wildDocs.get(far)?.mode !== 'fight') && fw.wildDocs.get(far).hp === fw.wildDocs.get(far).maxHp && !fw.state.wilds.get(far).hp);
+    reset();
+    const busy = put('sparkit', 4, 3);
+    fw._fieldCd = 0;
+    FF.wildAttack(fw, busy, lead.skills[0], T);
+    fw.battlePending = 0;
+    ok('the action button still takes it to a battle (to catch it), whole', WM.engageWild(fw, busy) === true && fw.wildDocs.get(busy).mode !== 'fight');
+  }
 
   reset();
   fw.chasedBy = 'long-gone';
@@ -959,7 +993,7 @@ section('the field');
       const p = self(), dx = p.x - w.x, dz = p.z - w.z, d = Math.hypot(dx, dz) || 1;
       Object.assign(p, { x: p.x + dx / d * 0.37, z: p.z + dz / d * 0.37 });
       T += 50; fw.lastStepAt = T; F.tickField(fw.field, T, 50);
-      if (fev.some(([k]) => k === 'goto')) return false;
+      if (fw.wildDocs.get(id)?.mode === 'fight') return false;
     }
     return true;
   })());
@@ -971,7 +1005,7 @@ section('the field');
   ok('one far weaker runs from you', run(1500, () => fw.state.wilds.get(id).alert === '~'));
   run(1200);
   ok('and gets further away, not closer', dist(id) > d0 + 1, `${d0.toFixed(1)} → ${dist(id).toFixed(1)}`);
-  ok('and never starts a fight', !fev.some(([k]) => k === 'goto'));
+  ok('and never starts a fight', fw.wildDocs.get(id)?.mode !== 'fight');
   lead.level = 5;
 
   const quiet = (label, setup, stepping = true) => {
@@ -2147,6 +2181,11 @@ section('saddles, tricks and reports');
   const gold0 = d.gold, made = SV.makeSaddle(d, hound.uid);
   ok('five and the gold make the saddle, fitted on it', made.ok && hound.saddle === true && d.mats[root] === 0 && gold0 - d.gold === SD.SADDLE.gold[made.kind]);
   ok('and then it can be ridden', RD.mountsOf([hound]).length === 1);
+  {
+    const bird = { ...C.makeCreature('cirrowing', 30), saddle: true }, walker = { ...C.makeCreature('cindcub', 10) };
+    ok('the ride button rides the lead, and only the lead: it flies if the lead flies', RD.leadMount([bird, hound])?.kind === 'fly' && RD.leadMount([hound, bird])?.uid === hound.uid
+      && RD.leadMount([walker, bird]) === null);
+  }
   ok('a second saddle on it is refused', SV.makeSaddle(d, hound.uid).error === 'already_saddled');
   const cub = d.creatures[d.team[0]];
   d.mats[SD.familyOf(cub.species)] = 9;

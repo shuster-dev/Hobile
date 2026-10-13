@@ -39,6 +39,14 @@ export function mountsOf(team = []) {
     .filter((m) => m.kind).sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 
+/** The lead (the first of the team, the one walking beside you) as a mount,
+ *  or null: the ride button rides it, and only it — fly if it flies. */
+export function leadMount(team = []) {
+  const c = team[0];
+  const kind = c?.saddle ? mountKind(c.species, c.star || 1) : null;
+  return kind ? { uid: c.uid, species: c.species, star: c.star || 1, kind } : null;
+}
+
 /** Big enough to carry you, but no saddle yet: what the workbench is for. */
 export function saddleWanted(team = []) {
   return team.filter((c) => c && !c.saddle && mountKind(c.species, c.star || 1));

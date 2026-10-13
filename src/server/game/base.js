@@ -2,7 +2,7 @@ import { Combat, Combatant, takeIn, settleHp, fieldCreature, inherit, acceptQues
 import { DROPS, DUNGEONS, GUILD, HOME_ZONE, ITEMS, MOVES, PROGRESSION, SPECIES, WILD_TIERS, WORLD_BOSSES, ZONES, randomLevel, statsFor, weightedPick } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { hpRatio, guildBuffs } from './player.js';
-import { engageWild, handleWorldMessage, restoreRide, speakTo, visitCheck } from './world-messages.js';
+import { handleWorldMessage, restoreRide, speakTo, visitCheck } from './world-messages.js';
 import { propsFor, resolveCollision } from '../../shared/props.js';
 import { fieldPoint, wildTarget } from '../../shared/worldplan.js';
 import { populate, tickWilds } from './wilds.js';
@@ -163,9 +163,12 @@ var StoreBase = class {
         player: key => {
           let p = key === "me" && this.self();
           return p ? { key: "me", p, doc: this.doc, ctx: this } : null;
-        },
-        engage: (entry, wildId) => engageWild(this, wildId, { ambush: !0 })
+        }
       };
+    }
+    /** Who field.js knows this session as (base.js has the one player, "me"). */
+    get fieldKey() {
+      return "me";
     }
     get doc() {
       return this.net.doc;

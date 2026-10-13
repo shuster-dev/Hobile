@@ -30,6 +30,8 @@ defineTypes(WildState, {
   id: 'string', species: 'string', level: 'number',
   x: 'number', z: 'number', rot: 'number', engagedBy: 'string',
   alert: 'string', target: 'string',
+  // in a fight in the open (server/game/field-fight.js): its health, for the bar
+  hp: 'number', maxHp: 'number',
 });
 
 export class BossContributor extends Schema {}

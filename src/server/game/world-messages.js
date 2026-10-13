@@ -23,6 +23,7 @@ import {
 } from './combat.js';
 import { hpRatio, petOf } from './player.js';
 import { FIELD, calmWild, keepSpot } from './field.js';
+import { endFight, wildAttack } from './field-fight.js';
 import { handleGm } from './gm.js';
 import { earn, spend } from './economy.js';
 import { claimDaily } from './daily.js';
@@ -56,6 +57,9 @@ export function engageWild(ctx, wildId, { ambush = false } = {}) {
   const n = ctx.doc, s = ctx.self(), now = Date.now();
   const o = ctx.state.wilds.get(wildId);
   if (!o || o.engagedBy) return ctx.net.emit('error', { code: 'wild_gone' }), false;
+  // in a fight in the open with someone else: theirs (field-fight.js)
+  const fd = ctx.wildDocs.get(wildId);
+  if (fd?.mode === 'fight' && fd.prey !== ctx.fieldKey) return ctx.net.emit('error', { code: 'wild_gone' }), false;
   if (!s || Math.hypot(o.x - s.x, o.z - s.z) > 8) return ctx.net.emit('error', { code: 'too_far' }), false;
   const a = activeCreature(n);
   if (!a || a.hp <= 0) return ctx.net.emit('error', { code: 'no_healthy_creature' }), false;
@@ -63,6 +67,8 @@ export function engageWild(ctx, wildId, { ambush = false } = {}) {
   // the one that knows a wild is also about to catch this player.
   if (now < (ctx.battlePending || 0)) return false;
   ctx.battlePending = now + FIELD.pendingMs;
+  // a fight in the open becomes the battle (to catch it): it starts whole
+  fd?.mode === 'fight' && (endFight(o, fd, now), ctx.chasedBy === wildId && (ctx.chasedBy = null));
   o.engagedBy = n.id;
   const d = ctx.wildDocs.get(wildId);
   d && calmWild(o, d, now, 0);
@@ -404,6 +410,11 @@ export function handleWorldMessage(ctx, e, t = {}) {
             ctx.net.emit("goto", { roomId: o.roomId, kind: o.kind || "battle", coop: !0 });
             break;
           }
+        case "wildAttack":
+          // a move at a wild where it stands, no battle (field-fight.js)
+          if (ctx.inside) return;
+          wildAttack(ctx, typeof t?.wildId == "string" ? t.wildId : "", typeof t?.skill == "string" ? t.skill : "");
+          break;
         case "bossAttack":
           {
             let o = ctx.state.boss;
