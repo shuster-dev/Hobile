@@ -32,6 +32,7 @@ const SV = await import(R + 'server/game/saga.js');
 const W = await import(R + 'server/game/world-messages.js');
 const N = await import(R + 'shared/npcs.js');
 const B = await import(R + 'server/game/base.js');
+const PD = await import(R + 'server/game/party-dungeon.js');
 const { controlled } = await import('./balance.mjs');
 const { QUESTS, MAIN_QUEST_IDS, ZONES, SPECIES, HOME_ZONE, typeMultiplier } = G;
 
@@ -69,11 +70,42 @@ function fight(doc, zoneId, wild, clock, maxMs) {
     if (pot && you.hp < you.maxHp / 3 && clock.now - drank > 3500) {
       b.handle('trainer', { action: 'potion', item: pot }); drank = clock.now; potions++; next = clock.now + 900; continue;
     }
+    if (you.hp <= 0) { b.handle('trainer', { action: 'strike' }); next = clock.now + SHARP.react; continue; }
     const m = choose(you, b.foe, clock.now);
     if (m) { b.handle('skill', { skill: m.id }); next = clock.now + SHARP.react; } else next = clock.now + 200;
   }
   const outcome = b.sim.result?.outcome || 'timeout';
   return { won: outcome === 'a', lost: outcome === 'b', ms: clock.now - t0, potions };
+}
+
+/** A dungeon run through the real PartyDungeon, one player, on the fake
+ *  clock: floor after floor, the bot fighting each as it fights a battle.
+ *  The run's own settle pays it and counts the journey's step. */
+function dungeonRun(doc, def, clock, maxMs = 1_800_000) {
+  const run = new PD.PartyDungeon({ def, tier: 'normal' }), out = [];
+  run.addPlayer(doc, (k, v) => out.push([k, v]));
+  run.nextFloor();
+  const part = run.parts.get(doc.id), t0 = clock.now;
+  let next = clock.now + 600, drank = 0;
+  while (!run.resolved && clock.now - t0 < maxMs) {
+    clock.now += 100;
+    run.phase === 'active' && run.sim.update(100);
+    clearTimeout(run._next);
+    if (run.resolved) break;
+    if (run.phase === 'waiting') { run.nextFloor(); continue; }
+    if (clock.now < next) continue;
+    const you = run.you(part), foe = [...run.sim.combatants.values()].find((c) => c.side === 'b' && c.hp > 0);
+    if (!you || !foe) continue;
+    // the team down, the trainer fights on with what is in their hand
+    if (you.hp <= 0) { run.handle(doc.id, 'trainer', { action: 'strike' }); next = clock.now + SHARP.react; continue; }
+    const pot = POTIONS.find((id) => (doc.inventory?.[id] || 0) > 0);
+    if (pot && you.hp < you.maxHp / 3 && clock.now - drank > 3500) { run.handle(doc.id, 'trainer', { action: 'potion', item: pot }); drank = clock.now; next = clock.now + 900; continue; }
+    const m = choose(you, foe, clock.now);
+    if (m) { run.handle(doc.id, 'skill', { skill: m.id }); next = clock.now + SHARP.react; } else next = clock.now + 200;
+  }
+  clearTimeout(run._next); clearInterval(run.timer);
+  const end = out.find(([k]) => k === 'dungeonEnd')?.[1];
+  return { won: !!end?.success, floors: run.cleared, of: run.floors };
 }
 
 /** The step of the journey that is open now. */
@@ -204,7 +236,17 @@ export function playJourney({ seed = 1, eager = false, log = () => {} } = {}) {
         note = `${tries} tries, ${fights - before} fights`;
         if (current(doc) === id) problems.push(`${id}: the league still unbeaten after ${fights - before} fights (team ${lvl()})`);
       } else if (g.kind === 'dungeon') {
-        C.syncQuests(doc, { kind: 'dungeon', target: g.target }); note = 'dungeon: by its event';
+        // the dungeon itself, floor by floor; a party that falls trains and goes again
+        const def = G.DUNGEONS[g.target];
+        if (!def) { problems.push(`${id}: no dungeon called ${g.target}`); break; }
+        let tries = 0, last = null;
+        while (current(doc) === id && tries < 12) {
+          tries++; fights++;
+          last = dungeonRun(doc, def, clock); heal();
+          if (!last.won) for (let k = 0; k < 6; k++) battle(zone, wild(zone));
+        }
+        note = `dungeon ${tries} tries${last ? `, ${last.floors}/${last.of} floors` : ''}`;
+        if (current(doc) === id) problems.push(`${id}: ${def.id} not cleared after ${tries} tries (team ${lvl()})`);
       } else if (g.kind === 'boss') {
         // the world boss the way a player hits it: through the message the
         // client sends (world-messages.js bossAttack), online, where the step
@@ -215,9 +257,28 @@ export function playJourney({ seed = 1, eager = false, log = () => {} } = {}) {
         W.handleWorldMessage(ctx, 'bossAttack', {});
         note = 'world boss: one hit';
       } else if (g.kind === 'anchor') {
-        for (const a of SAGA.ANCHORS) SV.storyWin(doc, a.id);
+        // each anchor's guardian, fought where it stands (saga.js storyFoe, and
+        // BattleSim's own resolve breaks the anchor)
+        for (const a of SAGA.ANCHORS) {
+          let tries = 0;
+          while (!(doc.story?.anchors || []).includes(a.id) && tries < 12) {
+            const f = SV.storyFoe(doc, a.id, a.zone, { x: a.x, z: a.z });
+            if (f.error) { problems.push(`${id}: the guardian of ${a.id} will not fight (${f.error})`); break; }
+            tries++;
+            battle(a.zone, f.foe).won || [0, 1, 2, 3, 4].forEach(() => battle(a.zone, wild(a.zone)));
+          }
+        }
+        note = 'anchors: their guardians fought';
       } else if (g.kind === 'story') {
-        SV.storyWin(doc, g.target);
+        // the rift's guardian at the pier, the same way
+        let tries = 0;
+        while (current(doc) === id && tries < 12) {
+          const F = SAGA.FINALE, f = SV.storyFoe(doc, g.target, F.zone, { x: F.x, z: F.z });
+          if (f.error) { problems.push(`${id}: the finale will not start (${f.error})`); break; }
+          tries++;
+          battle(F.zone, f.foe).won || [0, 1, 2, 3, 4, 5].forEach(() => battle('umbral_grove', wild('umbral_grove')));
+        }
+        note = `finale: ${tries} tries`;
       } else if (g.kind === 'dex') {
         for (const s of Object.keys(SPECIES)) SPECIES[s].rarity !== 'boss' && C.dexRecord(doc, s, C.makeCreature(s, 5));
         C.syncQuests(doc, { kind: 'dex' });
