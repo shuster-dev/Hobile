@@ -171,8 +171,11 @@ export function questGuide(q, live = {}, profile = {}, here = null) {
       steps.push('התג פותח את העולם הבא ומחזק אותך ואת הצוות.');
       break;
     case 'grow':
-      steps.push('צא עם השותף שלך לקרבות — ברחובות העיר יש יצורים קטנים. כל ניצחון נותן לו ניסיון.');
-      steps.push('כשהוא עולה רמה, השלב הזה נגמר מעצמו.');
+      {
+        const top = Math.max(0, ...(profile?.team || []).map((c) => c.level || 1)), need = (live.base ?? top) + 1;
+        steps.push('נצח יצורים ברחובות העיר — עם החרב שלך או בקרב עם השותף. מכל ניצחון השותף מקבל ניסיון, גם כשאתה זה שהכה.');
+        steps.push(`השותף ברמה ${top} — כשיגיע לרמה ${need} השלב נגמר מעצמו, ותוכל לראות את הניסיון שלו בכרטיס היצור.`);
+      }
       break;
     case 'claim': {
       const zq = q.goal.target && q.goal.zone;

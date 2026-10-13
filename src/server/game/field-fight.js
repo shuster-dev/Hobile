@@ -157,14 +157,15 @@ export function armStrike(ctx, wildId, now = Date.now()) {
 function fieldWin(ctx, wildId, w, d = {}) {
   const doc = ctx.doc, foe = { species: w.species, level: w.level };
   // the lead learns from it only if it was in it
-  const lead = d.leadHit || !d.armHit ? activeCreature(doc) : null;
+  // the one walking beside you learns from every win, yours with the weapon too
+  const lead = activeCreature(doc)?.hp > 0 ? activeCreature(doc) : null;
   const o = { wildId, species: w.species, won: true, xp: 0, gold: 0, items: [], events: [], questsDone: [] };
   const xp = Math.round(creaturePower(foe, doc.level) * eventMul('xp')), gold = Math.round(creatureScore(foe) * eventMul('gold'));
   earn(doc, gold, 'battle');
   o.xp = xp; o.gold = gold;
   lead && o.events.push(...grantXpTo(lead, xp, doc));
   // a trainer who fought it alone learns all of it
-  o.events.push(...grantXp(doc, Math.floor(xp * (lead && lead.hp > 0 ? 0.6 : 1))));
+  o.events.push(...grantXp(doc, Math.floor(xp * (lead && d.leadHit ? 0.6 : 1))));
   const stats = (doc.stats ||= {});
   stats.battlesWon = (stats.battlesWon || 0) + 1;
   stats.fieldKills = (stats.fieldKills || 0) + 1;

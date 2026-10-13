@@ -1012,6 +1012,18 @@ section('the field');
     let won = null;
     for (let k = 0; k < 60 && !won; k++) { fw._armCd = 0; const r = FF.armStrike(fw, kw, T + k * 1000); r?.won && (won = r); }
     ok('beaten with the weapon, it pays and counts', !!won && won.xp > 0 && nd.stats.armKills === 1 && nd.stats.fieldKills === 1);
+    {
+      // with a partner, a win with the weapon still teaches it (the journey's
+      // "your partner grows" was stuck for one who fought with the sword)
+      const pc = C.makeCreature('sparkit', 3);
+      C.takeIn(nd, pc);
+      const xp0 = nd.creatures[pc.uid].xp;
+      reset();
+      const pw = put('mossnail', 3, 3);
+      let w2 = null;
+      for (let k = 0; k < 60 && !w2; k++) { fw._armCd = 0; const r = FF.armStrike(fw, pw, T + 100000 + k * 1000); r?.won && (w2 = r); }
+      ok('a win with the weapon teaches the partner beside you too', !!w2 && nd.creatures[pc.uid].xp > xp0, `${xp0} -> ${nd.creatures[pc.uid].xp}`);
+    }
     ok('and the first milestone is reached and paid, once', won?.milestones?.some((m) => m.id === 'first_blood') && nd.milestones.includes('first_blood') && MS.due(nd).every((m) => m.id !== 'first_blood'));
     fnet.doc = keep;
     reset();
@@ -2864,6 +2876,18 @@ section('the journey');
   ok('back to Maro, then the partner has to grow', active() === 'q_main_grow');
   C.grantXpTo(jd.creatures[c.uid], 400, jd);
   ok('a level up of the partner finishes it', active() === 'q_main_arm', active());
+  {
+    // one who was on the step before it counted this way: it starts from where
+    // their partner is now, and any level up — however it came — finishes it
+    const gd = C.createPlayerDoc('qa-grow', 'QA', {}, 'sparkit');
+    gd.quests.done = ['q_main_01', 'q_main_06', 'q_main_back']; gd.quests.active = { q_main_grow: { progress: 0 } };
+    C.normalizeDoc(gd);
+    const lead = C.activeCreature(gd);
+    ok('a grow step remembers the partner\'s level', gd.quests.active.q_main_grow?.base === lead.level);
+    lead.level += 1;
+    C.syncQuests(gd, { kind: 'defeat', zone: 'aetherport', species: 'mossnail', elements: [] });
+    ok('and a level up any way at all finishes it', gd.quests.done.includes('q_main_grow') && !!gd.quests.active.q_main_arm);
+  }
   const r1 = talk('ren');
   ok('the smith gives a real weapon, and says where to go next', (jd.inventory.blade_iron || 0) >= 1 && active() === 'q_main_05' && r1.lines.some((l) => l.he.includes('השער')));
   ok('the old errands that held you in town are not in the line any more', !G.MAIN_QUEST_IDS.includes('q_main_02') && !G.MAIN_QUEST_IDS.includes('q_main_03') && !G.MAIN_QUEST_IDS.includes('q_main_04'));

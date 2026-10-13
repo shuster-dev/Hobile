@@ -1298,6 +1298,7 @@ function normalizeDoc(i) {
     next && (i.quests.active[next] = { progress: 0 });
   }
   autoClaim(i, Object.keys(i.quests.active).filter(k => i.quests.active[k]?.done));
+  syncQuests(i, { kind: "look" });
   // the leaders came after some had gone past them: theirs is the badge
   for (let l of Object.values(LEADERS)) i.quests.done.includes(`q_l_${l.zone}`) && !(i.badges ||= []).includes(l.badge.id) && i.badges.push(l.badge.id);
   // Training used to leave a creature in the team. Now it is at the farm:
@@ -1413,11 +1414,18 @@ function syncQuests(i, e) {
     };
   for (let [s, r] of Object.entries(i.quests.active)) n(s, r);
   for (let [s, r] of Object.entries(i.quests.dailies)) n(s, r);
-  // held goals of the journey: the whole collection (shared/journey.js)
+  // held goals of the journey (shared/journey.js): the whole collection, and
+  // a partner a level up from where it was when the step opened — however
+  // it got there (a battle, a win in the open with your weapon, training)
   for (let [s, r] of Object.entries(i.quests.active)) {
     let o = QUESTS[s];
-    if (o?.chain !== "main" || o.goal?.kind !== "dex" || r.done) continue;
-    r.progress = dexCount(i), r.progress >= (o.goal.count || 1) && (r.done = !0, t.push(s));
+    if (o?.chain !== "main" || r.done) continue;
+    if (o.goal?.kind === "dex") r.progress = dexCount(i), r.progress >= (o.goal.count || 1) && (r.done = !0, t.push(s));
+    else if (o.goal?.kind === "grow") {
+      let top = teamTop(i);
+      r.base ??= top;
+      top > r.base && (r.progress = 1, r.done = !0, t.push(s));
+    }
   }
   // The journey does not wait in a panel: a step of the story or of a
   // world's errands that is done is paid and the next one opened, now.
@@ -1425,6 +1433,7 @@ function syncQuests(i, e) {
   return t;
 }
 
+const teamTop = (i) => Math.max(0, ...teamCreatures(i).map((c) => c.level || 1));
 const dexCount = (i) => Object.entries(i.dex || {}).filter(([k, r]) => r?.caught > 0 && SPECIES[k] && SPECIES[k].rarity !== "boss").length;
 
 /** Pay what is done of the story and the worlds' errands, and say so. */
@@ -1502,7 +1511,8 @@ function claimQuest(i, e) {
     let o = MAIN_QUEST_IDS.indexOf(e),
       a = MAIN_QUEST_IDS[o + 1];
     a && (i.quests.active[a] = {
-      progress: 0
+      progress: 0,
+      ...(QUESTS[a]?.goal?.kind === "grow" ? { base: teamTop(i) } : {})
     });
   }
   // A zone's chain moves on the same way: hunt, then catch, then the prize.
