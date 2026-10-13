@@ -3042,6 +3042,25 @@ section('journey bot');
   ok('a player who runs ahead of the journey is never left waiting on it', !e.problems.length, e.problems.slice(0, 3).join(' | '));
   const r = JB.playJourney({ seed: 5 }), lead = r.steps.filter((x) => x.id.startsWith('q_l_'));
   ok('no leader takes more than a long evening of fights (60)', lead.every((x) => x.fights <= 60), lead.map((x) => `${x.id}:${x.fights}`).join(' '));
+  {
+    // the league at the wall: locked without the seven, held at the wall, and
+    // a win puts you on it (once) and closes the step
+    const LS = await import('../src/server/game/leaders.js'), LGS = await import('../src/shared/league.js');
+    const d = C.createPlayerDoc('qa-league', 'QA', {}, 'sparkit');
+    C.normalizeDoc(d);
+    const wall = LS.leagueSpot();
+    ok('the league is held at the Wall of Champions', !!wall && LS.leagueFoe(d, 'verdant_meadow', wall).error === 'not_here' && LS.leagueFoe(d, 'aetherport', { x: wall.x + 40, z: wall.z }).error === 'too_far');
+    ok('and is shut to one without all seven badges', LS.leagueFoe(d, 'aetherport', wall).error === 'league_locked');
+    d.badges = Object.values((await import('../src/shared/leaders.js')).LEADERS).map((l) => l.badge.id);
+    const f = LS.leagueFoe(d, 'aetherport', wall).foe;
+    ok('with seven, it is four trainers\' teams in one fight', f?.team?.length === LGS.LEAGUE_TEAM.length && LGS.LEAGUE.members.length === 4 && f.leader === 'league');
+    d.quests.active = { q_main_league: { progress: 0 } };
+    const gold = d.gold, w = LS.leaderWin(d, 'league');
+    ok('a league win: the title, the wall, the prize and the step', w.first && d.league?.at && d.champion?.league && d.gold > gold && d.quests.done.includes('q_main_league'), JSON.stringify({ w: !!w, league: d.league, champ: d.champion }));
+    const again = LS.leaderWin(d, 'league');
+    ok('and a rematch pays no prize twice', !again.first && again.gold === 0);
+    ok('the league is announced trainer by trainer', LGS.leagueMemberAt(0)?.id === LGS.LEAGUE.members[0].id && LGS.leagueMemberAt(LGS.LEAGUE_TEAM.length - 1)?.id === 'champion');
+  }
   const team = C.teamCreatures(r.doc).map((c) => c.level), spread = Math.max(...team) - Math.min(...team);
   ok('the team grows together: no creature in it left 12 levels behind', spread <= 12, team.join(','));
 }

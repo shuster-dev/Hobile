@@ -31,7 +31,8 @@ const xpProgress = (c) => {
   let lv = c?.level || 1, lo = lv > 1 ? PROGRESSION.xpToLevel(lv) : 0, hi = PROGRESSION.xpToLevel(lv + 1);
   return { have: Math.max(0, Math.min(hi - lo, (c?.xp || 0) - lo)), need: hi - lo };
 };
-import { LEADERS, LEADER_REACH, leaderSpot } from '../shared/leaders.js';
+import { LEADERS, LEADER_REACH, leaderSpot, weakTo } from '../shared/leaders.js';
+import { LEAGUE, leagueOpen } from '../shared/league.js';
 import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
@@ -712,7 +713,7 @@ var Game = class {
       q && this.ui.toast(`משימה חדשה: ${loc(q)}`, "good");
     }), e.on("error", t => {
       if (t.code === "need_badge") return this.engagePending = 0, this.ui.toast(`🔒 העולם הזה נפתח עם ${t.badge} — נצח את המנהיג של ${loc(ZONES[t.zone] || {})}`, "bad");
-      this.engagePending = 0, this._storyFight = null, this._leaderFight = null, this.ui.toast(Oc(t.code), "bad");
+      this.engagePending = 0, this._storyFight = null, this._leaderFight = null, this._leagueFight = null, this.ui.toast(Oc(t.code), "bad");
       // could not land here (over the water, the chasm): back up into the air
       t.code === "cannot_land" && (this.world.flyLanding = !1);
     }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
@@ -879,8 +880,13 @@ var Game = class {
       // a leader: the badge (shared/leaders.js), or a word for next time
       let ld = this._leaderFight && LEADERS[this._leaderFight];
       this._leaderFight = null;
-      t.leader?.first ? setTimeout(() => (audio.sfx("quest"), vibrate([30, 60, 30, 60, 90]), this.ui.celebrate(`${t.leader.badge.icon} ${t.leader.badge.he}!`, "quest"), this.ui.toast(`${ld?.he || ""}: ${ld?.lines.win || ""}`, "good")), s + 200)
+      t.leader?.first && !t.leader.league ? setTimeout(() => (audio.sfx("quest"), vibrate([30, 60, 30, 60, 90]), this.ui.celebrate(`${t.leader.badge.icon} ${t.leader.badge.he}!`, "quest"), this.ui.toast(`${ld?.he || ""}: ${ld?.lines.win || ""}`, "good")), s + 200)
         : ld && !t.won && setTimeout(() => this.ui.toast(`${ld.he}: ${ld.lines.lose}`, ""), s + 200);
+      // the league (shared/league.js): the title and the wall, or a word for next time
+      let lg = this._leagueFight;
+      this._leagueFight = null;
+      t.leader?.league && t.leader.first ? setTimeout(() => (audio.sfx("quest"), vibrate([30, 60, 30, 60, 30, 60, 120]), this.ui.celebrate("👑 אלוף הליגה!", "quest"), this.ui.toast(`${LEAGUE.members.at(-1).he}: ${LEAGUE.lines.win}`, "good")), s + 200)
+        : lg && !t.won && setTimeout(() => this.ui.toast(`${LEAGUE.members.at(-1).he}: ${LEAGUE.lines.lose}`, ""), s + 200);
       t.dupInto && t.newSpecies && n.push(`${loc(SPECIES[t.captured.species])} נרשם באוסף`);
       if (t.captured && t.newSpecies && t.card) setTimeout(() => {
         audio.sfx("quest"), this.ui.celebrate(`${loc(SPECIES[t.captured.species])} — קלף חדש!`, "quest");
@@ -1445,6 +1451,8 @@ var Game = class {
         team[k] = t, e("setTeam", { team });
       },
       leaderboard: (k = "level") => this.net.leaderboard(k).catch(() => []),
+      // the League of Champions, from the wall (shared/league.js)
+      leagueFight: () => this.leagueChallenge(),
       logout: () => {
         this.net.logout(), location.reload();
       },
@@ -1961,11 +1969,26 @@ var Game = class {
   leaderChallenge() {
     let l = this.world.leader;
     if (!l || this.engagePending) return;
-    let has = (this.profile?.badges || []).includes(l.def.badge.id);
+    let has = (this.profile?.badges || []).includes(l.def.badge.id),
+      // what they bring, and what beats it: a fight you can prepare for
+      team = l.def.team.map(([sp, lv]) => `${(SPECIES[sp]?.types || []).map(x => ELEMENTS[x]?.icon || "").join("")} ${loc(SPECIES[sp])} ${lv}`).join(" · "),
+      beat = weakTo(l.def.team.map(([sp]) => sp)).slice(0, 3).map(x => `${ELEMENTS[x.el]?.icon || ""} ${loc(ELEMENTS[x.el] || {}) || x.el}`).join(", ");
     this.ui.showDialogue({
       name: `${l.def.he}, ${l.def.title}`,
-      lines: [has ? "שוב אתה? בוא נראה כמה התחזקת." : l.def.lines.greet],
+      lines: [has ? "שוב אתה? בוא נראה כמה התחזקת." : l.def.lines.greet, `הצוות שלי: ${team}.`, ...(beat ? [`(טיפ: ${beat} חזקים נגדם — שים אותם ראשונים בצוות)`] : [])],
       onDone: () => { this.engagePending || (this.engagePending = Date.now(), this._leaderFight = l.def.zone, this.net.send("leaderFight", {})); }
+    });
+  }
+  /** The league, from the wall: the first of the four has a word, then all of them. */
+  leagueChallenge() {
+    if (this.engagePending) return;
+    if (!leagueOpen(this.profile)) return this.ui.toast(LEAGUE.lines.locked, "bad");
+    this.ui.closePanel?.();
+    let m = LEAGUE.members[0];
+    this.ui.showDialogue({
+      name: `${m.he}, ${m.title}`,
+      lines: [this.profile?.league ? "האלוף חזר? בוא נראה אם עדיין מגיע לך הקיר." : m.greet],
+      onDone: () => { this.engagePending || (this.engagePending = Date.now(), this._leagueFight = !0, this.net.send("leagueFight", {})); }
     });
   }
   storyFight(id) {
@@ -2063,6 +2086,15 @@ var Game = class {
         z: l.z,
         y: this.world.heightAt(l.x, l.z)
       } : null;
+    }
+    if (s.kind === "league") {
+      // the wall in the plaza; from anywhere else, the next portal home
+      if (this.zone?.id === LEAGUE.zone) {
+        let w = r.find(c => c.kind === "champions");
+        return w ? o(w.x, w.z) : null;
+      }
+      let way = this.zone?.id && route(this.zone.id, LEAGUE.zone), l = way && r.find(c => c.kind === "portal" && c.to === way[1]);
+      return l ? o(l.x, l.z) : null;
     }
     if (s.kind === "badge") {
       let at = this.zone?.id === s.zone && leaderSpot(s.zone);
@@ -2229,7 +2261,7 @@ var Game = class {
           archive: ["📜 הארכיון", "היכנס"],
           clinic: ["🩺 מרפאת הגאות — ריפוי והחייאה", "היכנס"],
           plaza: ["⛲ כיכר הרסיס — מנוחה וריפוי", "מנוחה"],
-          champions: ["🏆 קיר האלופים — מי שהשלים את האוסף", "הסתכל"],
+          champions: ["🏆 קיר האלופים — וליגת האלופים", "הסתכל"],
           pier: ["🌀 מזח הקרע", "התבונן"],
           gate: ["🛡 השער הצפוני", "דבר"]
         },
@@ -2358,6 +2390,7 @@ function Oc(i) {
     no_pet_here: "אין יצור לידך לשחק איתו",
     no_creature: "היצור לא נמצא",
     not_here: "לא כאן",
+    league_locked: "הליגה פתוחה רק למי שמחזיק בכל שבעת התגים",
     not_now: "עוד לא — הסיפור עוד לא הגיע לכאן",
     already_owned: "כבר יש לך את זה",
     not_for_sale: "זה לא נמכר — מרוויחים את זה במסלול העונה",
