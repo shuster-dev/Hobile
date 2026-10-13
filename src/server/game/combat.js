@@ -4,6 +4,7 @@ import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
 import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwork.js';
 import { wardrobeOf, wornLook, wornBonus } from '../../shared/cosmetics.js';
+import { LEADERS, badgeBonus } from '../../shared/leaders.js';
 import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { mountKind } from '../../shared/riding.js';
@@ -53,6 +54,8 @@ var Combatant = class {
       }
       // what a trainer fights with (shared/arms.js): their Strike is it
       this.arm = this.kind === "trainer" && e.arm ? e.arm : null;
+      // one of a leader's team (shared/leaders.js): the next comes out when it falls
+      this.leader = e.leader || null;
       // guild house and buffs that are not stats (server/guilds.js)
       this.stamMul = 1 + Math.max(0, num(n.stam)), this.cdr = Math.min(0.3, Math.max(0, num(n.cdr)));
       this.ai = AI_TIERS[e.ai] || AI_TIERS.standard;
@@ -713,6 +716,15 @@ var Combatant = class {
       });
     }
     resolveSwitches(e) {
+      // a leader's team has no trainer to send the next one out: it comes by itself
+      let crew = this.all().filter(c => c.leader);
+      if (crew.length && !crew.some(c => c.onField)) {
+        let next = crew.filter(c => c.alive && c.benched).sort((a, b) => a.slot - b.slot)[0];
+        if (next) {
+          if (!this._leaderNextAt) this._leaderNextAt = e + 1400;
+          else if (e >= this._leaderNextAt) this._leaderNextAt = 0, this.sendOut(next, crew.find(c => !c.benched && !c.alive)?.id || null);
+        }
+      }
       for (let t of this.combatants.values()) {
         if (t.kind !== "trainer" || !t.alive) continue;
         let n = ownerKey(t),
@@ -1118,6 +1130,8 @@ function sumStats(i) {
   }
   // and what is worn from the tailor's (shared/cosmetics.js)
   for (let [s, r] of Object.entries(wornBonus(i))) e[s] = (e[s] || 0) + r;
+  // and every leader's badge held (shared/leaders.js)
+  for (let [s, r] of Object.entries(badgeBonus(i))) e[s] = (e[s] || 0) + r;
   return e;
 }
 
@@ -1277,13 +1291,16 @@ function normalizeDoc(i) {
   // steps that were put in before where they are, and whatever is done but
   // was never collected is paid now.
   for (let k of Object.keys(i.quests.active)) QUESTS[k]?.chain === "retired" && delete i.quests.active[k];
-  let far = Math.max(-1, ...i.quests.done.map(k => MAIN_QUEST_IDS.indexOf(k)));
+  let far = Math.max(-1, ...i.quests.done.map(k => MAIN_QUEST_IDS.indexOf(k)), ...Object.keys(i.quests.active).map(k => MAIN_QUEST_IDS.indexOf(k)));
   for (let n = 0; n < far; n++) i.quests.done.includes(MAIN_QUEST_IDS[n]) || (i.quests.done.push(MAIN_QUEST_IDS[n]), delete i.quests.active[MAIN_QUEST_IDS[n]]);
   if (!MAIN_QUEST_IDS.some(k => i.quests.active[k])) {
     let next = MAIN_QUEST_IDS.find(k => !i.quests.done.includes(k));
     next && (i.quests.active[next] = { progress: 0 });
   }
   autoClaim(i, Object.keys(i.quests.active).filter(k => i.quests.active[k]?.done));
+  syncQuests(i, { kind: "look" });
+  // the leaders came after some had gone past them: theirs is the badge
+  for (let l of Object.values(LEADERS)) i.quests.done.includes(`q_l_${l.zone}`) && !(i.badges ||= []).includes(l.badge.id) && i.badges.push(l.badge.id);
   // Training used to leave a creature in the team. Now it is at the farm:
   // move any that are in a pod out of the team and the box — keeping one
   // in the team to walk with you — and put back any that belong nowhere.
@@ -1397,11 +1414,18 @@ function syncQuests(i, e) {
     };
   for (let [s, r] of Object.entries(i.quests.active)) n(s, r);
   for (let [s, r] of Object.entries(i.quests.dailies)) n(s, r);
-  // held goals of the journey: the whole collection (shared/journey.js)
+  // held goals of the journey (shared/journey.js): the whole collection, and
+  // a partner a level up from where it was when the step opened — however
+  // it got there (a battle, a win in the open with your weapon, training)
   for (let [s, r] of Object.entries(i.quests.active)) {
     let o = QUESTS[s];
-    if (o?.chain !== "main" || o.goal?.kind !== "dex" || r.done) continue;
-    r.progress = dexCount(i), r.progress >= (o.goal.count || 1) && (r.done = !0, t.push(s));
+    if (o?.chain !== "main" || r.done) continue;
+    if (o.goal?.kind === "dex") r.progress = dexCount(i), r.progress >= (o.goal.count || 1) && (r.done = !0, t.push(s));
+    else if (o.goal?.kind === "grow") {
+      let top = teamTop(i);
+      r.base ??= top;
+      top > r.base && (r.progress = 1, r.done = !0, t.push(s));
+    }
   }
   // The journey does not wait in a panel: a step of the story or of a
   // world's errands that is done is paid and the next one opened, now.
@@ -1409,6 +1433,7 @@ function syncQuests(i, e) {
   return t;
 }
 
+const teamTop = (i) => Math.max(0, ...teamCreatures(i).map((c) => c.level || 1));
 const dexCount = (i) => Object.entries(i.dex || {}).filter(([k, r]) => r?.caught > 0 && SPECIES[k] && SPECIES[k].rarity !== "boss").length;
 
 /** Pay what is done of the story and the worlds' errands, and say so. */
@@ -1486,7 +1511,8 @@ function claimQuest(i, e) {
     let o = MAIN_QUEST_IDS.indexOf(e),
       a = MAIN_QUEST_IDS[o + 1];
     a && (i.quests.active[a] = {
-      progress: 0
+      progress: 0,
+      ...(QUESTS[a]?.goal?.kind === "grow" ? { base: teamTop(i) } : {})
     });
   }
   // A zone's chain moves on the same way: hunt, then catch, then the prize.
@@ -1541,6 +1567,7 @@ function publicProfile(i) {
     records: i.records || {},
     milestones: Array.isArray(i.milestones) ? i.milestones : [],
     champion: i.champion || null,
+    badges: Array.isArray(i.badges) ? i.badges : [],
     // the end of the story (shared/saga.js): scenes watched, anchors broken
     story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] },
     // the season's track (shared/pass.js)

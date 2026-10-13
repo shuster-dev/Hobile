@@ -57,7 +57,7 @@ await page.click('#btn-create');
 await page.waitForFunction(() => window.__hobile?.zone && window.__hobile.mode !== 'boot', null, { timeout: 30000 });
 
 if (ZONE !== 'aetherport') {
-  await page.evaluate((z) => window.__hobile.net.send('travel', { zone: z }), ZONE);
+  await page.evaluate((z) => { const d = window.__hobile.net.doc; d && (d.level = Math.max(d.level || 1, 40), d.badges = ['badge_leaf','badge_flame','badge_stone','badge_wave','badge_bolt','badge_frost','badge_shade']); window.__hobile.net.send('travel', { zone: z }); }, ZONE);
   await page.waitForFunction((z) => window.__hobile?.world?.zone?.id === z, ZONE, { timeout: 30000 });
 }
 await page.evaluate(() => window.__hobile.world.holdTimeOfDay(0.34));

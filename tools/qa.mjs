@@ -1012,6 +1012,18 @@ section('the field');
     let won = null;
     for (let k = 0; k < 60 && !won; k++) { fw._armCd = 0; const r = FF.armStrike(fw, kw, T + k * 1000); r?.won && (won = r); }
     ok('beaten with the weapon, it pays and counts', !!won && won.xp > 0 && nd.stats.armKills === 1 && nd.stats.fieldKills === 1);
+    {
+      // with a partner, a win with the weapon still teaches it (the journey's
+      // "your partner grows" was stuck for one who fought with the sword)
+      const pc = C.makeCreature('sparkit', 3);
+      C.takeIn(nd, pc);
+      const xp0 = nd.creatures[pc.uid].xp;
+      reset();
+      const pw = put('mossnail', 3, 3);
+      let w2 = null;
+      for (let k = 0; k < 60 && !w2; k++) { fw._armCd = 0; const r = FF.armStrike(fw, pw, T + 100000 + k * 1000); r?.won && (w2 = r); }
+      ok('a win with the weapon teaches the partner beside you too', !!w2 && nd.creatures[pc.uid].xp > xp0, `${xp0} -> ${nd.creatures[pc.uid].xp}`);
+    }
     ok('and the first milestone is reached and paid, once', won?.milestones?.some((m) => m.id === 'first_blood') && nd.milestones.includes('first_blood') && MS.due(nd).every((m) => m.id !== 'first_blood'));
     fnet.doc = keep;
     reset();
@@ -2413,7 +2425,7 @@ section('the story\'s end');
   const WP = await import('../src/shared/worldplan.js');
   const P4 = await import('../src/shared/props.js');
   const main = Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step);
-  ok('the journey runs from the town to the last world, and the full collection after the story', main.at(-1)?.id === 'q_main_dex' && main.at(-2)?.id === 'q_main_16' && main.at(-2).outro === 'credits' && main.length === 23, main.map((q) => q.id).join(','));
+  ok('the journey runs from the town to the last world, and the full collection after the story', main.at(-1)?.id === 'q_main_dex' && main.at(-2)?.id === 'q_main_16' && main.at(-2).outro === 'credits' && main.length === 30, main.map((q) => q.id).join(','));
   ok('every step that opens with a scene has one written', main.every((q) => !q.scene || SG.SCENES[q.scene]?.length) && SG.SCENES.credits.some((l) => l.roll));
   const SHOTS = new Set(['self', 'orbit', 'sky', 'holo', 'rift']), FX = new Set(['pulse', 'shake', 'flash', 'holo-in', 'holo-out', 'tear', 'seal', 'dark']);
   ok('every line has a speaker, words, a shot and effects the player knows', Object.values(SG.SCENES).flat().every((l) => SG.SPEAKERS[l.who] && l.he?.length > 8 && (!l.shot || SHOTS.has(l.shot)) && (l.fx || []).every((f) => FX.has(f))));
@@ -2864,6 +2876,18 @@ section('the journey');
   ok('back to Maro, then the partner has to grow', active() === 'q_main_grow');
   C.grantXpTo(jd.creatures[c.uid], 400, jd);
   ok('a level up of the partner finishes it', active() === 'q_main_arm', active());
+  {
+    // one who was on the step before it counted this way: it starts from where
+    // their partner is now, and any level up — however it came — finishes it
+    const gd = C.createPlayerDoc('qa-grow', 'QA', {}, 'sparkit');
+    gd.quests.done = ['q_main_01', 'q_main_06', 'q_main_back']; gd.quests.active = { q_main_grow: { progress: 0 } };
+    C.normalizeDoc(gd);
+    const lead = C.activeCreature(gd);
+    ok('a grow step remembers the partner\'s level', gd.quests.active.q_main_grow?.base === lead.level);
+    lead.level += 1;
+    C.syncQuests(gd, { kind: 'defeat', zone: 'aetherport', species: 'mossnail', elements: [] });
+    ok('and a level up any way at all finishes it', gd.quests.done.includes('q_main_grow') && !!gd.quests.active.q_main_arm);
+  }
   const r1 = talk('ren');
   ok('the smith gives a real weapon, and says where to go next', (jd.inventory.blade_iron || 0) >= 1 && active() === 'q_main_05' && r1.lines.some((l) => l.he.includes('השער')));
   ok('the old errands that held you in town are not in the line any more', !G.MAIN_QUEST_IDS.includes('q_main_02') && !G.MAIN_QUEST_IDS.includes('q_main_03') && !G.MAIN_QUEST_IDS.includes('q_main_04'));
@@ -2874,7 +2898,7 @@ section('the journey');
   const hunt = QUESTS.q_verdant_meadow_hunt.goal.count;
   for (let k = 0; k < hunt; k++) C.syncQuests(jd, { kind: 'defeat', zone: 'verdant_meadow', species: 'mossnail', elements: [] });
   for (let k = 0; k < 2; k++) C.syncQuests(jd, { kind: 'capture', zone: 'verdant_meadow', species: 'mossnail', elements: [] });
-  ok('the meadow\'s survey and catch are paid as they finish, and the journey moves on', jd.quests.done.includes('q_verdant_meadow_catch') && jd.quests.done.includes('q_w_verdant_meadow') && active() === 'q_main_08', active());
+  ok('the meadow\'s survey and catch are paid as they finish, and the journey moves on to its leader', jd.quests.done.includes('q_verdant_meadow_catch') && jd.quests.done.includes('q_w_verdant_meadow') && active() === 'q_l_verdant_meadow', active());
   ok('the worlds come in the order of their levels', (() => {
     const zs = G.MAIN_QUEST_IDS.filter((k) => QUESTS[k].goal.kind === 'claim').map((k) => ZONES[QUESTS[k].goal.zone].levels[0]);
     return zs.every((v, i) => !i || v >= zs[i - 1]);
@@ -2900,6 +2924,67 @@ section('the journey');
   const P5 = await import('../src/shared/props.js');
   const wl = ZONES.aetherport.landmarks.find((l) => l.kind === 'champions');
   ok('the wall stands clear of the fountain and of where a new trainer appears', P5.propsFor(ZONES.aetherport).colliders.some((c) => c.hw === 3.3 && c.x === wl.x) && Math.hypot(wl.x, wl.z - 4) > 6);
+}
+
+// ---------------------------------------------------------------- the leaders
+// One in every world, in a ring by the camp (shared/leaders.js): a team, one
+// after another; the badge opens the next world and makes you stronger.
+section('the leaders');
+{
+  const LS = await import('../src/shared/leaders.js');
+  const LV = await import('../src/server/game/leaders.js');
+  const W8 = await import('../src/shared/worldplan.js');
+  const P8 = await import('../src/shared/props.js');
+  ok('a leader in every world but the town, in the order the worlds open', LS.LEADER_ORDER.length === 7 && !LS.leaderOf('aetherport') && LS.LEADER_ORDER.every((z, i) => !i || ZONES[z].levels[0] >= ZONES[LS.LEADER_ORDER[i - 1]].levels[0]));
+  ok('every leader\'s team is real creatures, stronger than the world\'s wilds', Object.values(LS.LEADERS).every((l) => l.team.length >= 3 && l.team.every(([sp, lv]) => SPECIES[sp] && lv >= ZONES[l.zone].levels[1])));
+  ok('every ring stands on open ground a fight fits on', LS.LEADER_ORDER.every((z) => {
+    const at = LS.leaderSpot(z), plan = W8.planFor(ZONES[z]), cols = P8.propsFor(ZONES[z]).colliders;
+    return at && plan.walkable(at.x, at.z) && Math.hypot(P8.resolveCollision(cols, at.x, at.z, 0.6).x - at.x, P8.resolveCollision(cols, at.x, at.z, 0.6).z - at.z) < 0.01;
+  }), JSON.stringify(LS.LEADER_ORDER.map((z) => LS.leaderSpot(z))));
+  const ld = C.createPlayerDoc('qa-leader', 'QA', {}, 'cindcub');
+  C.normalizeDoc(ld);
+  const spot = LS.leaderSpot('verdant_meadow');
+  ok('too far from the ring, no fight', LV.leaderFoe(ld, 'verdant_meadow', { x: spot.x + 40, z: spot.z }).error === 'too_far');
+  const f = LV.leaderFoe(ld, 'verdant_meadow', { x: spot.x + 2, z: spot.z });
+  ok('in the ring: the leader\'s whole team', f.foe?.team?.length === 3 && f.foe.leader === 'verdant_meadow');
+  const lev = [], lnet = { doc: ld, guilds: [], emit: (k, v) => lev.push([k, v]), save() {}, pendingRooms: new Map() };
+  const lb = new B.BattleSim(lnet, { zoneId: 'verdant_meadow', wild: f.foe });
+  lb.state.phase = 'active';
+  const crew = lb.crew;
+  ok('they fight as bosses (no sphere takes one), one out and the rest waiting', crew.length === 3 && crew.every((c) => c.kind === 'boss') && crew.filter((c) => c.onField).length === 1 && lb.foe === crew[0]);
+  crew[0].hp = 0;
+  lb.sim.update(50);
+  await new Promise((r) => setTimeout(r, 1500));
+  lb.sim.update(50);
+  ok('one falls, and the next comes out — the foe is the one standing there', crew[1].onField && lb.foe === crew[1] && !lb.sim.finished);
+  const gold0 = ld.gold;
+  crew[1].hp = 0; crew[2].hp = 0;
+  lb.sim.update(50);
+  const end = lev.filter(([k]) => k === 'battleEnd').at(-1)?.[1];
+  ok('the whole team down: won, and the badge is yours', end?.won && end.leader?.first && ld.badges.includes('badge_leaf') && ld.gold > gold0, JSON.stringify(end && { won: end.won, leader: end.leader }));
+  ok('a badge makes you and your team stronger', C.sumStats(ld).atk >= LS.BADGE_BONUS.atk);
+  ok('a rematch pays as a battle does, but the badge only once', LV.leaderWin(ld, 'verdant_meadow').first === false && ld.badges.filter((b) => b === 'badge_leaf').length === 1);
+  // the next world opens to the badge
+  const tout = [], tctx = { doc: C.createPlayerDoc('qa-gate', 'QA', {}, 'cindcub'), zoneId: 'verdant_meadow', zone: ZONES.verdant_meadow, self: () => ({ x: 0, z: 0 }), net: { emit: (k, v) => tout.push([k, v]), save() {} } };
+  C.normalizeDoc(tctx.doc); tctx.doc.level = 20;
+  WM.handleWorldMessage(tctx, 'travel', { zone: 'emberfall_canyon' });
+  ok('without the meadow\'s badge, the canyon is closed', tout.some(([k, v]) => k === 'error' && v.code === 'need_badge' && v.zone === 'verdant_meadow'));
+  tctx.doc.badges = ['badge_leaf']; tout.length = 0;
+  WM.handleWorldMessage(tctx, 'travel', { zone: 'emberfall_canyon' });
+  ok('with it, open', tout.some(([k, v]) => k === 'goto' && v.zone === 'emberfall_canyon'));
+  ok('the town and the meadow ask for no badge', !LS.badgeNeeded('aetherport') && !LS.badgeNeeded('verdant_meadow'));
+  // the journey's step
+  const jd2 = C.createPlayerDoc('qa-leader2', 'QA', {}, 'cindcub');
+  C.normalizeDoc(jd2);
+  jd2.quests.active = { q_l_verdant_meadow: { progress: 0 } };
+  LV.leaderWin(jd2, 'verdant_meadow');
+  ok('beating the leader finishes the journey\'s step for that world', jd2.quests.done.includes('q_l_verdant_meadow') && !!jd2.quests.active.q_main_08);
+  // one already past a leader is given the badge
+  const vd2 = C.createPlayerDoc('qa-vet2', 'Vet', {}, 'cindcub');
+  vd2.quests.done = ['q_main_01', 'q_main_06', 'q_main_05', 'q_main_08', 'q_main_09'];
+  vd2.quests.active = { q_main_10: { progress: 0 } };
+  C.normalizeDoc(vd2);
+  ok('one already past the meadow\'s and the canyon\'s leaders holds their badges', ['badge_leaf', 'badge_flame', 'badge_stone'].every((b) => vd2.badges?.includes(b)), JSON.stringify(vd2.badges));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

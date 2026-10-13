@@ -38,6 +38,8 @@ import { TUTORIAL_GIFT, TUTORIAL_IDS, tutorialFinished, tutorialOf } from '../..
 import * as Social from '../social.js';
 import * as Reports from '../reports.js';
 import { sceneSeen, storyFoe } from './saga.js';
+import { leaderFoe } from './leaders.js';
+import { badgeNeeded, badgesOf } from '../../shared/leaders.js';
 import { buyCosmetic, wearCosmetic } from './cosmetics.js';
 import { isUnlocked } from '../../shared/milestones.js';
 import { GUARD, cadence, moveAllowance, spendMove, strike } from './guard.js';
@@ -374,6 +376,19 @@ export function handleWorldMessage(ctx, e, t = {}) {
             ctx.startBattle({ zoneId: ctx.zoneId, wild: f.foe, story: f.foe.story, onEnd: () => { ctx.battlePending = 0; } });
             break;
           }
+        case "leaderFight":
+          {
+            // the world's leader, in their ring (shared/leaders.js): a whole
+            // team, one after another. Anyone may try, as often as they like.
+            let a = activeCreature(n);
+            if ((!a || a.hp <= 0) && (n.trainerHp ?? 1) <= 0) return ctx.net.emit("error", { code: "no_healthy_creature" });
+            if (r < (ctx.battlePending || 0)) return;
+            let f = leaderFoe(n, ctx.zoneId, s);
+            if (f.error) return ctx.net.emit("error", { code: f.error });
+            ctx.battlePending = r + FIELD.pendingMs;
+            ctx.startBattle({ zoneId: ctx.zoneId, wild: f.foe, onEnd: () => { ctx.battlePending = 0; } });
+            break;
+          }
         case "sceneSeen":
           sceneSeen(n, t?.id) && ctx.net.save();
           break;
@@ -486,6 +501,9 @@ export function handleWorldMessage(ctx, e, t = {}) {
               });
               return;
             }
+            // a world opens to the badge of the one before it (shared/leaders.js)
+            let need = badgeNeeded(t.zone);
+            if (need && !badgesOf(n).includes(need.badge.id)) return ctx.net.emit("error", { code: "need_badge", badge: need.badge.he, zone: need.zone });
             n.zone = t.zone, ctx.warping = !0, ctx.net.save(), ctx.net.emit("goto", {
               kind: "world",
               zone: t.zone,
