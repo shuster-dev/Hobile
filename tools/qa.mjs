@@ -2997,13 +2997,20 @@ section('levels');
   const ws = [2, 5, 10, 20, 30, 40, 50, 59].map(wins);
   ok('a level takes a handful of wins: about three early, never more than six', ws.every((w) => w >= 1.5 && w <= 6) && ws[0] <= 4, ws.map((w) => w.toFixed(1)).join(','));
   ok('the levels go to 60', P.maxLevel === 60);
+  // every level, whatever the creature's genes and nature (each one is
+  // rolled): more health, and more power (the card's "כוח")
   let flat = [];
-  for (const sp of ['sparkit', 'mossnail', 'cindcub', 'pebblin', 'tidefin']) {
+  for (const sp of ['sparkit', 'mossnail', 'cindcub', 'pebblin', 'tidefin']) for (let k = 0; k < 6; k++) {
     const c = C.makeCreature(sp, 2);
-    const ev = C.grantXpTo(c, P.xpToLevel(60), null).filter((e) => e.kind === 'level');
-    for (const e of ev) if (!(e.gain?.hp > 0) || !((e.gain.atk || 0) + (e.gain.spa || 0) > 0)) flat.push(`${sp}@${e.level}`);
+    let pw = G.powerOf(c);
+    for (let L = 3; L <= 60; L++) {
+      const ev = C.grantXpTo(c, Math.max(0, P.xpToLevel(L) - c.xp), null).find((e) => e.kind === 'level');
+      const now = G.powerOf(c);
+      if (!(ev?.gain?.hp > 0) || !(now > pw)) flat.push(`${sp}@${L}`);
+      pw = now;
+    }
   }
-  ok('every level gives more health and more strength', !flat.length, flat.slice(0, 8).join(','));
+  ok('every level gives more health and more power', !flat.length, flat.slice(0, 8).join(','));
   const cd = C.createPlayerDoc('qa-levels', 'QA', {}, 'sparkit');
   C.normalizeDoc(cd);
   const card = C.creatureCard(cd, cd.team[0]);
