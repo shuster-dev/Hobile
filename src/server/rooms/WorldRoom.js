@@ -1,4 +1,5 @@
 import { badgeNeeded, badgesOf } from '../../shared/leaders.js';
+import { BOSS_CYCLE_MS, bossWindow } from '../../shared/worldboss.js';
 import { GUARD, admitMessage, strike } from '../game/guard.js';
 import { wardrobeOf } from '../../shared/cosmetics.js';
 import * as Push from '../push.js';
@@ -461,9 +462,12 @@ export class WorldRoom extends Room {
     this.store.logAdmin?.(row)?.catch?.((e) => console.warn('[gm] log write failed', e?.message));
   }
 
+  // on the shared clock (shared/worldboss.js), not the room's: a room opened
+  // in the middle of a window starts the boss at once, for what is left of it
   scheduleBoss() {
     if (!this.bossDef) return;
-    this.state.boss.nextSpawnAt = Date.now() + this.bossDef.everyMinutes * 60_000;
+    const w = bossWindow(this.bossDef), now = Date.now();
+    this.state.boss.nextSpawnAt = w.active && w.endsAt - now > 60_000 && !this._bossDoneFor?.[w.startsAt] ? now : w.active ? w.startsAt + BOSS_CYCLE_MS : w.startsAt;
   }
 
   startBoss() {
@@ -473,7 +477,10 @@ export class WorldRoom extends Room {
     b.active = true; b.species = def.species; b.level = def.level;
     b.x = def.x; b.z = def.z;
     b.maxHp = Math.round(stats.hp * 24); b.hp = b.maxHp;
-    b.endsAt = Date.now() + def.windowMinutes * 60_000;
+    const w = bossWindow(def);
+    b.endsAt = w.active ? w.endsAt : Date.now() + def.windowMinutes * 60_000;
+    // one boss per window, however often the room is opened in it
+    (this._bossDoneFor ||= {})[w.startsAt] = true;
     this.bossContribution.clear();
     this.refreshBossBoard();
     this.broadcast('bossSpawn', {

@@ -3084,5 +3084,20 @@ section('journey bot');
   ok('the team grows together: no creature in it left 12 levels behind', spread <= 12, team.join(','));
 }
 
+// The world bosses keep a clock (shared/worldboss.js): one of them is never
+// more than five minutes off, and a window is the same for everyone.
+section('world bosses');
+{
+  const WB = await import('../src/shared/worldboss.js');
+  let worst = 0;
+  for (let t = Date.parse('2026-10-13T00:00:00Z'), k = 0; k < 24 * 60; k++, t += 60_000) {
+    const n = WB.nextBoss(t);
+    worst = Math.max(worst, n.active ? 0 : n.startsAt - t);
+  }
+  ok('some world boss is out, or comes within five minutes, at any minute of the day', worst <= 5 * 60_000, `${worst / 60000} min`);
+  const d = G.WORLD_BOSSES[2], t0 = Date.parse('2026-10-13T10:07:00Z'), a = WB.bossWindow(d, t0), b = WB.bossWindow(d, t0 + 30_000);
+  ok('a boss\'s window is the same however often you ask', a.startsAt === b.startsAt && a.endsAt === b.endsAt && a.endsAt - a.startsAt === d.windowMinutes * 60_000);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
