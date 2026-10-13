@@ -18,6 +18,7 @@ import { DYES, HATS, SLOTS, cosmeticById, wardrobeOf } from '../shared/cosmetics
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 import { ARMS, armOf } from '../shared/arms.js';
+import { BADGE_BONUS, LEADERS, LEADER_ORDER, leaderSpot } from '../shared/leaders.js';
 import { MILESTONE, isUnlocked, lockText, milestoneView } from '../shared/milestones.js';
 import { COUNTERS, SELL_RATE, catalog, sellPrice } from '../shared/market.js';
 import { placesOf } from '../shared/services.js';
@@ -595,6 +596,9 @@ var UI = class {
       s.beginPath(), s.moveTo(tx, ty), s.lineTo(c + Math.cos(a2 - 0.09) * (R - 7), c + Math.sin(a2 - 0.09) * (R - 7)), s.lineTo(c + Math.cos(a2 + 0.09) * (R - 7), c + Math.sin(a2 + 0.09) * (R - 7)), s.closePath(), s.fillStyle = color, s.fill();
     };
     let onRim = [];
+    // the world's leader's ring (shared/leaders.js)
+    let lsp = z?.id && LEADERS[z.id] && leaderSpot(z.id);
+    if (lsp) { let [x, y] = at(lsp.x, lsp.z); inside(x, y, 6) && badge(x, y, 6.2, (this.profile?.badges || []).includes(LEADERS[z.id].badge.id) ? "#e8c05a" : "#ff7a59", "⚔", "#fff"); }
     for (let h of placesOf(z)) {
       let [x, y] = at(h.x, h.z), col = MAP_PIN[h.kind] || MAP_PIN._, way = h.kind === "portal" || h.kind === "dungeon";
       if (inside(x, y, 6)) badge(x, y, h.r ? 6.2 : 5.4, col, MAP_GLYPH[h.kind] || "", way ? col : "#fff");
@@ -1644,6 +1648,8 @@ var UI = class {
     let tot = {}, add = b => { for (let [k, v] of Object.entries(b || {})) tot[k] = (tot[k] || 0) + v; };
     for (let id of Object.values(gear)) id && add(ITEMS[id]?.bonus);
     for (let sl of ["hat", "face", "back"]) { let id = p.wardrobe?.[sl]; id && add(SLOTS[sl]?.[id]?.bonus); }
+    // and the leaders' badges held
+    for (let [k, v] of Object.entries(BADGE_BONUS)) tot[k] = (tot[k] || 0) + v * (p.badges || []).length;
     let arm = armOf(p), pw = el("div", "power-card");
     pw.innerHTML = `<div class="ico">${arm.icon}</div><div class="grow"><b>${Ze(arm.he)}${arm.fists ? "" : ` · עוצמה ${ltr(arm.power)}`}</b><span>${bonusText(tot) || "אין תוספות עדיין — ציוד מהנפח, בגדים מהחייט ופרסים מאתגרים"}</span></div>`;
     e.appendChild(pw);
@@ -2161,6 +2167,13 @@ var UI = class {
         }
       }
     };
+    // the leaders' badges (shared/leaders.js): which you hold, which are ahead
+    let bs = el("div", "badge-strip"), held = t.badges || [];
+    for (let z of LEADER_ORDER) {
+      let l = LEADERS[z], have = held.includes(l.badge.id), b = el("div", `badge ${have ? "on" : ""}`);
+      b.innerHTML = `<span class="bi">${have ? l.badge.icon : "🔒"}</span><span class="bn">${Ze(loc(ZONES[z]))}</span>`, b.title = `${l.badge.he} — ${l.he}, ${l.title}`, bs.appendChild(b);
+    }
+    e.appendChild(section("🏅 תגי המנהיגים", ltr(`${held.length}/${LEADER_ORDER.length}`))), e.appendChild(bs);
     (Object.keys(t.quests.active || {}).length || Object.keys(t.quests.dailies || {}).length) && e.appendChild(el("div", "hint", "לא בטוח מה לעשות? הקש על משימה."));
     n("משימות סיפור", Object.entries(t.quests.active || {})), n("משימות יומיות", Object.entries(t.quests.dailies || {})), !Object.keys(t.quests.active || {}).length && !Object.keys(t.quests.dailies || {}).length && e.appendChild(emptyState("📜", "אין משימות פעילות", "דבר עם דמויות באזור כדי לקבל משימה"));
     // what is given for what is done (shared/milestones.js): weapons, gear,

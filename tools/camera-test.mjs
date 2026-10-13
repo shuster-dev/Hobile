@@ -58,7 +58,8 @@ for (const zone of ZONES) {
   // Field zones are gated by level; the offline save is plain data.
   await page.evaluate((z) => {
     const g = window.__hobile;
-    if (g.net.doc) g.net.doc.level = 40;
+    // and every leader's badge, which opens the worlds (shared/leaders.js)
+    if (g.net.doc) g.net.doc.level = 40, g.net.doc.badges = ['badge_leaf','badge_flame','badge_stone','badge_wave','badge_bolt','badge_frost','badge_shade'];
     g.net.send('travel', { zone: z });
   }, zone);
   const arrived = await page.waitForFunction((z) => window.__hobile?.world?.zone?.id === z

@@ -8,6 +8,7 @@ import { Grade } from './grade.js';
 import { animateCreature, buildAvatar, buildCreature, setCreatureLod } from './creatures.js';
 import { capHeight, setStarLook } from './starlook.js';
 import { heroStrike } from './heroes.js';
+import { leaderOf, leaderSpot } from '../../shared/leaders.js';
 
 /** The tallest the creature walking behind you is drawn (a boss is built for raids). */
 const PET_MAX_H = 2.1;
@@ -18,7 +19,7 @@ import { PetTricks } from './pettricks.js';
 import { trickStyle } from '../../shared/tricks.js';
 import { FIGURINES } from './figurine-designs-more.js';
 import { template as figurineTemplate } from './figurine.js';
-import { AVATAR, SPECIES, ZONES } from '../../shared/gamedata.js';
+import { AVATAR, ELEMENTS, SPECIES, ZONES } from '../../shared/gamedata.js';
 import { NPCS, npcList } from '../../shared/npcs.js';
 import { planFor } from '../../shared/worldplan.js';
 import { RIDE } from '../../shared/riding.js';
@@ -3583,7 +3584,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       this.zone = t ? {
         ...t,
         ...e
-      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.propGroups?.forEach(g => g.userData.disposed = !0), this.propGroups = [], this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.farmWorkers = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
+      } : e, e = this.zone, this.plan = e.urban ? null : planFor(e), this._hgrid = null, this.planArt = null, this.propGroups?.forEach(g => g.userData.disposed = !0), this.propGroups = [], this.urban = !!e.urban, this.pier = this.urban ? e.landmarks.find(s => s.kind === "pier") : null, plazaOf(e), this.props = propsFor(e), this.colliders = this.props.colliders, this.blockers = buildingIndex(this.props), this.windMaterials = [], this.groundU = [], this.trails?.texture.dispose(), this.trails = null, this.fountain = null, this.warmCreatures(e), this.seasonTint = [], this.flowerBeds = null, this.meadowGrass = null, this.grassCells = [], this.incubators = null, this.farmWorkers = null, this.city = null, this.plazaLight = null, this.hazeWall = null, this.npcAvatar = null, this.leader = null, this.canopies = [], this.npcs.clear(), this.clearPlates();
       for (let s of [...this.zoneGroup.children]) this.zoneGroup.remove(s), disposeTree(s);
       let n = zoneTheme(e);
       this.sky && (this.scene.remove(this.sky), disposeTree(this.sky)), this.sky = makeSky({
@@ -4677,6 +4678,31 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
           }
         }
       }
+      // the world's leader, standing in a ring of stones (shared/leaders.js)
+      this.leader = null;
+      let ld = leaderOf(this.zone.id), at = ld && leaderSpot(this.zone.id);
+      if (at) {
+        let y = heightAt(this.zone.id, at.x, at.z), col = ELEMENTS[ld.element]?.color ?? 16777215, ring = new Group();
+        let floor = new Mesh(new CylinderGeometry(4.6, 4.8, 0.16, 36), mat(9671571, { roughness: 0.95 }));
+        floor.position.set(at.x, y + 0.06, at.z), floor.receiveShadow = !0, ring.add(floor);
+        let edge = new Mesh(new TorusGeometry(4.6, 0.09, 6, 48), glowMat(col, 0.7));
+        edge.rotation.x = Math.PI / 2, edge.position.set(at.x, y + 0.16, at.z), ring.add(edge);
+        for (let k = 0; k < 8; k++) {
+          let a = k / 8 * Math.PI * 2, px = at.x + Math.cos(a) * 5.2, pz = at.z + Math.sin(a) * 5.2, py = heightAt(this.zone.id, px, pz);
+          let stone = new Mesh(new BoxGeometry(0.7, 1.4 + (k % 2) * 0.5, 0.6), mat(8421504, { roughness: 0.9 }));
+          stone.position.set(px, py + 0.7, pz), stone.rotation.y = -a, stone.castShadow = !0, ring.add(stone);
+          if (k % 2 === 0) {
+            let pole = new Mesh(new CylinderGeometry(0.05, 0.06, 3, 6), mat(6965808)), flag = new Mesh(new BoxGeometry(0.06, 0.9, 0.7), mat(col, { roughness: 0.6 }));
+            pole.position.set(px, py + 2.3, pz), flag.position.set(px, py + 3.3, pz + 0.36), flag.rotation.y = -a, ring.add(pole, flag);
+          }
+        }
+        let who = buildAvatar({ kind: ld.kind, look: "a", skin: "#c98f63" }), holder = new Group();
+        holder.add(who, softShadowTexture(0.6, 0.3)), holder.position.set(at.x, y + 0.14, at.z);
+        // facing the way people come: toward the camp
+        let camp = this.zone.landmarks.find(l => l.kind === "camp");
+        holder.rotation.y = camp ? Math.atan2(camp.x - at.x, camp.z - at.z) : 0, ring.add(holder), t.add(ring);
+        this.leader = { def: ld, at, holder, group: who };
+      }
       this.zoneGroup.add(t);
     }
     buildUrbanLandmarks(e) {
@@ -5436,7 +5462,7 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
         n && (n.group.rotation.y = Math.atan2(this.camera.position.x - n.group.position.x, this.camera.position.z - n.group.position.z));
       }
       for (let n of this.portalRings || []) n.arch.rotation.z += e * 0.5, n.veil && (n.veil.material.opacity = 0.22 + Math.sin(this.time * 2) * 0.08);
-      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1), this.incubators && !this._inside && this.incubators.update(e, t, this.camera), this.farmWorkers && !this._inside && this.farmWorkers.update(e, t, this.camera), this._saga && (this._saga.group.visible = !this._inside, this._saga.update(e, t));
+      this.updateNpcs(e, t), this.npcAvatar && animateCreature(this.npcAvatar, t, !1), this.leader && animateCreature(this.leader.group, t, !1), this.incubators && !this._inside && this.incubators.update(e, t, this.camera), this.farmWorkers && !this._inside && this.farmWorkers.update(e, t, this.camera), this._saga && (this._saga.group.visible = !this._inside, this._saga.update(e, t));
       {
         // the one coming out of its pod is not at your heel yet
         let em = this.incubators?.emerging(), me = this.selfActor();

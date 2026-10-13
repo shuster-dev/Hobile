@@ -48,7 +48,7 @@ await page.click('#btn-next');
 await page.waitForSelector('#pick-starter .starter', { timeout: 25000 });
 await page.click('#pick-starter .starter'); await page.fill('#in-charname', 'סייר'); await page.click('#btn-create');
 await page.waitForFunction(() => window.__hobile?.mode === 'world' && window.__hobile.profile, null, { timeout: 30000 });
-await page.evaluate(() => { const d = window.__hobile.net.doc; d.level = 40; d.calmUntil = Date.now() + 3600e3; });
+await page.evaluate(() => { const d = window.__hobile.net.doc; d.level = 40; d.badges = ['badge_leaf','badge_flame','badge_stone','badge_wave','badge_bolt','badge_frost','badge_shade']; d.calmUntil = Date.now() + 3600e3; });
 
 const zones = await page.evaluate(() => Object.keys(window.__hobileZones || {}));
 const ids = only || ['verdant_meadow', 'emberfall_canyon', 'stonewake_mesa', 'stormreach_heights', 'tidal_hollow', 'frostpeak_ridge', 'umbral_grove'];

@@ -852,6 +852,13 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .champ-card b{font-size:var(--t-md)}
 .champ-card span{font-size:var(--t-xs);color:var(--muted)}
 .champ-card .champ-rank{color:var(--gold);font-weight:700}
+
+/* the leaders' badges */
+.badge-strip{flex:0 0 auto;display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:0 0 10px}
+.badge-strip .badge{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;border-radius:var(--r2);background:var(--sunken);border:1px solid var(--stroke);opacity:.7}
+.badge-strip .badge.on{opacity:1;background:linear-gradient(180deg,rgba(232,192,90,.28),rgba(232,192,90,.06));border-color:#e8c05a}
+.badge-strip .bi{font-size:20px}
+.badge-strip .bn{font-size:9px;color:var(--muted);text-align:center;line-height:1.1}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">

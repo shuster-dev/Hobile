@@ -12,6 +12,7 @@ import { earn, spend } from './economy.js';
 import { PartyDungeon } from './party-dungeon.js';
 import { armOf } from '../../shared/arms.js';
 import { claimMilestones } from './milestones.js';
+import { addLeaderCrew, leaderWin } from './leaders.js';
 import { eventMul } from '../../shared/events.js';
 import { storyWin } from './saga.js';
 import { huntMaterial } from './saddles.js';
@@ -497,7 +498,10 @@ var StoreBase = class {
       // foe (shared/saga.js) is a boss of its level: no sphere takes it.
       let tier = WILD_TIERS[t] || {};
       this.story = n.story || null;
-      this.foe = this.sim.add(new Combatant(this.story ? {
+      // a world's leader (shared/leaders.js): their whole team, one at a time
+      this.leader = n.leader && n.team ? n.leader : null;
+      if (this.leader) this.crew = addLeaderCrew(this, n);
+      else this.foe = this.sim.add(new Combatant(this.story ? {
         side: "b",
         kind: "boss",
         name: SPECIES[n.species].name,
@@ -606,6 +610,8 @@ var StoreBase = class {
           });
           // an anchor broken, or the rift's guardian down (server/game/saga.js)
           this.story && (o.story = this.story, o.questsDone.push(...storyWin(t, this.story)));
+          // a leader beaten: the badge, once (server/game/leaders.js)
+          this.leader && (o.leader = leaderWin(t, this.leader), o.questsDone.push(...(o.leader?.questsDone || [])));
           let c = [...this.sim.combatants.values()].find(d => d.side === "b"),
             h = SPECIES[c?.creature?.species]?.types?.[0] || "metal";
           for (let d of grantItems(t, DROPS.roll(h, t.level, "wild"))) o.items.push(d.id);

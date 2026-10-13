@@ -1,3 +1,4 @@
+import { badgeNeeded, badgesOf } from '../../shared/leaders.js';
 import { GUARD, admitMessage, strike } from '../game/guard.js';
 import { wardrobeOf } from '../../shared/cosmetics.js';
 import * as Push from '../push.js';
@@ -218,6 +219,11 @@ export class WorldRoom extends Room {
     // by naming it, or a room of it, from a level too low for it (game/guard.js)
     if (doc.zone !== this.zoneId && (doc.level || 1) < (this.zone.levels?.[0] || 0) - 2 && !isAdmin(user)) {
       client.send('error', { code: 'level_too_low' }); client.leave(4003); return;
+    }
+    // nor past a leader whose badge they do not have (shared/leaders.js)
+    const need = badgeNeeded(this.zoneId);
+    if (doc.zone !== this.zoneId && need && !badgesOf(doc).includes(need.badge.id) && !isAdmin(user)) {
+      client.send('error', { code: 'need_badge', badge: need.badge.he, zone: need.zone }); client.leave(4003); return;
     }
     normalizeDoc(doc);
     activateZoneQuests(doc, this.zoneId);

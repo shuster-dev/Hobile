@@ -15,6 +15,7 @@
 // here follow its `resolve` line by line, so the two settle a wild the same way.
 import { armOf } from '../../shared/arms.js';
 import { claimMilestones } from './milestones.js';
+import { addLeaderCrew, leaderWin } from './leaders.js';
 import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, addCreature, creatureCard, creaturePower, creatureScore, dexRecord,
@@ -59,7 +60,10 @@ export class PartyBattle {
       const tier = WILD_TIERS[zoneId] || {};
       // a story foe (shared/saga.js): a boss of its level, no sphere takes it
       this.story = wild.story || null;
-      this.foe = this.sim.add(new Combatant(this.story ? {
+      // a world's leader (shared/leaders.js): their whole team, one at a time
+      this.leader = wild.leader && wild.team ? wild.leader : null;
+      if (this.leader) this.crew = addLeaderCrew(this, wild);
+      else this.foe = this.sim.add(new Combatant(this.story ? {
         side: 'b', kind: 'boss', name: SPECIES[wild.species]?.name || wild.species,
         creature: makeCreature(wild.species, wild.level), hpScale: wild.hpScale, scale: wild.scale,
       } : {
@@ -117,7 +121,7 @@ export class PartyBattle {
 
   /** More players against one wild: it gets tougher, not easier. */
   scaleFoe() {
-    if (!this.foe) return;
+    if (!this.foe || this.leader) return;
     const n = [...this.parts.values()].filter((p) => !p.left).length;
     const want = Math.round(this.foeBaseHp * (1 + PARTY_BATTLE.joinScale * Math.max(0, n - 1)));
     if (want === this.foe.maxHp) return;
@@ -314,6 +318,8 @@ export class PartyBattle {
         o.questsDone = syncQuests(t, { kind: 'defeat', zone: this.zoneId, species: sp, elements: SPECIES[sp]?.types || [] });
         // an anchor broken, or the rift's guardian down (server/game/saga.js)
         if (this.story) { o.story = this.story; o.questsDone.push(...storyWin(t, this.story)); }
+        // a leader beaten: the badge, once (server/game/leaders.js)
+        if (this.leader) { o.leader = leaderWin(t, this.leader); o.questsDone.push(...(o.leader?.questsDone || [])); }
         const el = SPECIES[sp]?.types?.[0] || 'metal';
         for (const d of grantItems(t, DROPS.roll(el, t.level, 'wild'))) o.items.push(d.id);
         if (Math.random() < 0.2) { giveItem(t, 'potion_s', 1); o.items.push('potion_s'); }

@@ -22,6 +22,7 @@ import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
 import { RIDE, leadMount, mountKind } from '../shared/riding.js';
 import { placesOf } from '../shared/services.js';
 import { armOf } from '../shared/arms.js';
+import { LEADERS, LEADER_REACH, leaderSpot } from '../shared/leaders.js';
 import { inCare } from '../shared/clinic.js';
 import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
@@ -701,7 +702,8 @@ var Game = class {
       let q = QUESTS[t?.questId];
       q && this.ui.toast(`משימה חדשה: ${loc(q)}`, "good");
     }), e.on("error", t => {
-      this.engagePending = 0, this._storyFight = null, this.ui.toast(Oc(t.code), "bad");
+      if (t.code === "need_badge") return this.engagePending = 0, this.ui.toast(`🔒 העולם הזה נפתח עם ${t.badge} — נצח את המנהיג של ${loc(ZONES[t.zone] || {})}`, "bad");
+      this.engagePending = 0, this._storyFight = null, this._leaderFight = null, this.ui.toast(Oc(t.code), "bad");
       // could not land here (over the water, the chasm): back up into the air
       t.code === "cannot_land" && (this.world.flyLanding = !1);
     }), e.on("roomError", t => console.warn("[net] room error", t?.code, t?.message)), e.on("goto", async t => {
@@ -865,6 +867,11 @@ var Game = class {
       }
       n.length && setTimeout(() => this.ui.toast(n.join(" · "), t.won ? "good" : ""), Math.max(0, s - 1400)), setTimeout(() => this.enterWorld(this.zone?.id || HOME_ZONE), s);
       t.milestones?.length && setTimeout(() => this.showMilestones(t.milestones), s + 300);
+      // a leader: the badge (shared/leaders.js), or a word for next time
+      let ld = this._leaderFight && LEADERS[this._leaderFight];
+      this._leaderFight = null;
+      t.leader?.first ? setTimeout(() => (audio.sfx("quest"), vibrate([30, 60, 30, 60, 90]), this.ui.celebrate(`${t.leader.badge.icon} ${t.leader.badge.he}!`, "quest"), this.ui.toast(`${ld?.he || ""}: ${ld?.lines.win || ""}`, "good")), s + 200)
+        : ld && !t.won && setTimeout(() => this.ui.toast(`${ld.he}: ${ld.lines.lose}`, ""), s + 200);
       t.dupInto && t.newSpecies && n.push(`${loc(SPECIES[t.captured.species])} נרשם באוסף`);
       if (t.captured && t.newSpecies && t.card) setTimeout(() => {
         audio.sfx("quest"), this.ui.celebrate(`${loc(SPECIES[t.captured.species])} — קלף חדש!`, "quest");
@@ -1928,6 +1935,22 @@ var Game = class {
     if (q.q_main_15 && !q.q_main_15.done && zid === FINALE.zone && Math.hypot(FINALE.x - t.x, FINALE.z - t.z) < FINALE.reach - 1) return { id: FINALE.id, label: "🌀 לב הקרע — תהומון מחכה", button: "התעמת" };
     return null;
   }
+  /** The leader here, if you are standing in their ring. */
+  leaderNear(t) {
+    let l = this.world.leader;
+    return l && t && Math.hypot(l.at.x - t.x, l.at.z - t.z) < LEADER_REACH ? l : null;
+  }
+  /** A word from the leader, and then the fight. */
+  leaderChallenge() {
+    let l = this.world.leader;
+    if (!l || this.engagePending) return;
+    let has = (this.profile?.badges || []).includes(l.def.badge.id);
+    this.ui.showDialogue({
+      name: `${l.def.he}, ${l.def.title}`,
+      lines: [has ? "שוב אתה? בוא נראה כמה התחזקת." : l.def.lines.greet],
+      onDone: () => { this.engagePending || (this.engagePending = Date.now(), this._leaderFight = l.def.zone, this.net.send("leaderFight", {})); }
+    });
+  }
   storyFight(id) {
     this.engagePending || (this.engagePending = Date.now(), this._storyFight = id, this.net.send("storyFight", { id }));
   }
@@ -2023,6 +2046,10 @@ var Game = class {
         z: l.z,
         y: this.world.heightAt(l.x, l.z)
       } : null;
+    }
+    if (s.kind === "badge") {
+      let at = this.zone?.id === s.zone && leaderSpot(s.zone);
+      return at ? o(at.x, at.z) : null;
     }
     if (s.kind === "anchor") {
       let broken = this.profile?.story?.anchors || [], here = anchorsIn(this.zone?.id).find(a => !broken.includes(a.id));
@@ -2148,6 +2175,13 @@ var Game = class {
     }
     if (n && n.d < 4.2) {
       this.ui.setPrompt(`${n.npc.icon} דבר עם ${n.npc.he}`), $("#btn-action").textContent = "דבר", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
+    // a world's leader, in their ring (shared/leaders.js)
+    let ldr = this.leaderNear(t);
+    if (ldr) {
+      let has = (this.profile?.badges || []).includes(ldr.def.badge.id);
+      this.ui.setPrompt(`${has ? "🔁" : "⚔"} ${ldr.def.he}, ${ldr.def.title} — ${has ? "קרב חוזר" : `קרב על ${ldr.def.badge.icon} ${ldr.def.badge.he}`}`), $("#btn-action").textContent = "אתגר", $("#btn-action").onclick = () => this.leaderChallenge();
       return;
     }
     let story = this.storySpot(t);
