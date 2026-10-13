@@ -31,6 +31,15 @@ export const DUNGEON = {
   failShare: 0.35,       // of the haul a party that falls takes home
 };
 
+/**
+ * A dungeon's last floor. It was two levels over the party with 2.4 times the
+ * health, and the journey bot (tools/journey-bot.mjs) found that one player
+ * at the journey's own pace never got past it: the cistern's root-father won
+ * ten fights of ten against a team of twelves. A party still gets more of it
+ * (hpMul, by how many are in).
+ */
+export const DUNGEON_BOSS = { over: 1, hp: 1.8 };
+
 export class PartyDungeon {
   constructor({ def, tier = 'normal', onEnd = null, broadcast = null } = {}) {
     this.def = def;
@@ -157,7 +166,7 @@ export class PartyDungeon {
     const pl = this.partyLevel();
     const level = this.endless
       ? towerLevel(this.floor, pl) + (boss ? 2 : 0)
-      : Math.max(this.def.minLevel, pl + (boss ? 2 : 0)) + this.tier.lvl;
+      : Math.max(this.def.minLevel, pl + (boss ? DUNGEON_BOSS.over : 0)) + this.tier.lvl;
     const count = boss ? 1 : Math.min(3, 1 + Math.floor(this.floor / 2)) + (n >= PARTY_SCALE.extraFoeFrom ? 1 : 0);
     const hpMul = this.tier.hp * (1 + PARTY_SCALE.hpPerPlayer * Math.max(0, n - 1));
     const pool = this.endless ? towerPool(this.floor) : this.def.trash;
@@ -165,7 +174,7 @@ export class PartyDungeon {
       const sp = boss ? (this.endless ? towerBoss(this.floor) : this.def.boss) : pool[Math.floor(Math.random() * pool.length)];
       const c = this.sim.add(new Combatant({
         side: 'b', kind: boss ? 'boss' : 'wild', name: SPECIES[sp]?.name || sp,
-        creature: makeCreature(sp, Math.min(PROGRESSION.maxLevel, level)), hpScale: boss ? 2.4 * hpMul : 1,
+        creature: makeCreature(sp, Math.min(PROGRESSION.maxLevel, level)), hpScale: boss ? DUNGEON_BOSS.hp * hpMul : 1,
       }));
       if (!boss && hpMul !== 1) c.maxHp = c.hp = Math.round(c.maxHp * hpMul);
     }
