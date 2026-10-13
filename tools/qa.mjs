@@ -429,9 +429,9 @@ ok('the trainer starts benched', side('a').find((c) => c.kind === 'trainer').ben
     return { refused: no, spent: had - doc2.inventory.sphere_basic };
   };
   const home = sphere('aetherport'), field = sphere('verdant_meadow');
-  ok('the home dock refuses a capture, as its own data says it should',
-    home.refused.includes('no_capture_here'), JSON.stringify(home));
-  ok('and it refuses before taking the sphere', home.spent === 0, String(home.spent));
+  // the town lets you make your first catch there (shared/journey.js)
+  ok('the town lets you catch, as its own data now says', !home.refused.includes('no_capture_here') && home.spent === 1, JSON.stringify(home));
+  ok('and it has no errands of its own to survey', !Object.keys(QUESTS).some((k) => k.startsWith('q_aetherport_')));
   ok('a capturable zone does not refuse',
     !field.refused.includes('no_capture_here'), JSON.stringify(field));
 }
@@ -1129,7 +1129,7 @@ section('the wilds');
 {
   const H = await import('../src/shared/habitats.js');
   const W = await import('../src/shared/weather.js');
-  const fieldZones = Object.values(ZONES).filter((z) => z.capturable !== false);
+  const fieldZones = Object.values(ZONES).filter((z) => z.capturable !== false && !z.urban);
   const bad = [];
   for (const z of Object.values(ZONES)) for (const row of z.spawns || []) {
     const how = H.howOf(row);
@@ -2068,10 +2068,10 @@ section('crashes, metrics, privacy and the name');
 section('the guide for the first ten minutes');
 {
   const TU = await import('../src/shared/tutorial.js');
-  ok('seven steps, each said in one line with an icon', TU.TUTORIAL.length === 7 && TU.TUTORIAL.every((s) => s.he && s.icon && s.he.length < 80));
-  ok('the next step fits where you are: walking first in the world, a move first in a fight',
-    TU.nextStep({ steps: [] }, 'world').id === 'move' && TU.nextStep({ steps: [] }, 'battle').id === 'attack');
-  ok('a step done early is not asked again', TU.nextStep({ steps: ['move', 'look', 'fight'] }, 'world').id === 'talk');
+  ok('only the battle screen is taught, each in one line with an icon', TU.TUTORIAL.length === 2 && TU.TUTORIAL.every((s) => s.mode === 'battle' && s.he && s.icon && s.he.length < 80));
+  ok('nothing about walking or the camera in the world: the journey says what to do',
+    TU.nextStep({ steps: [] }, 'world') === null && TU.nextStep({ steps: [] }, 'battle').id === 'attack');
+  ok('a step done early is not asked again', TU.nextStep({ steps: ['attack'] }, 'battle').id === 'capture');
   ok('done or skipped: nothing', TU.nextStep({ steps: [], skipped: true }, 'world') === null && TU.nextStep({ steps: [], done: true }, 'battle') === null);
   const d = C.createPlayerDoc('qa-guide', 'QA', {}, 'cindcub');
   C.normalizeDoc(d);
@@ -2082,12 +2082,12 @@ section('the guide for the first ten minutes');
   const { ZONES: Z5 } = await import('../src/shared/gamedata.js');
   const out = [], gctx = { doc: d, zone: Z5.aetherport, zoneId: 'aetherport', colliders: [], self: () => ({ x: 0, z: 0 }), net: { emit: (k, v) => out.push([k, v]), save() {} } };
   const gold0 = d.gold;
-  for (const id of ['move', 'look', 'talk', 'fight', 'attack', 'capture']) WM.handleWorldMessage(gctx, 'tutorial', { did: id });
+  for (const id of ['attack', 'move']) WM.handleWorldMessage(gctx, 'tutorial', { did: id });
   WM.handleWorldMessage(gctx, 'tutorial', { did: 'nonsense' });
-  ok('each step is kept; nonsense is not', d.tutorial.steps.length === 6 && !d.tutorial.done);
-  WM.handleWorldMessage(gctx, 'tutorial', { did: 'base' });
+  ok('each step is kept; nonsense (and the old walking lessons) is not', d.tutorial.steps.length === 1 && !d.tutorial.done);
+  WM.handleWorldMessage(gctx, 'tutorial', { did: 'capture' });
   ok('the last one finishes it, with the little gift', d.tutorial.done === true && d.gold - gold0 === TU.TUTORIAL_GIFT.gold && out.some(([k, v]) => k === 'tutorial' && v.gift));
-  WM.handleWorldMessage(gctx, 'tutorial', { did: 'base' });
+  WM.handleWorldMessage(gctx, 'tutorial', { did: 'capture' });
   ok('and the gift is once', d.gold - gold0 === TU.TUTORIAL_GIFT.gold);
   const s2 = C.createPlayerDoc('qa-skip', 'Skip', {}, 'cindcub');
   C.normalizeDoc(s2);
@@ -2413,7 +2413,7 @@ section('the story\'s end');
   const WP = await import('../src/shared/worldplan.js');
   const P4 = await import('../src/shared/props.js');
   const main = Object.values(QUESTS).filter((q) => q.chain === 'main').sort((a, b) => a.step - b.step);
-  ok('the main story goes on to sixteen steps and ends', main.length === 16 && main[15].id === 'q_main_16' && main[15].outro === 'credits');
+  ok('the journey runs from the town to the last world, and the full collection after the story', main.at(-1)?.id === 'q_main_dex' && main.at(-2)?.id === 'q_main_16' && main.at(-2).outro === 'credits' && main.length === 23, main.map((q) => q.id).join(','));
   ok('every step that opens with a scene has one written', main.every((q) => !q.scene || SG.SCENES[q.scene]?.length) && SG.SCENES.credits.some((l) => l.roll));
   const SHOTS = new Set(['self', 'orbit', 'sky', 'holo', 'rift']), FX = new Set(['pulse', 'shake', 'flash', 'holo-in', 'holo-out', 'tear', 'seal', 'dark']);
   ok('every line has a speaker, words, a shot and effects the player knows', Object.values(SG.SCENES).flat().every((l) => SG.SPEAKERS[l.who] && l.he?.length > 8 && (!l.shot || SHOTS.has(l.shot)) && (l.fx || []).every((f) => FX.has(f))));
@@ -2430,7 +2430,7 @@ section('the story\'s end');
   // a trainer who finished the old ending picks the story up again
   const sd = C.createPlayerDoc('qa-saga', 'QA', {}, 'cindcub');
   C.normalizeDoc(sd);
-  sd.quests.active = {}; sd.quests.done = main.slice(0, 10).map((q) => q.id);
+  sd.quests.active = {}; sd.quests.done = main.slice(0, main.findIndex((q) => q.id === 'q_main_11')).map((q) => q.id);
   C.normalizeDoc(sd);
   ok('one who finished step ten finds step eleven waiting', !!sd.quests.active.q_main_11);
   // the anchors
@@ -2445,7 +2445,7 @@ section('the story\'s end');
   ok('won: the anchor breaks', SV.storyWin(sd, A1.id).length === 0 && sd.story.anchors.includes(A1.id) && sd.quests.active.q_main_13.progress === 1);
   ok('and it does not break twice', SV.storyWin(sd, A1.id).length === 0 && sd.quests.active.q_main_13.progress === 1 && SV.storyFoe(sd, A1.id, A1.zone, { x: A1.x, z: A1.z }).error === 'anchor_broken');
   SV.storyWin(sd, A2.id);
-  ok('three broken: the step is done', SV.storyWin(sd, A3.id).includes('q_main_13') && sd.quests.active.q_main_13.done);
+  ok('three broken: the step is done, paid, and the next one open', SV.storyWin(sd, A3.id).includes('q_main_13') && sd.quests.done.includes('q_main_13') && !!sd.quests.active.q_w_umbral_grove);
   ok('the profile says which are broken', C.publicProfile(sd).story.anchors.length === 3);
   // the pier
   ok('the pier holds nothing before its time', SV.storyFoe(sd, 'finale', 'aetherport', { x: SG.FINALE.x, z: SG.FINALE.z }).error === 'not_now');
@@ -2454,8 +2454,7 @@ section('the story\'s end');
   ok('then the rift\'s guardian waits on it', ff.foe?.species === 'tehomon' && ff.foe.hpScale > f1.foe.hpScale);
   ok('the sky is torn while it waits', SG.riftState(sd.quests) === 'torn');
   ok('beaten: the step is done', SV.storyWin(sd, 'finale').includes('q_main_15'));
-  const cl = C.claimQuest(sd, 'q_main_15');
-  ok('and the little one stays with you', cl?.creature?.species === 'riftling' && Object.values(sd.creatures).some((c) => c.species === 'riftling'));
+  ok('and the little one stays with you, without a trip to the quest panel', Object.values(sd.creatures).some((c) => c.species === 'riftling') && sd.quests.news.some((n) => n.id === 'q_main_15' && n.creature === 'riftling'));
   ok('the sky closes, and the last step opens', SG.riftState(sd.quests) === 'sealed' && !!sd.quests.active.q_main_16);
   // the scenes are remembered
   ok('a scene watched is kept; one that does not exist is not', SV.sceneSeen(sd, 'voice') && !SV.sceneSeen(sd, 'nope') && C.publicProfile(sd).story.seen.join() === 'voice');
@@ -2828,6 +2827,79 @@ section('from the phone');
   ok('the barn, the mine and the tents stay built (their footprints fit no model)', ['barn', 'mine', 'tent'].every((k) => !PM.MODELLED.has(k)));
   const turned = PM.planModels({ kind: 'crates', x: 10, z: 0, rot: Math.PI / 2 }, 'verdant_meadow', 0);
   ok('a part off-centre turns with its structure', Math.abs(turned[0].x - 10) < 1e-6 && Math.abs(turned[0].z - 0.5) < 1e-6, `${turned[0].x},${turned[0].z}`);
+}
+
+// ---------------------------------------------------------------- the journey
+// The start is the story, not a tutorial (shared/journey.js): Maro in the
+// plaza, a first catch in the town's streets, back to him, the partner grows,
+// the smith's weapon, out through the gate and every world in turn. A step
+// done is paid and the next opened on the spot; the whole collection hangs
+// you on the Wall of Champions.
+section('the journey');
+{
+  const NP = await import('../src/shared/npcs.js');
+  const ST = await import('../src/server/store.js');
+  const jd = C.createPlayerDoc('qa-journey', 'Dani', {}, 'none');
+  C.normalizeDoc(jd);
+  const out = [];
+  const talk = (npc) => {
+    const at = NP.npcAt(npc, 0.4);
+    const ctx = { doc: jd, zoneId: 'aetherport', zone: ZONES.aetherport, self: () => ({ x: at.x + 1, z: at.z }), net: { emit: (k, v) => out.push([k, v]), save() {} } };
+    WM.speakTo(ctx, jd, npc, 0.4);
+    return out.filter(([k]) => k === 'dialogue').at(-1)?.[1];
+  };
+  const active = () => Object.keys(jd.quests.active).find((k) => QUESTS[k]?.chain === 'main');
+  ok('a new trainer starts on the journey, with nobody, talking to Maro', active() === 'q_main_01' && jd.team.length === 0);
+  const d1 = talk('maro');
+  ok('Maro says what to do: catch one in the streets, with the weapon', d1.lines.some((l) => l.he.includes('ברחובות')) && d1.lines.at(-1).he.startsWith('➜'));
+  ok('the step is paid there and then, and the next one is open', jd.quests.done.includes('q_main_01') && active() === 'q_main_06' && (jd.inventory.sphere_basic || 0) >= 15);
+  ok('and the client is told once, with what is next', jd.quests.news.at(-1)?.id === 'q_main_01' && jd.quests.news.at(-1).next === 'q_main_06');
+  ok('every step of the journey says in one line what to do', G.MAIN_QUEST_IDS.every((k) => QUESTS[k].hint && QUESTS[k].hint.length < 110), G.MAIN_QUEST_IDS.filter((k) => !QUESTS[k].hint).join(','));
+  // the first catch, in town
+  const c = C.makeCreature('sparkit', 3);
+  C.takeIn(jd, c); jd.stats.captures = 1;
+  C.syncQuests(jd, { kind: 'capture', zone: 'aetherport', species: 'sparkit', elements: ['volt'] });
+  ok('a catch in town counts', active() === 'q_main_back');
+  talk('maro');
+  ok('back to Maro, then the partner has to grow', active() === 'q_main_grow');
+  C.grantXpTo(jd.creatures[c.uid], 400, jd);
+  ok('a level up of the partner finishes it', active() === 'q_main_arm', active());
+  const r1 = talk('ren');
+  ok('the smith gives a real weapon, and says where to go next', (jd.inventory.blade_iron || 0) >= 1 && active() === 'q_main_05' && r1.lines.some((l) => l.he.includes('השער')));
+  ok('the old errands that held you in town are not in the line any more', !G.MAIN_QUEST_IDS.includes('q_main_02') && !G.MAIN_QUEST_IDS.includes('q_main_03') && !G.MAIN_QUEST_IDS.includes('q_main_04'));
+  // out into the worlds
+  for (let k = 0; k < 5; k++) C.syncQuests(jd, { kind: 'defeat', zone: 'verdant_meadow', species: 'mossnail', elements: [] });
+  ok('the gate step, then the meadow\'s own errands', active() === 'q_w_verdant_meadow');
+  C.activateZoneQuests(jd, 'verdant_meadow');
+  const hunt = QUESTS.q_verdant_meadow_hunt.goal.count;
+  for (let k = 0; k < hunt; k++) C.syncQuests(jd, { kind: 'defeat', zone: 'verdant_meadow', species: 'mossnail', elements: [] });
+  for (let k = 0; k < 2; k++) C.syncQuests(jd, { kind: 'capture', zone: 'verdant_meadow', species: 'mossnail', elements: [] });
+  ok('the meadow\'s survey and catch are paid as they finish, and the journey moves on', jd.quests.done.includes('q_verdant_meadow_catch') && jd.quests.done.includes('q_w_verdant_meadow') && active() === 'q_main_08', active());
+  ok('the worlds come in the order of their levels', (() => {
+    const zs = G.MAIN_QUEST_IDS.filter((k) => QUESTS[k].goal.kind === 'claim').map((k) => ZONES[QUESTS[k].goal.zone].levels[0]);
+    return zs.every((v, i) => !i || v >= zs[i - 1]);
+  })());
+  // a veteran is not sent back to the town
+  const vd = C.createPlayerDoc('qa-vet', 'Vet', {}, 'cindcub');
+  vd.quests.done = ['q_main_01', 'q_main_06', 'q_main_02', 'q_main_03', 'q_main_04', 'q_main_05', 'q_main_07', 'q_main_08'];
+  vd.quests.active = { q_main_09: { progress: 0 }, q_main_02: { progress: 0 } };
+  C.normalizeDoc(vd);
+  ok('one already past the town keeps their place', !!vd.quests.active.q_main_09 && !vd.quests.active.q_main_back && !vd.quests.active.q_main_02);
+  // the end: the whole collection
+  const cd = C.createPlayerDoc('qa-champ', 'Champ', { kind: 'mage' }, 'cindcub');
+  C.normalizeDoc(cd);
+  cd.quests.done = G.MAIN_QUEST_IDS.slice(0, -1); cd.quests.active = { q_main_dex: { progress: 0 } };
+  for (const sp of Object.values(SPECIES)) if (sp.rarity !== 'boss') cd.dex[sp.id] = { caught: 1, first: 1, best: 1 };
+  C.syncQuests(cd, { kind: 'capture', zone: 'verdant_meadow', species: 'mossnail', elements: [] });
+  ok('every kind caught: the collection is done and you are a champion', cd.quests.done.includes('q_main_dex') && cd.champion?.at > 0 && C.publicProfile(cd).champion);
+  const store = await ST.openStore({ DB_DRIVER: 'memory' });
+  await store.saveDoc(cd); await store.saveDoc(jd);
+  const wall = await store.leaderboard('champions');
+  ok('the Wall of Champions lists them, as they look', wall.length === 1 && wall[0].name === 'Champ' && wall[0].look?.kind === 'mage');
+  ok('the town has the wall, in the plaza, and lets you catch there', ZONES.aetherport.landmarks.some((l) => l.kind === 'champions') && ZONES.aetherport.capturable === true);
+  const P5 = await import('../src/shared/props.js');
+  const wl = ZONES.aetherport.landmarks.find((l) => l.kind === 'champions');
+  ok('the wall stands clear of the fountain and of where a new trainer appears', P5.propsFor(ZONES.aetherport).colliders.some((c) => c.hw === 3.3 && c.x === wl.x) && Math.hypot(wl.x, wl.z - 4) > 6);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

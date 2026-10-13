@@ -690,7 +690,9 @@ var Game = class {
     }), e.on("questDone", t => {
       audio.sfx("quest"), vibrate([18, 40, 26]);
       let n = QUESTS[t?.id];
-      this.ui.celebrate(n ? loc(n) : "משימה הושלמה", "quest"), this.ui.toast("משימה הושלמה — אספו את הפרס בחלון המשימות", "good"), this.ui.openPanelId === "quests" && this.ui.renderPanel("quests");
+      // the journey's steps and a world's errands are paid on the spot and
+      // say so themselves (ui.journeyNews); a townsperson's waits for you
+      n?.chain === "npc" ? (this.ui.celebrate(loc(n), "quest"), this.ui.toast(`הושלם — חזור אל ${loc(NPCS[n.giver] || {}) || "מי שנתן את המשימה"} לקבל את הפרס`, "good")) : !n && this.ui.celebrate("משימה הושלמה", "quest"), this.ui.openPanelId === "quests" && this.ui.renderPanel("quests");
     }), e.on("questClaimed", t => {
       audio.sfx("quest"), vibrate([20, 50, 30]);
       let c = t.creature;
@@ -1523,6 +1525,14 @@ var Game = class {
     this._fieldTarget = w.id, this.net.send("wildAttack", { wildId: w.id, skill });
     return !0;
   }
+  /** In town: the champions' faces on the wall in the plaza. */
+  async hangChampions() {
+    if (!ZONES[this.zone?.id]?.landmarks?.some(l => l.kind === "champions")) return this.world.setChampions([]);
+    let list = (await this.net.leaderboard?.("champions").catch(() => [])) || [], urls = [];
+    let paint = this.ui.hooks.lookPortrait;
+    for (let c of list.slice(0, 5)) c.look && paint && urls.push(await Promise.race([new Promise(r => paint(c.look, r)), new Promise(r => setTimeout(() => r(null), 8e3))]));
+    this.mode === "world" && this.world.setChampions(urls.filter(Boolean));
+  }
   /** A milestone reached (shared/milestones.js): what it gave, said once. */
   showMilestones(list) {
     (list || []).forEach((m, i) => setTimeout(() => {
@@ -1615,7 +1625,7 @@ var Game = class {
         r.kind === "portal" ? this.net.send("travel", {
           zone: r.to,
           token: this.net.token
-        }) : r.kind === "dungeon" ? (this.ui.gate = r.to, this.ui.openPanel("gate")) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
+        }) : r.kind === "champions" ? this.ui.openPanel("champions") : r.kind === "dungeon" ? (this.ui.gate = r.to, this.ui.openPanel("gate")) : r.kind === "base" || r.kind === "workshop" ? this.openBase() : this.net.send("interact", {
           target: r.id || r.kind
         });
       }
@@ -1746,7 +1756,7 @@ var Game = class {
         petSpecies: d.petSpecies,
         petStar: d.petStar || 1
       });
-      u !== n.sessionId ? (this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving), this.world.setActorAlt(u, d.alt)) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0)), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1), this.world.setMount(f, d.mount, d.mountKind, d.mountStar || 1);
+      u !== n.sessionId ? (this.world.setActorTarget(u, d.x, d.z, d.rot, d.moving), this.world.setActorAlt(u, d.alt)) : this.spawned ? this.world.reconcile(d.x, d.z) : (this.spawned = !0, this.world.setSelf(u), this.world.snapSelf(d.x, d.z), this.world.faceOpen(d.rot || 0), this.hangChampions()), (f.pet?.species !== d.petSpecies || (f.pet?.star || 1) !== (d.petStar || 1)) && this.world.attachPet(f, d.petSpecies, d.petStar || 1), this.world.setMount(f, d.mount, d.mountKind, d.mountStar || 1);
     }), s.wilds.forEach((d, u) => {
       r.add(u), this.world.ensureActor(u, {
         kind: "wild",
@@ -1833,6 +1843,12 @@ var Game = class {
       (a.z >= 1 || !a.visible) && (p = -p, x = -x);
       let v = Math.min((u - 86) / Math.abs(p || 0.001), (f - 58) / Math.abs(x || 0.001));
       t.style.left = `${u + p * v}px`, t.style.top = `${f + x * v}px`, d.style.transform = `rotate(${Math.atan2(x, p) * 180 / Math.PI + 90}deg)`, t.classList.add("edge");
+    }
+    // never on top of the HUD's own cards (the quest card, the vitals, the
+    // buttons): slide down out from under whatever it would cover
+    let me = t.getBoundingClientRect();
+    for (let k of this._hudRects || []) if (k.top < c / 2 && me.left < k.right && me.right > k.left && me.top < k.bottom && me.bottom > k.top) {
+      t.style.top = `${parseFloat(t.style.top) + (k.bottom - me.top) + 6}px`, me = t.getBoundingClientRect();
     }
   }
   /** The story's things in this zone, for this player (shared/saga.js):
@@ -2162,6 +2178,7 @@ var Game = class {
           archive: ["📜 הארכיון", "היכנס"],
           clinic: ["🩺 מרפאת הגאות — ריפוי והחייאה", "היכנס"],
           plaza: ["⛲ כיכר הרסיס — מנוחה וריפוי", "מנוחה"],
+          champions: ["🏆 קיר האלופים — מי שהשלים את האוסף", "הסתכל"],
           pier: ["🌀 מזח הקרע", "התבונן"],
           gate: ["🛡 השער הצפוני", "דבר"]
         },

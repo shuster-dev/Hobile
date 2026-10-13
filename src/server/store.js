@@ -3,6 +3,7 @@
 // `memory` is the default so `npm run dev` and the QA suite need no database.
 // `mongo` is loaded dynamically, so the mongodb package is only required when
 // DB_DRIVER=mongo — the server starts fine without it installed.
+import { wornLook } from '../shared/cosmetics.js';
 import fs from 'node:fs';
 import { seasonStamp, weekStamp } from '../shared/endgame.js';
 import path from 'node:path';
@@ -20,6 +21,8 @@ const LIVE = {
 const row = (d, i) => ({
   rank: i + 1, id: d.id, name: d.name, level: d.level, gold: d.gold, stats: d.stats,
   rating: d.arena?.rating || 0, tower: d.weekly?.tower || 0, boss: d.weekly?.boss || 0,
+  // the Wall of Champions shows them as they look (shared/cosmetics.js)
+  ...(d.champion ? { champion: d.champion, look: wornLook(d) } : {}),
 });
 
 class MemoryStore {
@@ -105,6 +108,8 @@ class MemoryStore {
     const skip = new Set(exclude);
     let rows = [...this.docs.values()].filter((d) => !skip.has(d.id));
     // the seasonal and weekly boards count only this season's and this week's
+    // the Wall of Champions: everyone who finished the collection, first first
+    if (kind === 'champions') return rows.filter((d) => d.champion?.at).sort((a, b) => a.champion.at - b.champion.at).slice(0, limit).map((d, i) => row(d, i));
     const live = LIVE[kind];
     if (live) rows = rows.filter((d) => live.ok(d) && live.value(d) > 0);
     const value = live ? live.value : kind === 'gold' ? (d) => d.gold || 0 : kind === 'captures' ? (d) => d.stats?.captures || 0 : (d) => d.level || 0;
@@ -316,6 +321,11 @@ class MongoStore {
     return d?.id || null;
   }
   async leaderboard(kind = 'level', limit = 50, exclude = []) {
+    if (kind === 'champions') {
+      const rows = await this.docsC.find({ 'champion.at': { $gt: 0 }, ...(exclude.length ? { id: { $nin: exclude } } : {}) },
+        { projection: { _id: 0, id: 1, name: 1, level: 1, gold: 1, stats: 1, champion: 1, appearance: 1, cosmetics: 1 } }).sort({ 'champion.at': 1 }).limit(limit).toArray();
+      return rows.map((d, i) => row(d, i));
+    }
     const live = LIVE[kind];
     const sort = live ? { [live.field]: -1 } : kind === 'gold' ? { gold: -1 } : kind === 'captures' ? { 'stats.captures': -1 } : { level: -1 };
     const filter = { ...(exclude.length ? { id: { $nin: exclude } } : {}), ...(live ? live.filter() : {}) };

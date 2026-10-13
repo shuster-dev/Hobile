@@ -135,7 +135,11 @@ export class Coach {
         const at = w && g.world.project?.(new Vector3(w.x, (g.world.heightAt?.(w.x, w.z) || 0) + 1.6, w.z));
         at?.visible && (arrow = at);
       }
-    } else if (step.id === 'attack') ring = rectOf('#battle-skills');
+    } else if (step.id === 'attack') {
+      // the moves, or with nobody yet the trainer's own Strike
+      const moves = [...document.querySelectorAll('#battle-skills button')].some((b) => b.offsetParent && !b.disabled);
+      ring = moves ? rectOf('#battle-skills') : rectOf('#battle-trainer [data-trainer="strike"]');
+    }
     else if (step.id === 'capture') {
       const b = [...document.querySelectorAll('#battle-trainer button')].find((x) => x.textContent.includes('כדור'));
       b && (ring = b.getBoundingClientRect());

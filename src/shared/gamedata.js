@@ -1,5 +1,6 @@
 import { NPC_QUESTS } from './story.js';
 import { SAGA_QUESTS, SAGA_SPECIES } from './saga.js';
+import { applyJourney } from './journey.js';
 import { natureMul } from './traits.js';
 import { MORE_MOVES, MORE_SPAWNS, MORE_SPECIES, MORE_TEMPER } from './species-more.js';
 import { STATUS_MOVES, withStatusMoves } from './moves-status.js';
@@ -2275,7 +2276,8 @@ var MOVES = {
       ground: 6120563,
       accent: 3817552,
       sky: 9418456,
-      capturable: !1,
+      // the first catch is made here, in the streets (shared/journey.js)
+      capturable: !0,
       size: 200,
       urban: !0,
       safe: !0,
@@ -2292,6 +2294,14 @@ var MOVES = {
       },
       spawns: [["sparkit", 20], ["mossnail", 20], ["pebblin", 20], ["coglet", 20], ["zephyrb", 20]],
       landmarks: [{
+        // those who caught every kind there is (shared/champions.js)
+        kind: "champions",
+        name: "Wall of Champions",
+        he: "קיר האלופים",
+        x: 0,
+        z: -9.1,
+        r: 2.6
+      }, {
         kind: "plaza",
         name: "Shard Plaza",
         he: "כיכר הרסיס",
@@ -3171,6 +3181,9 @@ function zoneQuestChain(i) {
 
 // the rest of the main story (shared/saga.js): steps 11 to 16
 Object.assign(QUESTS, SAGA_QUESTS);
+// and the whole of it laid out as one journey, town to the last world
+// (shared/journey.js): the order, the new steps, what each says
+applyJourney(QUESTS, Object.values(SPECIES).filter((sp) => sp.rarity !== "boss").length);
 
 var DAILY_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "daily"),
   MAIN_QUEST_IDS = Object.keys(QUESTS).filter(i => QUESTS[i].chain === "main").sort((i, e) => QUESTS[i].step - QUESTS[e].step),
@@ -3802,7 +3815,8 @@ function seededRandom(i) {
 }
 
 // derived tables (were bundle bootstrap side effects)
-for (let z of Object.values(ZONES)) if (z.capturable) Object.assign(QUESTS, zoneQuestChain(z));
+// the town lets you catch your first, but has no errands of its own to survey
+for (let z of Object.values(ZONES)) if (z.capturable && !z.urban) Object.assign(QUESTS, zoneQuestChain(z));
 // The townsfolk's errands (story.js) live in the same table, so every lookup by id works.
 Object.assign(QUESTS, NPC_QUESTS);
 Object.assign(ITEMS, MATERIALS);

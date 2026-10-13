@@ -10,13 +10,12 @@
 // which steps are done on the document (world-messages "tutorial"), pays the
 // little gift at the end once, and the metrics count how far people got.
 export const TUTORIAL = [
-  { id: 'move', mode: 'world', he: 'גרור את האגודל השמאלי כדי ללכת', icon: '👣' },
-  { id: 'look', mode: 'world', he: 'גרור עם אצבע בצד ימין כדי לסובב את המצלמה', icon: '🔄' },
-  { id: 'talk', mode: 'world', he: 'לך אחרי החץ ודבר עם מי שמחכה לך — כשאתה לידו לחץ "דבר"', icon: '💬' },
-  { id: 'fight', mode: 'world', he: 'יצור פראי! גש אליו והכה אותו בנשק שלך — הכפתור מופיע כשאתה קרוב', icon: '⚔️' },
-  { id: 'attack', mode: 'battle', he: 'לחץ על "מכה" או על מהלך כדי לתקוף', icon: '✊' },
+  // Walking, turning the camera, talking and going for a wild are not
+  // taught any more: the journey's first steps (shared/journey.js) say what
+  // to do and the arrow says where. What is left is the battle screen, the
+  // one place a new player meets buttons they have not seen.
+  { id: 'attack', mode: 'battle', he: 'לחץ "מכה" (או מהלך) כדי לתקוף', icon: '✊' },
   { id: 'capture', mode: 'battle', he: 'כשהחיים שלו בצהוב או באדום — "זרוק כדור" כדי ללכוד אותו', icon: '🔵' },
-  { id: 'base', mode: 'world', he: 'הבסיס שלך: אימון, ייצור ובנייה — פתח אותו', icon: '🏕' },
 ];
 export const TUTORIAL_IDS = TUTORIAL.map((s) => s.id);
 

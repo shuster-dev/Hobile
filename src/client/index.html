@@ -605,7 +605,7 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 
 /* --- the first ten minutes' guide (client/coach.js) ---------------------- */
 #coach{position:absolute;left:50%;top:calc(var(--safe-t) + 292px);transform:translateX(-50%);z-index:var(--z-dialogue);width:min(92vw,380px);pointer-events:none}
-#coach.in-battle{top:auto;bottom:calc(var(--safe-b) + 46%)}
+#coach.in-battle{top:calc(var(--safe-t) + 74px);bottom:auto}
 #coach .coach-bubble{pointer-events:auto;display:flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s3);border-radius:var(--r3);background:linear-gradient(135deg,rgba(20,24,46,.96),rgba(27,31,59,.96));border:1.5px solid var(--aether);box-shadow:0 0 0 4px var(--aether-soft),var(--e3);color:#eef1fa;animation:coach-in .35s var(--ease)}
 #coach .coach-ico{font-size:24px;flex:none}
 #coach .coach-text{flex:1;font-weight:700;font-size:var(--t-md);line-height:1.35}
@@ -823,6 +823,35 @@ body.cinematic #hud,body.cinematic #overlay{opacity:0!important;pointer-events:n
 .arm-start .grow{display:flex;flex-direction:column;gap:4px}
 .arm-start .grow span{font-size:var(--t-sm);color:var(--muted);line-height:1.4}
 .arm-start .arm-start-tip{color:var(--gold)!important;font-size:var(--t-xs)!important}
+
+/* the journey (shared/journey.js): what to do, under the step */
+#tracker .q-hint{font-size:11.5px;line-height:1.35;color:var(--text);opacity:.86;margin-top:3px;white-space:normal}
+#tracker.collapsed{align-items:flex-start;max-width:min(232px,58vw)}
+#tracker.collapsed .q-lead{flex-wrap:wrap}
+#tracker.collapsed .q-lead .q-title{flex:1 1 auto}
+#tracker.collapsed .q-lead .q-hint{flex:1 0 100%;order:3;margin-top:2px;font-size:11px}
+.step-card{position:fixed;left:50%;top:calc(var(--safe-t) + 292px);transform:translateX(-50%);z-index:var(--z-toast);width:min(88vw,360px);padding:12px 14px;border-radius:var(--r3);background:linear-gradient(135deg,rgba(20,24,46,.97),rgba(27,31,59,.97));border:1.5px solid var(--hp);box-shadow:0 0 0 4px rgba(63,217,139,.18),var(--e3);color:#eef1fa;animation:coach-in .35s var(--ease);cursor:pointer}
+.step-card.out{opacity:0;transform:translateX(-50%) translateY(-8px);transition:all .25s var(--ease)}
+.step-card .sc-done{font-weight:800;font-size:var(--t-lg);color:var(--hp)}
+.step-card .sc-paid{font-size:var(--t-sm);color:var(--gold);margin-top:3px}
+.step-card .sc-next{margin-top:8px;padding-top:8px;border-top:1px solid rgba(158,172,226,.22);display:flex;flex-direction:column;gap:2px}
+.step-card .sc-next b{font-size:var(--t-md);color:var(--aether)}
+.step-card .sc-next span{font-size:var(--t-sm);line-height:1.4}
+
+/* the Wall of Champions */
+.champ-head{flex:0 0 auto;display:flex;gap:12px;align-items:center;padding:12px;border-radius:var(--r3);background:linear-gradient(135deg,rgba(232,192,90,.22),rgba(232,192,90,.04));border:1px solid rgba(232,192,90,.5)}
+.champ-head .champ-ico{font-size:34px}
+.champ-head b{display:block;font-size:var(--t-lg)}
+.champ-head span{font-size:var(--t-sm);color:var(--muted)}
+.champ-bar{flex:0 0 auto;margin:10px 2px 0}
+.champ-grid{flex:0 0 auto;display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:12px}
+.champ-card{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 8px 12px;border-radius:var(--r3);background:var(--raise);border:2px solid #e8c05a;box-shadow:var(--e1),inset 0 0 0 3px rgba(232,192,90,.18);text-align:center}
+.champ-card.me{background:linear-gradient(180deg,rgba(232,192,90,.25),var(--raise))}
+.champ-card .champ-pic{width:100%;aspect-ratio:1;border-radius:var(--r2);background:radial-gradient(circle at 50% 35%,#3a3f6a,#1b1f3b);display:grid;place-items:center;overflow:hidden}
+.champ-card .champ-pic img{width:100%;height:100%;object-fit:cover}
+.champ-card b{font-size:var(--t-md)}
+.champ-card span{font-size:var(--t-xs);color:var(--muted)}
+.champ-card .champ-rank{color:var(--gold);font-weight:700}
 </style>
 <script>document.documentElement.lang='he';document.documentElement.dir='rtl';</script>
 <div id="app">

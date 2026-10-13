@@ -15,7 +15,7 @@ import { claimMilestones } from './milestones.js';
 import { eventMul } from '../../shared/events.js';
 import { storyWin } from './saga.js';
 import { huntMaterial } from './saddles.js';
-import { wardrobeOf } from '../../shared/cosmetics.js';
+import { wardrobeOf, wornLook } from '../../shared/cosmetics.js';
 
 var StoreBase = class {
     constructor() {
@@ -86,7 +86,9 @@ var StoreBase = class {
         profile: publicProfile(this.doc)
       };
     }
-    async leaderboard() {
+    async leaderboard(kind) {
+      // the Wall of Champions, offline: you, once you are one
+      if (kind === "champions") return this.doc?.champion ? [{ rank: 1, id: this.doc.id, name: this.doc.name, level: this.doc.level, champion: this.doc.champion, look: wornLook(this.doc) }] : [];
       return this.doc ? [{
         rank: 1,
         id: this.doc.id,
