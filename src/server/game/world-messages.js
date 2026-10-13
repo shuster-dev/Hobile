@@ -486,7 +486,14 @@ export function handleWorldMessage(ctx, e, t = {}) {
             // The online room keeps the board by player id with the name beside it
             // (WorldRoom.endBoss pays by it); this kept it by name, so online
             // nobody was ever found on the board and nobody was paid.
-            let bc = ctx.bossContribution;
+            let bc = ctx.bossContribution, first = !(ctx.online ? bc.has(n.id) : bc.has(n.name));
+            // the journey's "hit the world boss" is done by the hit itself. It
+            // used to wait for the boss to fall or leave, and online it never
+            // came at all: the room paid the board and told no quest
+            if (first) {
+              let done = syncQuests(n, { kind: "boss" });
+              done.length && (announce(ctx, done), ctx.net.emit("profile", publicProfile(n)));
+            }
             ctx.online ? bc.set(n.id, { name: n.name, damage: (bc.get(n.id)?.damage || 0) + d }) : bc.set(n.name, (bc.get(n.name) || 0) + d);
             weekly(n).boss += d;
             if (o.hp = Math.max(0, o.hp - d), ctx.refreshBossBoard(), ctx.net.emit("bossHit", {

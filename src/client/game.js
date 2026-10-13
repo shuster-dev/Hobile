@@ -988,7 +988,12 @@ var Game = class {
     }), e.on("fieldLost", t => {
       audio.sfx("uiBack"), this.ui.toast(`${this.profile?.team?.length ? "הצוות שלך התעלף" : "נפלת בקרב"}${t.gold ? ` · ${t.gold}⛁` : ""} — התאוששתם`, "bad");
       t.profile && this.applyProfile(t.profile);
-    }), e.on("bossHit", () => {}), e.on("bossCounter", t => {
+    }), e.on("bossHit", t => {
+      // every hit shows: the number over the boss, and a thud (it used to
+      // show nothing, and a hit looked like no hit at all)
+      let mine = t.by === this.profile?.name;
+      this.floatOver("boss", `-${t.dmg}`, mine ? "super" : "hit", 4.6), mine && (audio.sfx("hit"), vibrate(10));
+    }), e.on("bossCounter", t => {
       audio.sfx("hurt"), this.punch(0.7), vibrate(30), this.ui.toast(`הבוס פגע בך (-${t.dmg})`, "bad");
     }), e.on("bossEnd", t => {
       audio.sfx(t.defeated ? "victory" : "uiBack"), audio.playMusic(this.zone?.id || "verdant_meadow"), this.ui.toast(t.defeated ? "הבוס הובס!" : "הבוס נסוג", t.defeated ? "good" : "");
@@ -1803,7 +1808,11 @@ var Game = class {
       kind: "boss",
       signature: `b:${s.boss.species}`,
       species: s.boss.species
-    }), this.world.setActorTarget("boss", s.boss.x, s.boss.z, 0, !1)), this.world.pruneActors(r), this.world.setSelf(n.sessionId);
+    }), this.world.setActorTarget("boss", s.boss.x, s.boss.z, (() => {
+      // it turns to face whoever is nearest it, rather than staring at nothing
+      let me = this.world.selfPosition?.();
+      return me ? Math.atan2(me.x - s.boss.x, me.z - s.boss.z) : 0;
+    })(), !1)), this.world.pruneActors(r), this.world.setSelf(n.sessionId);
     let o = this.stick.value.magnitude > 0.05 ? this.stick.value : this.keys.value,
       a = null;
     // a scene of the story is playing (client/cutscene.js): nobody walks off

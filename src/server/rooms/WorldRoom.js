@@ -1,5 +1,5 @@
 import { badgeNeeded, badgesOf } from '../../shared/leaders.js';
-import { BOSS_CYCLE_MS, bossWindow } from '../../shared/worldboss.js';
+import { BOSS_CYCLE_MS, BOSS_HP_PER, bossWindow } from '../../shared/worldboss.js';
 import { GUARD, admitMessage, strike } from '../game/guard.js';
 import { wardrobeOf } from '../../shared/cosmetics.js';
 import * as Push from '../push.js';
@@ -212,6 +212,11 @@ export class WorldRoom extends Room {
   }
 
   async onJoin(client, options = {}, auth) {
+    // a boss already up grows by one more fighter's share
+    if (this.state.boss?.active && this.bossUnit && this.clients.length > (this.bossFor || 1)) {
+      this.bossFor = this.clients.length;
+      this.state.boss.maxHp += this.bossUnit; this.state.boss.hp += this.bossUnit;
+    }
     const userId = auth?.sub;
     const doc = await this.store.getDoc(userId);
     if (!doc) { client.send('error', { code: 'no_character' }); client.leave(4000); return; }
@@ -476,7 +481,12 @@ export class WorldRoom extends Room {
     const b = this.state.boss;
     b.active = true; b.species = def.species; b.level = def.level;
     b.x = def.x; b.z = def.z;
-    b.maxHp = Math.round(stats.hp * 24); b.hp = b.maxHp;
+    // its health by who is here to fight it (shared/worldboss.js BOSS_HP_PER):
+    // a flat 24 creatures' worth was a thousand hits for one player at its
+    // level, in a window of six minutes; one who joins later adds their share
+    this.bossUnit = Math.round(stats.hp * BOSS_HP_PER);
+    this.bossFor = Math.max(1, this.clients.length);
+    b.maxHp = this.bossUnit * this.bossFor; b.hp = b.maxHp;
     const w = bossWindow(def);
     b.endsAt = w.active ? w.endsAt : Date.now() + def.windowMinutes * 60_000;
     // one boss per window, however often the room is opened in it
