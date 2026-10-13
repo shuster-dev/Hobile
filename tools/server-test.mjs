@@ -548,9 +548,13 @@ ok('the document survives leaving the room', me2.json.hasCharacter && me2.json.p
   let sawBang = false;
   const aliceId = meF().id;
   // She may still be in the half-minute of calm her first fight left behind.
-  for (let i = 0; i < 900 && !gotos.some((g) => g.kind === 'battle'); i++) {
+  const field = [];
+  for (const k of ['fieldHit', 'fieldCounter', 'fieldWin']) fa.onMessage(k, (v) => field.push([k, v]));
+  let foe = null;
+  for (let i = 0; i < 900 && !foe; i++) {
     const p = meF(), wilds = [...fa.state.wilds.values()];
     const w = wilds.find((x) => x.target === aliceId && x.alert === '!');
+    foe = wilds.find((x) => x.target === aliceId && x.alert === '⚔') || null;
     const kit = w || wilds.filter((x) => x.species === 'sparkit').sort((u, v) => dist(p, u) - dist(p, v))[0];
     sawBang ||= !!w;
     // She keeps moving (a player standing still for a minute counts as away),
@@ -563,34 +567,25 @@ ok('the document survives leaving the room', me2.json.hasCharacter && me2.json.p
       : { x: p.x + (i % 2 ? 0.12 : -0.12), z: p.z, rot: 0, moving: true });
     await wait(50);
   }
-  const ambush = gotos.find((g) => g.kind === 'battle');
-  ok('a fierce wild sees her ("!") and the fight starts', sawBang && !!ambush, `bang=${sawBang} gotos=${JSON.stringify(gotos)}`);
-  ok('as an ambush', ambush?.ambush === true);
+  ok('a fierce wild sees her ("!") and the fight starts', sawBang && !!foe, `bang=${sawBang} gotos=${JSON.stringify(gotos)}`);
+  ok('in the open: no battle screen', !gotos.some((g) => g.kind === 'battle'));
   const caught = { x: meF().x, z: meF().z };
   ok('out in the field, not at the camp', dist(caught, camp) > camp.r + 3);
 
-  if (ambush) {
-    await fa.leave();
-    const br = await clientA.joinById(ambush.roomId, { token: a.json.token });
-    await wait(700);
-    await br.leave();
-    await wait(300);
-    fa = await clientA.joinOrCreate('world', { zone: 'verdant_meadow', token: a.json.token });
-    const back = () => fa.state?.players && [...fa.state.players.values()].find((p) => p.name === 'Alice');
-    await until(() => !!back(), 5000);
-    ok('after the fight she is standing where it started', back() && dist(back(), caught) < 2.5,
-      back() ? `${dist(back(), caught).toFixed(1)}m from the spot, ${dist(back(), camp).toFixed(1)}m from camp` : 'not back');
-    ok('and nothing jumps her again the moment she is back', await (async () => {
-      const again = [];
-      fa.onMessage('goto', (g) => again.push(g));
-      fa.send('gm', { op: 'summon', species: 'sparkit', level: 5 });
-      for (let i = 0; i < 60; i++) {
-        const p = back();
-        fa.send('move', { x: p.x + (i % 2 ? 0.1 : -0.1), z: p.z, rot: 0, moving: true });
-        await wait(50);
-      }
-      return !again.length && ![...fa.state.wilds.values()].some((w) => w.target === aliceId);
-    })());
+  if (foe) {
+    ok('it hits her lead where she stands', await until(() => field.some(([k]) => k === 'fieldCounter'), 6000));
+    // and she hits back with her lead's moves, until it is down
+    const foeId = [...fa.state.wilds.entries()].find(([, w]) => w === foe)?.[0];
+    for (let i = 0; i < 60 && !field.some(([k]) => k === 'fieldWin'); i++) {
+      fa.send('wildAttack', { wildId: foeId, skill: '' });
+      const p = meF();
+      fa.send('move', { x: p.x + (i % 2 ? 0.05 : -0.05), z: p.z, rot: 0, moving: true });
+      await wait(900);
+    }
+    const win = field.find(([k]) => k === 'fieldWin')?.[1];
+    ok('she beats it in the open, and is paid as for a battle', !!win && win.xp > 0 && win.gold > 0, JSON.stringify(win && { xp: win.xp, gold: win.gold }));
+    ok('and it is gone from the field', !!win && !fa.state.wilds.has(foeId));
+    ok('and the battle screen never opened', !gotos.some((g) => g.kind === 'battle'));
   }
   await fa.leave();
 }

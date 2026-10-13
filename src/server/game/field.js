@@ -29,6 +29,7 @@
 //        never before trainer level 3 — the first fights are yours to pick.
 import { resolveCollision } from '../../shared/props.js';
 import { planFor, stepWithin } from '../../shared/worldplan.js';
+import { startFight, tickFight } from './field-fight.js';
 import { FIELD_FROM_LEVEL, SHY_R, SNEAK_PACE, ambushAbove, isNight, stanceOfLead, temperOf, WEAK_GAP } from '../../shared/temper.js';
 import { activeCreature } from './combat.js';
 
@@ -190,7 +191,6 @@ function step(world, w, tx, tz, dist, speed, dt, away = false) {
  *   zone, colliders, state (with .wilds and .boss), wildDocs,
  *   players()   → iterable of { key, p, doc, ctx }
  *   player(key) → one of those, or null
- *   engage(entry, wildId) → true if a battle is on its way
  * Wilds with a mood are moved here; the room's own wander loop skips them.
  */
 export function tickField(world, now, dtMs) {
@@ -203,6 +203,8 @@ export function tickField(world, now, dtMs) {
   for (const [id, w] of world.state.wilds) {
     const d = world.wildDocs.get(id);
     if (!d || w.engagedBy) continue;
+    // in a fight in the open (field-fight.js): it closes in and hits back
+    if (d.mode === 'fight') { tickFight(world, id, w, d, now, dt); continue; }
 
     if (d.mode === 'notice' || d.mode === 'chase') {
       const entry = world.player(d.prey);
@@ -218,9 +220,12 @@ export function tickField(world, now, dtMs) {
         continue;
       }
       if (dist <= FIELD.catchR) {
-        if (entry.ctx.chasedBy === id) entry.ctx.chasedBy = null;
-        if (world.engage(entry, id)) { setMood(w, d, '', '', '', 0); continue; }
-        giveUp(world, w, d, now); continue;
+        // caught: it fights you where you stand (field-fight.js) — no battle
+        // screen; the action button still starts one, to catch it. It stays
+        // the one on you, so no second one piles in.
+        entry.ctx.chasedBy = id;
+        startFight(w, d, entry.key, p.id || entry.doc?.id || '', now);
+        continue;
       }
       if (dist > FIELD.loseR || now >= d.until) { giveUp(world, w, d, now); continue; }
       step(world, w, p.x, p.z, dist - FIELD.catchR * 0.6, FIELD.chaseSpeed, dt);
@@ -270,7 +275,7 @@ export function tickField(world, now, dtMs) {
       // or taken on by someone else since, none of which pass through here).
       if (stance === 'fight' && entry.ctx.chasedBy && entry.ctx.chasedBy !== id) {
         const other = world.wildDocs.get(entry.ctx.chasedBy);
-        if (other && (other.mode === 'notice' || other.mode === 'chase') && other.prey === entry.key) continue;
+        if (other && (other.mode === 'notice' || other.mode === 'chase' || other.mode === 'fight') && other.prey === entry.key) continue;
         entry.ctx.chasedBy = null;
       }
       best = entry; bestD = dist; bestStance = stance;

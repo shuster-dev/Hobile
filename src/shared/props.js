@@ -139,6 +139,11 @@ var BUILDING_STYLES = [{
 /** Where your farm's training pods stand, in a curve facing the middle of the
  *  yard as you come in by its gate — one for each a pod building can have. */
 const INCUBATOR_R = 1.15;
+// A camp's cottages: half again the size they were drawn at before they were
+// models, so a door is taller than the trainer and the roof is a house's
+// (propmap.js villageModel fits the model to this footprint), and set back
+// from the camp's middle by as much, so the ring round it stays as open.
+const HOUSE_K = 1.5, HOUSE_OUT = 2;
 function incubatorSpots(zone) {
   const f = zone?.landmarks?.find((l) => l.kind === "base");
   if (!f) return [];
@@ -573,12 +578,12 @@ function generateProps(i) {
     let v = m.kind === "town" ? 7 : 4;
     for (let E = 0; E < v; E++) {
       let _ = E / v * TAU_W + e() * 0.25,
-        S = (m.r || 10) * 0.66,
+        S = (m.r || 10) * 0.66 + HOUSE_OUT,
         b = m.x + Math.cos(_) * S,
         T = m.z + Math.sin(_) * S,
-        y = 3.1 + e() * 1.1,
-        M = 2.9 + e() * 1,
-        P = 2.5 + e() * 0.9;
+        y = (3.1 + e() * 1.1) * HOUSE_K,
+        M = (2.9 + e() * 1) * HOUSE_K,
+        P = (2.5 + e() * 0.9) * HOUSE_K;
       a.push({
         x: b,
         z: T,
@@ -771,12 +776,12 @@ function generatePlannedProps(i, P) {
       // the same draws, in the same order, as every camp has always had: the
       // cottages stand where they always stood (tools/camera-test.mjs knows them)
       let a = E / 4 * TAU_W + e() * 0.25,
-        S = (m.r || 10) * 0.66,
+        S = (m.r || 10) * 0.66 + HOUSE_OUT,
         x = m.x + Math.cos(a) * S,
         z = m.z + Math.sin(a) * S,
-        w = 3.1 + e() * 1.1,
-        d = 2.9 + e() * 1,
-        h = 2.5 + e() * 0.9;
+        w = (3.1 + e() * 1.1) * HOUSE_K,
+        d = (2.9 + e() * 1) * HOUSE_K,
+        h = (2.5 + e() * 0.9) * HOUSE_K;
       if (!P.walkable(x, z) || nearBuilt(x, z, 2)) continue;
       buildings.push({ x, z, w, d, h, rot: a + Math.PI / 2, kind: "house", seed: e() }), cols.push({ x, z, r: Math.max(w, d) * 0.62, kind: "building" });
     }

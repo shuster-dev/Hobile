@@ -19,7 +19,7 @@ import { FIELD_FROM_LEVEL, ambushAbove, isNight, stanceOfLead, temperOf } from '
 import { HOURS, howOf, rowFor } from '../shared/habitats.js';
 import { abilityInfo } from '../shared/traits.js';
 import { arenaTier, ARENA_TIERS, tierOf } from '../shared/endgame.js';
-import { RIDE, mountsOf, saddleWanted } from '../shared/riding.js';
+import { RIDE, leadMount, mountKind } from '../shared/riding.js';
 import { materialName } from '../shared/saddles.js';
 import { JOBS } from '../shared/farmwork.js';
 import { ANCHOR_REACH, FINALE, SCENES, VILLAIN, anchorsIn, riftState } from '../shared/saga.js';
@@ -906,6 +906,36 @@ var Game = class {
       audio.sfx("quest"), vibrate([30, 50, 30]), this.ui.gmBanner(t.from, t.text);
     }), e.on("bossSpawn", t => {
       audio.sfx("bossRoar"), audio.playMusic("boss"), vibrate([60, 60, 120]), this.ui.toast(`⚠ ${t.he || t.name} הופיע באזור!`, "bad");
+    }), e.on("fieldHit", t => {
+      // your lead's move, where the wild stands (server game/field-fight.js)
+      let m = MOVES[t.skill], col = m?.type && ELEMENTS[m.type]?.color || 16772215,
+        from = this.world.petPosition(0.5), to = this.world.actorPosition(t.wildId, 0.7);
+      from && to && this.world.strike(from, to, col);
+      setTimeout(() => {
+        this.floatOver(t.wildId, `-${t.dmg}`, t.eff > 1 ? "super" : t.eff < 1 ? "weak" : "hit"), audio.sfx("hit"), vibrate(12);
+      }, 260);
+    }), e.on("fieldCounter", t => {
+      // it hits back, at the one beside you
+      let from = this.world.actorPosition(t.wildId, 0.7), to = this.world.petPosition(0.5);
+      from && to && this.world.strike(from, to, 16733525);
+      setTimeout(() => {
+        this.floatOver("pet", `-${t.dmg}`, "hurt"), audio.sfx("hurt"), this.punch(0.35), vibrate(25);
+      }, 260);
+      let c = this.profile?.team?.find(x => x.uid === t.uid);
+      c && (c.hp = t.hp), t.profile && this.applyProfile(t.profile);
+      t.fainted && this.ui.toast(`${loc(SPECIES[c?.species] || {})} התעלף — הבא בתור נכנס`, "bad");
+    }), e.on("fieldWin", t => {
+      t.profile && this.applyProfile(t.profile);
+      audio.sfx("victory"), vibrate([18, 40, 26]);
+      let items = (t.items || []).map(id => ITEMS[id] ? `${ITEMS[id].icon || "🎁"}` : "").join(" ");
+      this.ui.toast(`${loc(SPECIES[t.species] || {})} הובס · +${t.xp} XP · +${t.gold}⛁ ${items}`, "good");
+      t.questsDone?.length && this.ui.toast("משימה התקדמה", "good");
+      let lv = (t.events || []).filter(r => r.kind === "level").at(-1);
+      lv && this.ui.toast(`⬆ ${loc(SPECIES[this.profile?.team?.[0]?.species] || {})} עלה לרמה ${lv.level}`, "good");
+      for (let r of t.events || []) r.kind === "evolve" && SPECIES[r.into] && this.ui.toast(`✨ ${loc(SPECIES[r.from] || {})} התפתח ל${loc(SPECIES[r.into])}!`, "good");
+    }), e.on("fieldLost", t => {
+      audio.sfx("uiBack"), this.ui.toast(`הצוות שלך התעלף${t.gold ? ` · ${t.gold}⛁` : ""} — היצורים התאוששו`, "bad");
+      t.profile && this.applyProfile(t.profile);
     }), e.on("bossHit", () => {}), e.on("bossCounter", t => {
       audio.sfx("hurt"), this.punch(0.7), vibrate(30), this.ui.toast(`הבוס פגע בך (-${t.dmg})`, "bad");
     }), e.on("bossEnd", t => {
@@ -1084,7 +1114,7 @@ var Game = class {
       // a trick for the one beside you, or a move at what is in front of you
       if (e.dataset.trick) return this.petTrick(e.dataset.trick);
       let t = e.dataset.skill;
-      t && (this.worldState()?.boss?.active ? this.attackBoss(t) : this.doAction(t));
+      t && (this.worldState()?.boss?.active ? this.attackBoss(t) : this.attackWild(t) || this.doAction(t));
     };
   }
   /** Ask for a trick (the server tells the room; this screen plays it on the echo). */
@@ -1157,13 +1187,12 @@ var Game = class {
       dailyClaim: () => e("dailyClaim"),
       ride: (uid = null) => e("ride", uid ? { uid } : {}),
       rideToggle: () => {
-        // down if up — from the air, by landing first; else up on the one
-        // ridden last, or the best there is
+        // down if up — from the air, by landing first; else up on the lead,
+        // the one walking beside you (another is ridden from its card)
         if (this.riding && this.riding.kind === "fly" && this.world.flightAlt() > 0.8) return this.world.flyLanding = !0, this._landAt = Date.now(), this.ui.toast("🛬 נוחת…", "");
         if (this.riding) return e("ride", {});
-        let ms = mountsOf(this.profile?.team || []), last = ms.find(m => m.uid === this._lastRide);
-        let m = last || ms[0];
-        m ? (this._lastRide = m.uid, e("ride", { uid: m.uid })) : saddleWanted(this.profile?.team || []).length ? (this.ui.toast("צריך אוכף — צוד 5 מהמשפחה שלו ובנה אותו בחצר", "bad"), this.ui.baseFocus = "saddles", this.openBase()) : this.ui.toast("אין בצוות יצור לרכוב עליו", "bad");
+        let team = this.profile?.team || [], m = leadMount(team), lead = team[0];
+        m ? e("ride", { uid: m.uid }) : lead && !lead.saddle && mountKind(lead.species, lead.star || 1) ? (this.ui.toast("צריך אוכף — צוד 5 מהמשפחה שלו ובנה אותו בחצר", "bad"), this.ui.baseFocus = "saddles", this.openBase()) : this.ui.toast("היצור המוביל לא יכול לשאת אותך — בחר מוביל אחר", "bad");
       },
       saddleMake: t => e("saddleMake", { uid: t }),
       arenaView: () => e("arenaView"),
@@ -1442,6 +1471,30 @@ var Game = class {
   }
   worldState() {
     return this.mode === "world" ? this.net.room?.state : null;
+  }
+  /**
+   * A move at the wild in reach, where it stands — no battle (server
+   * game/field-fight.js). False when there is nothing in reach to hit, and the
+   * press falls through to the action it always was.
+   */
+  attackWild(skill) {
+    let me = this.world.selfPosition(), w = this.nearestWild(me), now = Date.now();
+    if (!w || w.d > 7.8 || this.riding) return !1;
+    if ((this.cooldowns.__wild || 0) > now) return !0;
+    this.cooldowns.__wild = now + 850, MOVES[skill] && (this.cooldowns[skill] = now + 850);
+    this._fieldTarget = w.id, this.net.send("wildAttack", { wildId: w.id, skill });
+    return !0;
+  }
+  /** A profile the server sent with something else (a fight in the open). */
+  applyProfile(p) {
+    this.profile = p, this.ui.setProfile(p), this.ui.renderWorldSkills(p.team?.[0]);
+  }
+  /** A number that rises and fades over something in the world. */
+  floatOver(key, text, cls, up = 2.2) {
+    let p = key === "pet" ? this.world.petPosition(1.2) : this.world.actorPosition(key, up);
+    if (!p) return;
+    let q = this.world.project(p);
+    q.visible && this.ui.floatText(q.x, q.y, text, cls);
   }
   attackBoss(e) {
     let t = Date.now();
@@ -1918,7 +1971,7 @@ var Game = class {
           let q = this.world.project(r.holder.position.clone().add(new Vector3(0, 2.1, 0)));
           q.visible && n.push({
             key: `alert:${s}`,
-            kind: `alert ${w.alert === "!" ? w.target === this.profile?.id ? "mine" : "bang" : w.alert === "?" ? "lost" : "flee"}${near(r) ? " high" : ""}`,
+            kind: `alert ${w.alert === "!" ? w.target === this.profile?.id ? "mine" : "bang" : w.alert === "⚔" ? "fight" : w.alert === "?" ? "lost" : "flee"}${near(r) ? " high" : ""}`,
             x: q.x,
             y: q.y,
             visible: !0,
@@ -1957,7 +2010,9 @@ var Game = class {
           x: a.x,
           y: a.y,
           visible: !0,
-          label: `${loc(SPECIES[l.species])} <span class="mono">${l.level}</span>${hostile ? ' <span class="fierce" aria-label="תוקפני">⚔</span>' : ""}`
+          label: `${loc(SPECIES[l.species])} <span class="mono">${l.level}</span>${hostile ? ' <span class="fierce" aria-label="תוקפני">⚔</span>' : ""}`,
+          // in a fight in the open: how much it has left
+          ...(l.maxHp > 0 && l.hp > 0 ? { hp: l.hp / l.maxHp } : {})
         });
       } else r.kind === "boss" && e.boss?.active && n.push({
         key: s,
