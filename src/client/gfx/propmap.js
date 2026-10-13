@@ -6,7 +6,7 @@
 // the builder to draw it. Heights are against a 1.43m trainer: a cottage to
 // its ridge about four of them, a door half again as tall as one.
 
-const H = { house: 6.2, big: 7.4, tower: 10.5, mill: 11.5 };
+const H = { house: 9, big: 10, tower: 12, mill: 12.5 };
 
 // a cottage's colour by where it is: blue roofs in the snow, ochre in the
 // canyon, red and ochre side by side on a farm

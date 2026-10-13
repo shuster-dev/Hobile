@@ -1144,8 +1144,7 @@ var Game = class {
     if (!e) return !1;
     let t = $("#btn-action");
     if (this.world.atInteriorExit()) return this.ui.setPrompt("🚪 חזרה לרחוב"), t.textContent = "צא", t.onclick = () => this.leaveInterior(), !0;
-    let n = this.world.interiorNpcScreenPos(),
-      s = {
+    let s = {
         clinic: ["🩺 טיפול, שיקויים וכדורים", "מרפאה"],
         shop: ["🛒 קנייה ומכירה — הכל", "חנות"],
         archive: ["📜 המשימות שלך ומידע על האזורים", "משימות"],
@@ -1154,7 +1153,12 @@ var Game = class {
         tailor: ["👒 כובעים, משקפיים, תיקים וצבעים", "חייט"]
       },
       [r, o] = s[e.kind] || ["—", "פעולה"];
-    return n.visible && n.dist < 5.5 ? (this.ui.setPrompt(r), t.textContent = o, t.onclick = () => this.openCounter(e.kind), !0) : (this.ui.setPrompt(e.he || e.name || null), t.textContent = "פעולה", t.onclick = () => this.doAction(), !0);
+    // near the keeper is where you stand, not where the camera is: it used
+    // to measure from the camera, which only came close with you pressed to a wall
+    // — and the counter answers the button anywhere in the room: there is
+    // nothing else in here for it to do
+    let near = this.world.interiorNpcDistance() < 4.2;
+    return this.ui.setPrompt(near ? r : e.he || e.name || r), t.textContent = o, t.onclick = () => this.openCounter(e.kind), !0;
   }
   openCounter(e) {
     // a camp's clinic is its shop too; the town's has its own market
@@ -1522,6 +1526,12 @@ var Game = class {
       this.attackBoss(e);
       return;
     }
+    // in a doorway, the door is what you mean
+    let lm = this.nearestLandmark(n);
+    if (lm?.interior && lm.door && Math.hypot(lm.door.x - n.x, lm.door.z - n.z) < 2.6) {
+      this.net.send("enterBuilding", { id: lm.service ? lm.id : lm.interior });
+      return;
+    }
     let s = this.nearestNpc(n),
       // a player standing closer than the NPC is the one you mean
       pc = this.ui.social ? this.nearestPlayer(n) : null;
@@ -1607,7 +1617,11 @@ var Game = class {
     let t = null;
     // the zone's places, and a camp's cottages (shared/services.js)
     for (let n of placesOf(ZONES[this.zone?.id] || this.zone)) {
+      // a house is as near as its door: standing in a cottage's doorway,
+      // the camp's middle (which the door faces) was nearer than the
+      // cottage's own, and the button offered the camp
       let s = Math.hypot(n.x - e.x, n.z - e.z);
+      n.door && n.interior && (s = Math.min(s, Math.hypot(n.door.x - e.x, n.door.z - e.z)));
       (!t || s < t.d) && (t = {
         ...n,
         d: s
@@ -2051,6 +2065,12 @@ var Game = class {
       return;
     }
     if (this.interiorPrompt()) return;
+    // in a doorway: the door (as doAction does)
+    let dr = this.nearestLandmark(t);
+    if (dr?.interior && dr.door && Math.hypot(dr.door.x - t.x, dr.door.z - t.z) < 2.6) {
+      this.ui.setPrompt(dr.service ? `${dr.icon} ${dr.he}` : `🚪 ${dr.he || loc(dr)}`), $("#btn-action").textContent = "היכנס", $("#btn-action").onclick = () => this.doAction();
+      return;
+    }
     let n = this.nearestNpc(t),
       pl = this.ui.social ? this.nearestPlayer(t) : null;
     if (pl && pl.d < 4 && !(n && n.d < pl.d)) {

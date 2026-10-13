@@ -139,11 +139,11 @@ var BUILDING_STYLES = [{
 /** Where your farm's training pods stand, in a curve facing the middle of the
  *  yard as you come in by its gate — one for each a pod building can have. */
 const INCUBATOR_R = 1.15;
-// A camp's cottages: half again the size they were drawn at before they were
+// A camp's cottages: twice the size they were drawn at before they were
 // models, so a door is taller than the trainer and the roof is a house's
 // (propmap.js villageModel fits the model to this footprint), and set back
 // from the camp's middle by as much, so the ring round it stays as open.
-const HOUSE_K = 1.5, HOUSE_OUT = 2;
+const HOUSE_K = 2, HOUSE_OUT = 3.5;
 function incubatorSpots(zone) {
   const f = zone?.landmarks?.find((l) => l.kind === "base");
   if (!f) return [];

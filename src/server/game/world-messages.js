@@ -520,8 +520,12 @@ export function handleWorldMessage(ctx, e, t = {}) {
               x: o.x,
               z: o.z
             };
-            // a cottage can be walked up to from any side (its door faces the camp)
-            if (Math.hypot(a.x - s.x, a.z - s.z) > 6 && !(o.service && Math.hypot(o.x - s.x, o.z - s.z) < o.r + 3)) {
+            // At the door, or anywhere close round the house: the client offers
+            // the door from as far as the house's own circle and a step, and
+            // its position runs a little ahead of the one here — so the two
+            // must agree generously, or a player standing in the doorway is
+            // told they are too far.
+            if (Math.hypot(a.x - s.x, a.z - s.z) > 8 && Math.hypot(o.x - s.x, o.z - s.z) > (o.r || 4) + 4) {
               ctx.net.emit("error", {
                 code: "too_far"
               });
