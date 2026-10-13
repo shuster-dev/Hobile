@@ -81,6 +81,11 @@ export const JOURNEY_QUESTS = Object.fromEntries([
   leader('stormreach_heights', 'רמות הסופה', 4200),
   leader('frostpeak_ridge', 'רכס הכפור', 4800),
   leader('umbral_grove', 'חורש האופל', 6200),
+  main('q_main_league', 'ליגת האלופים',
+    'עם שבעת התגים, עמוד מול ארבעת האלופים בקיר האלופים שבכיכר — אחד אחרי השני, בלי מרפאה באמצע.',
+    { kind: 'league', target: 'league' },
+    { gold: 15000, xp: 6000, items: [['sphere_ultra', 3]] },
+    { hint: 'לך לקיר האלופים בכיכר הרסיס ונצח את ארבעת האלופים ברצף — קח שיקויים' }),
   main('q_main_dex', 'האוסף המלא',
     'תפוס כל סוג של יצור שיש בעולם. מי שמשלים את האוסף נתלה בקיר האלופים.',
     { kind: 'dex', count: 0 },
@@ -132,7 +137,7 @@ export const MAIN_ORDER = [
   'q_w_stormreach_heights', 'q_l_stormreach_heights',
   'q_w_frostpeak_ridge', 'q_l_frostpeak_ridge', 'q_main_13',
   'q_w_umbral_grove', 'q_l_umbral_grove', 'q_main_14', 'q_main_15', 'q_main_16',
-  'q_main_dex',
+  'q_main_league', 'q_main_dex',
 ];
 
 /** Lay the journey over the quest table (gamedata.js does, once). */

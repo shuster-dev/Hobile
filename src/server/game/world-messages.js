@@ -38,7 +38,7 @@ import { TUTORIAL_GIFT, TUTORIAL_IDS, tutorialFinished, tutorialOf } from '../..
 import * as Social from '../social.js';
 import * as Reports from '../reports.js';
 import { sceneSeen, storyFoe } from './saga.js';
-import { leaderFoe } from './leaders.js';
+import { leaderFoe, leagueFoe } from './leaders.js';
 import { badgeNeeded, badgesOf } from '../../shared/leaders.js';
 import { buyCosmetic, wearCosmetic } from './cosmetics.js';
 import { isUnlocked } from '../../shared/milestones.js';
@@ -384,6 +384,19 @@ export function handleWorldMessage(ctx, e, t = {}) {
             if ((!a || a.hp <= 0) && (n.trainerHp ?? 1) <= 0) return ctx.net.emit("error", { code: "no_healthy_creature" });
             if (r < (ctx.battlePending || 0)) return;
             let f = leaderFoe(n, ctx.zoneId, s);
+            if (f.error) return ctx.net.emit("error", { code: f.error });
+            ctx.battlePending = r + FIELD.pendingMs;
+            ctx.startBattle({ zoneId: ctx.zoneId, wild: f.foe, onEnd: () => { ctx.battlePending = 0; } });
+            break;
+          }
+        case "leagueFight":
+          {
+            // the League of Champions at the wall (shared/league.js): four
+            // trainers' teams in one fight, nothing healed in between
+            let a = activeCreature(n);
+            if ((!a || a.hp <= 0) && (n.trainerHp ?? 1) <= 0) return ctx.net.emit("error", { code: "no_healthy_creature" });
+            if (r < (ctx.battlePending || 0)) return;
+            let f = leagueFoe(n, ctx.zoneId, s);
             if (f.error) return ctx.net.emit("error", { code: f.error });
             ctx.battlePending = r + FIELD.pendingMs;
             ctx.startBattle({ zoneId: ctx.zoneId, wild: f.foe, onEnd: () => { ctx.battlePending = 0; } });

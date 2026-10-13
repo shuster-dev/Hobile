@@ -18,7 +18,8 @@ import { DYES, HATS, SLOTS, cosmeticById, wardrobeOf } from '../shared/cosmetics
 import { PASS, POINTS, REWARDS } from '../shared/pass.js';
 import { itemIcon } from './icons.js';
 import { ARMS, armOf } from '../shared/arms.js';
-import { BADGE_BONUS, LEADERS, LEADER_ORDER, leaderSpot } from '../shared/leaders.js';
+import { BADGE_BONUS, LEADERS, LEADER_ORDER, leaderSpot, weakTo } from '../shared/leaders.js';
+import { LEAGUE, leagueMemberAt, leagueOpen } from '../shared/league.js';
 import { MILESTONE, isUnlocked, lockText, milestoneView } from '../shared/milestones.js';
 import { COUNTERS, SELL_RATE, catalog, sellPrice } from '../shared/market.js';
 import { placesOf } from '../shared/services.js';
@@ -2823,8 +2824,9 @@ var UI = class {
     let p = this.profile || {}, total = QUESTS.q_main_dex?.goal?.count || 0,
       have = Object.entries(p.dex || {}).filter(([k, r]) => r?.caught > 0 && SPECIES[k] && SPECIES[k].rarity !== "boss").length,
       head = el("div", "champ-head");
-    head.innerHTML = `<div class="champ-ico">🏆</div><div class="grow"><b>מי שהשלים את האוסף</b><span>${p.champion ? "התמונה שלך תלויה כאן — לתמיד." : `האוסף שלך: ${ltr(`${have}/${total}`)} — השלם אותו, והתמונה שלך תיתלה כאן.`}</span></div>`;
+    head.innerHTML = `<div class="champ-ico">🏆</div><div class="grow"><b>מי שניצח את הליגה או השלים את האוסף</b><span>${p.champion ? "התמונה שלך תלויה כאן — לתמיד." : `האוסף שלך: ${ltr(`${have}/${total}`)} — השלם אותו, או נצח את ליגת האלופים, והתמונה שלך תיתלה כאן.`}</span></div>`;
     e.appendChild(head);
+    e.appendChild(this.leagueBlock(p));
     if (!p.champion) {
       let bar = el("div", "bar xp champ-bar");
       bar.innerHTML = `<i style="width:${Math.min(100, have / Math.max(1, total) * 100)}%"></i>`, e.appendChild(bar);
@@ -2837,13 +2839,22 @@ var UI = class {
     if (!list.length) return box.appendChild(emptyState("🖼", "הקיר עוד ריק", "הראשון שישלים את האוסף ייתלה כאן"));
     for (let c of list) {
       let card = el("div", `champ-card ${c.id === p.id ? "me" : ""}`), when = c.champion?.at ? new Date(c.champion.at).toLocaleDateString("he-IL") : "";
-      card.innerHTML = `<div class="champ-pic"><div class="spin" aria-hidden="true"></div></div><b>${Ze(c.name || "")}</b><span>${lvlLabel(c.level || 1)}${when ? ` · ${ltr(when)}` : ""}</span>${c.rank <= 3 ? `<span class="champ-rank">${c.rank === 1 ? "🥇 הראשון" : c.rank === 2 ? "🥈" : "🥉"}</span>` : ""}`;
+      card.innerHTML = `<div class="champ-pic"><div class="spin" aria-hidden="true"></div></div><b>${Ze(c.name || "")} <span class="champ-how" title="${[c.champion?.league && "אלוף הליגה", (c.champion?.dex || !c.champion?.league) && "השלים את האוסף"].filter(Boolean).join(" · ")}">${c.champion?.league ? "👑" : ""}${c.champion?.dex || !c.champion?.league ? "📖" : ""}</span></b><span>${lvlLabel(c.level || 1)}${when ? ` · ${ltr(when)}` : ""}</span>${c.rank <= 3 ? `<span class="champ-rank">${c.rank === 1 ? "🥇 הראשון" : c.rank === 2 ? "🥈" : "🥉"}</span>` : ""}`;
       box.appendChild(card);
       c.look && this.hooks.lookPortrait?.(c.look, url => {
         let pic = card.querySelector(".champ-pic");
         pic?.isConnected && (pic.innerHTML = `<img src="${url}" alt="" />`);
       });
     }
+  }
+  /** The league's four, what each brings and what beats it, and the way in. */
+  leagueBlock(p) {
+    let box = el("div", "league"), open = leagueOpen(p), n = (p.badges || []).length,
+      icons = l => l.map(x => ELEMENTS[x.el]?.icon || "").join("");
+    box.innerHTML = `<h4>⚔ ${LEAGUE.he}</h4><div class="lg-note">${p.league ? "ניצחת את הליגה 👑 — אפשר להתמודד שוב, על הכבוד." : open ? "ארבעה אלופים, תשעה יצורים, קרב אחד — בלי מרפאה באמצע. קח שיקויים, ובחר צוות לפי מה שחזק נגדם." : `פתוחה למי שמחזיק בכל שבעת התגים — יש לך ${ltr(`${n}/7`)}.`}</div>` +
+      LEAGUE.members.map(m => `<div class="lg-m"><span class="ico">${m.icon}</span><span class="who"><b>${Ze(m.he)} · ${Ze(m.title)}</b><span>${m.team.map(([sp, lv]) => `${(SPECIES[sp]?.types || []).map(x => ELEMENTS[x]?.icon || "").join("")} ${Ze(loc(SPECIES[sp]))} ${ltr(lv)}`).join(" · ")}</span></span><span class="weak" title="חזק נגדם">▲ ${icons(weakTo(m.team.map(([sp]) => sp)).slice(0, 3))}</span></div>`).join("");
+    let go = el("button", "lg-go", open ? "⚔ התמודד בליגה" : `🔒 ${n}/7 תגים`);
+    return go.disabled = !open, go.onclick = () => this.hooks.leagueFight?.(), box.appendChild(go), box;
   }
   /** The boards: for all time (level, gold, captures), this arena season,
    *  and this week (the tower, the world bosses). */
@@ -3119,7 +3130,7 @@ var UI = class {
       // one of each: a wild of a line you already have says so — catching it
       // feeds the one you have rather than adding a second
       let mine = foe && d.kind === "wild" && this.ownsLine(d.species);
-      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${d.kind === "boss" ? " ☠" : ""}${mine ? " <small class=\"owned\">✓ יש לך</small>" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, [...new Set((d.effects || []).map(x => x.kind))].map(k => `<span class="e ${STATUS[k]?.disable ? "stop" : ""}">${Pb(k)}</span>`).join(""));
+      fill(f, `${owner ? `<small>${Ze(owner)} · </small>` : ""}${Ze(loc(u))}${foe && u?.types ? ` <small class="el-types" title="${u.types.map(x => ELEMENTS[x]?.he || x).join(" / ")}">${u.types.map(x => ELEMENTS[x]?.icon || "").join("")}</small>` : ""}${d.kind === "boss" ? " ☠" : ""}${mine ? " <small class=\"owned\">✓ יש לך</small>" : ""}${foe && foes.length > 1 && aim?.id === d.id ? " 🎯" : ""}`, `${lvlLabel(d.level)} · ${rangeLabel(d.hp, d.maxHp, "/")}`, d.hp / Math.max(1, d.maxHp) * 100, d.id === t ? d.stamina / PROGRESSION.staminaMax * 100 : null, [...new Set((d.effects || []).map(x => x.kind))].map(k => `<span class="e ${STATUS[k]?.disable ? "stop" : ""}">${Pb(k)}</span>`).join(""));
       // two foes: tap one to aim at it
       f.onclick = foe && foes.length > 1 ? () => {
         this.battleTarget = d.id, this.hooks.aim?.(d.id);
@@ -3132,7 +3143,17 @@ var UI = class {
     let held = r && disabledBy(r.effects),
       bar = $("#battle-skills");
     bar && (bar.classList.toggle("held", !!held), bar.dataset.held = held ? `${STATUS[held].icon} ${STATUS[held].he}${held === "sleep" ? " — מכה תעיר אותו, או שיקוי" : held === "freeze" ? " — אש או שיקוי יפשירו" : ""}` : "");
-    this.battleYou = r, this.battleFoe = aim || foes[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe);
+    this.battleYou = r, this.battleFoe = aim || foes[0] || null, this.renderTeamBar(r), this.markEffectiveness(this.battleFoe), this.announceLeague(this.battleFoe);
+  }
+  /** The league (shared/league.js): each trainer called out as their first
+   *  creature steps up, so nine creatures read as four people. */
+  announceLeague(foe) {
+    if (!foe || foe.ownerId !== "leader:league") return void (this._leagueMember = null);
+    let m = leagueMemberAt(foe.slot);
+    if (!m || this._leagueMember === m.id) return;
+    let first = !this._leagueMember;
+    this._leagueMember = m.id, this.battleBanner(`${m.icon} ${m.he} — ${m.title}`, 1800);
+    first || this.toast(`${m.he}: ${m.greet}`, "");
   }
   /** Does the trainer already have a creature of this line (team, box or pod)? */
   ownsLine(species) {
@@ -3155,7 +3176,7 @@ var UI = class {
       // a powder or a song on one whose element shrugs it off
       m?.foe && types && immuneTo(types, moveStatus(m)) && (mult = 0);
       if (!e) continue;
-      e.className = `eff ${mult > 1 ? "up" : mult < 1 ? mult === 0 ? "none" : "down" : ""}`, e.textContent = mult > 1 ? "▲" : mult === 0 ? "✕" : mult < 1 ? "▼" : "";
+      e.className = `eff ${mult > 1 ? "up" : mult < 1 ? mult === 0 ? "none" : "down" : ""}`, e.textContent = mult === 0 ? "✕" : mult === 1 ? "" : `×${mult === 0.5 ? "½" : mult === 0.25 ? "¼" : +mult.toFixed(2)}`;
       let name = loc(m) || b.dataset.skill;
       b.setAttribute("aria-label", mult > 1 ? `${name} — יעיל במיוחד` : mult === 0 ? `${name} — לא משפיע` : mult < 1 ? `${name} — לא יעיל` : name);
     }
@@ -3190,16 +3211,23 @@ var UI = class {
     // combat.js recruitFromBox) — not in a duel or a dungeon
     let inFight = new Set(n.map(r => r.uid)),
       spare = this.battleBoxOk ? this.boxFighters().filter(c => !inFight.has(c.uid)) : [],
-      s = n.map(r => `${r.uid}:${r.hp}:${r.benched ? "b" : "f"}`).join("|") + `#${spare.length}`;
+      foeTypes = SPECIES[this.battleFoe?.species]?.types || [],
+      s = n.map(r => `${r.uid}:${r.hp}:${r.benched ? "b" : "f"}`).join("|") + `#${spare.length}#${foeTypes.join("")}`;
     if (t.dataset.sig !== s && (t.dataset.sig = s, t.innerHTML = "", spare.length && t.appendChild(this.boxChip(spare)), !(n.length < 2))) for (let r of n) {
       let o = SPECIES[r.species],
         a = r.benched === !1,
         l = r.hp <= 0,
         c = el("button", `tm ${a ? "active" : ""} ${l ? "down" : ""}`);
-      let face = this.faces?.[r.species];
+      let face = this.faces?.[r.species],
+        // its own elements against the one out, and the one out against it
+        mine = o?.types || [],
+        hits = foeTypes.length && mine.length ? Math.max(...mine.map(x => typeMultiplier(x, foeTypes))) : 1,
+        hurt = foeTypes.length && mine.length ? Math.max(...foeTypes.map(x => typeMultiplier(x, mine))) : 1,
+        tip = !l && !a ? hits > 1 ? "good" : hurt > 1 ? "risk" : "" : "";
+      tip && (c.classList.add(`vs-${tip}`), c.dataset.vs = tip === "good" ? "▲" : "⚠");
       c.innerHTML = `${face ? `<img class="face" src="${face}" alt="">` : `<span class="orb" style="background:${oo(o.model.a)}"></span>`}
         <span>${Ze(loc(o))} <b class="mono" dir="ltr">${r.level}</b></span>
-        <span class="hpwrap"><span class="bar hp" style="height:5px"><i style="width:${r.hp / Math.max(1, r.maxHp) * 100}%"></i></span></span>`, c.disabled = l || a, c.setAttribute("aria-label", `${loc(o)} ${l ? "מעולף" : a ? "בזירה" : "החלף"}`), c.onclick = () => this.hooks.swapCreature?.(r.uid), t.appendChild(c);
+        <span class="hpwrap"><span class="bar hp" style="height:5px"><i style="width:${r.hp / Math.max(1, r.maxHp) * 100}%"></i></span></span>`, c.disabled = l || a, c.setAttribute("aria-label", `${loc(o)} ${l ? "מעולף" : a ? "בזירה" : "החלף"}${tip === "good" ? " — חזק נגדו" : tip === "risk" ? " — פגיע לו" : ""}`), c.onclick = () => this.hooks.swapCreature?.(r.uid), t.appendChild(c);
     }
   }
   /** Creatures in the box that could fight now: not at work, not down. */

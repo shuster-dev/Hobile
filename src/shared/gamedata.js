@@ -3604,6 +3604,8 @@ var BUILDINGS = {
     // what a creature earns in a fight, over the fight's XP: about three wins
     // a level early on, five by the fifties (it was six, then eight)
     creatureXpMul: 1.8,
+    // what the rest of the team learns from a win it watched (combat.js teamXp)
+    teamXpShare: 0.5,
     partyXpShare: 0.75,
     staminaMax: 100,
     staminaRegenPerSec: 7,

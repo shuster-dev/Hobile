@@ -254,32 +254,66 @@ if (gotBattle) {
     roomA.state.wilds.get(wild.id)?.engagedBy || '(gone or released)');
 }
 
-/**
- * Walk Alice up to a (moving) spot at a legal pace. A wall in the straight
- * line used to leave her stuck twenty metres short, and the NPC tests failed
- * one run in three: when a step makes no headway she goes round — a few
- * steps to one side, then the other — and tries again.
- */
-async function walkTo(me, target, near = 5) {
-  let best = Infinity, stuck = 0, side = 1, round = 0;
-  for (let i = 0; i < 900; i++) {
-    const p = me(), at = target(), dx = at.x - p.x, dz = at.z - p.z, d = Math.hypot(dx, dz);
-    if (d < near) return true;
-    if (d < best - 0.05) best = d, stuck = 0;
-    else if (++stuck > 8) {
-      // a little further round each time
-      round++;
-      for (let j = 0; j < Math.min(24, 6 + round * 3); j++) {
-        const q = me();
-        roomA.send('move', { x: q.x - (dz / d) * 0.5 * side, z: q.z + (dx / d) * 0.5 * side, rot: 0, moving: true });
-        await wait(60);
-      }
-      round % 2 || (side = -side), stuck = 0, best = Infinity;
-      continue;
+const { ZONES: WZ } = await import('../src/shared/gamedata.js');
+const { propsFor: wProps, resolveCollision: wResolve } = await import('../src/shared/props.js');
+const TOWN_COLS = wProps(WZ.aetherport).colliders || [];
+const free = (x, z) => { const q = wResolve(TOWN_COLS, x, z, 0.5); return Math.hypot(q.x - x, q.z - z) < 0.01; };
+/** A way round what is built, on a one-metre grid, by the server's own
+ *  collision (props.js resolveCollision): the waypoints, or null. */
+function pathTo(from, to, near) {
+  const k = (x, z) => `${x},${z}`;
+  // pressed against a wall, the nearest whole metre can be inside it: start
+  // from the nearest one that is not
+  let sx = Math.round(from.x), sz = Math.round(from.z);
+  for (let r = 1; r <= 3 && !free(sx, sz); r++) {
+    const c = [];
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) free(Math.round(from.x) + dx, Math.round(from.z) + dz) && c.push([Math.round(from.x) + dx, Math.round(from.z) + dz]);
+    c.length && ([sx, sz] = c.sort((a, b) => Math.hypot(a[0] - from.x, a[1] - from.z) - Math.hypot(b[0] - from.x, b[1] - from.z))[0]);
+  }
+  const lo = { x: Math.min(from.x, to.x) - 45, z: Math.min(from.z, to.z) - 45 }, hi = { x: Math.max(from.x, to.x) + 45, z: Math.max(from.z, to.z) + 45 };
+  const prev = new Map([[k(sx, sz), null]]), q = [[sx, sz]];
+  for (let i = 0; i < q.length; i++) {
+    const [x, z] = q[i];
+    if (Math.hypot(to.x - x, to.z - z) < near - 1) {
+      const out = [];
+      for (let c = k(x, z); c; c = prev.get(c)) { const [a, b] = c.split(',').map(Number); out.push({ x: a, z: b }); }
+      return out.reverse();
     }
-    const k = Math.min(0.55, d - 1.5) / d;
-    roomA.send('move', { x: p.x + dx * k, z: p.z + dz * k, rot: 0, moving: true });
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = x + dx, nz = z + dz, key = k(nx, nz);
+      if (prev.has(key) || nx < lo.x || nx > hi.x || nz < lo.z || nz > hi.z || !free(nx, nz)) continue;
+      if (dx && dz && (!free(x + dx, z) || !free(x, z + dz))) continue;
+      prev.set(key, k(x, z)), q.push([nx, nz]);
+    }
+  }
+  return null;
+}
+
+/**
+ * Walk Alice up to a (moving) spot at a legal pace, round what is built. A
+ * straight line (with a sidestep when it stopped gaining) left her stuck
+ * behind a house twenty metres short whenever the NPC stood on the far side
+ * of one at that hour of the day, and the NPC tests failed by the clock.
+ */
+// near enough to talk: the server hears a word from 9 m (world-messages.js
+// speakTo), and some stand inside their shop at some hours of the day
+async function walkTo(me, target, near = 8) {
+  let path = null, goal = null, stuck = 0, last = null;
+  for (let i = 0; i < 1400; i++) {
+    const p = me(), at = target(), d = Math.hypot(at.x - p.x, at.z - p.z);
+    if (d < near) return true;
+    // a new way when there is none, the one we have leads somewhere else now, or it has stopped working
+    if (!path || !path.length || !goal || Math.hypot(goal.x - at.x, goal.z - at.z) > 2 || stuck > 10) {
+      path = pathTo(p, at, near), goal = { x: at.x, z: at.z }, stuck = 0;
+      path && path.length && Math.hypot(path[0].x - p.x, path[0].z - p.z) < 1.2 && path.shift();
+    }
+    const aim = path && path.length ? path[0] : at, ax = aim.x - p.x, az = aim.z - p.z, ad = Math.hypot(ax, az);
+    if (path && path.length && ad < 0.6) { path.shift(); continue; }
+    const s = Math.min(0.55, ad) / (ad || 1);
+    roomA.send('move', { x: p.x + ax * s, z: p.z + az * s, rot: 0, moving: true });
     await wait(60);
+    const q = me();
+    stuck = last && Math.hypot(q.x - last.x, q.z - last.z) < 0.05 ? stuck + 1 : 0, last = { x: q.x, z: q.z };
   }
   if (process.env.WALK_DEBUG) { const p = me(), at = target(); console.log('walkTo gave up at', p.x.toFixed(1), p.z.toFixed(1), '->', at.x.toFixed(1), at.z.toFixed(1)); }
   return false;

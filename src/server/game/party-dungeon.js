@@ -15,6 +15,7 @@ import { wornLook } from '../../shared/cosmetics.js';
 import {
   Combat, Combatant, activeCreature, creaturePower, creatureScore, giveItem, grantXp, grantXpTo, healTeam,
   makeCreature, publicProfile, sumStats, swapToUid, syncQuests, takeItem, teamCreatures,
+  teamXp,
 } from './combat.js';
 import { ITEMS, PROGRESSION, SPECIES } from '../../shared/gamedata.js';
 import { PARTY_SCALE, TIER_IDS, TOWER, tierOf, towerBoss, towerElement, towerLevel, towerPool, weekly } from '../../shared/endgame.js';
@@ -236,7 +237,7 @@ export class PartyDungeon {
     const o = { success, endless: this.endless, tier: this.tier.id, xp, gold: 0, items: [], events: [], questsDone: [], floors: this.endless ? this.cleared : this.floor, of: this.floors, players: this.live().length, profile: null };
     o.gold = earn(doc, gold, 'dungeon');
     const n = activeCreature(doc);
-    n && o.events.push(...grantXpTo(n, Math.round(xp * PROGRESSION.creatureXpMul), doc));
+    o.events.push(...teamXp(doc, n, Math.round(xp * PROGRESSION.creatureXpMul)));
     o.events.push(...grantXp(doc, Math.floor(xp * 0.7)));
     const recs = (doc.records ||= {});
     const wk = weekly(doc);

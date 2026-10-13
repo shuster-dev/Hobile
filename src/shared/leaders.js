@@ -10,7 +10,7 @@
 //
 // Pure: the server starts and pays the fight by it (server/game/leaders.js),
 // the client draws the ring and the leader and offers the fight.
-import { ZONES } from './gamedata.js';
+import { ELEMENTS, SPECIES, ZONES, typeMultiplier } from './gamedata.js';
 import { planFor } from './worldplan.js';
 import { propsFor, resolveCollision } from './props.js';
 
@@ -54,6 +54,17 @@ export const LEADERS = Object.fromEntries([
     { id: 'badge_shade', he: 'תג הצל', icon: '🌑' }, 6000, [['sphere_ultra', 3], ['revive_full', 2]],
     { greet: 'בחורש הזה גם האור מפחד. ואתה?', win: 'לא פחדת. שבעה תגים — אין הרבה שהגיעו עד לכאן.', lose: 'הצל בלע אותך. תחזור כשתראה בחושך.' }),
 ].map((l) => [l.zone, l]));
+
+/**
+ * What hits a team hard: each element, with how many of the team it is strong
+ * against, best first. The leader's word before the fight and the league's
+ * line-up say it, so a player can bring the right ones (species ids in).
+ */
+export function weakTo(team) {
+  return Object.keys(ELEMENTS)
+    .map((el) => ({ el, n: team.filter((sp) => typeMultiplier(el, SPECIES[sp]?.types || []) > 1).length }))
+    .filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+}
 
 /** The leader of a zone, or null (the town has none). */
 export const leaderOf = (zone) => LEADERS[zone] || null;
