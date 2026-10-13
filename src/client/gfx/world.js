@@ -1,4 +1,4 @@
-import { Box3, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
+import { Box3, CanvasTexture, SRGBColorSpace, AdditiveBlending, BackSide, BoxGeometry, BufferAttribute, BufferGeometry, CircleGeometry, Color, CylinderGeometry, DataTexture, DodecahedronGeometry, DoubleSide, Float32BufferAttribute, Fog, FrontSide, Group, InstancedMesh, LinearFilter, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PointLight, Points, RedFormat, RingGeometry, Scene, ShaderMaterial, Sphere, SphereGeometry, TorusGeometry, UnsignedByteType, Vector3 } from 'three';
 import { GROUNDING, bakeGroundY, contactMap, groundMaterial, noContact, snowBanks } from './grounding.js';
 import { SURF, surfaceOf, tagSurface, withSurfaces } from './surfaces.js';
 import { placeProps } from './propmodels.js';
@@ -639,6 +639,21 @@ function buildRockProp(i, e, t, n, s, r) {
           y: o + 0.05,
           r: 4.6
         });
+        break;
+      }
+    case "champwall":
+      {
+        // the Wall of Champions (shared/champions.js): a stone wall, a
+        // gold-trimmed crown on top, five frames whose faces are hung by
+        // world.setChampions
+        let gold = 15253594;
+        e.box(6.6, 0.3, 0.9, l({ y: 0.15 }), tintHex(r.stone, 0, 0.18));
+        e.box(6.2, 3, 0.5, l({ y: 1.8 }), r.stone);
+        e.box(6.5, 0.22, 0.62, l({ y: 3.38 }), gold);
+        e.box(2.2, 0.7, 0.4, l({ y: 3.82 }), r.stone);
+        e.box(2.3, 0.1, 0.46, l({ y: 4.2 }), gold);
+        for (let h = 0; h < 5; h++) e.box(1.02, 1.22, 0.1, l({ x: -2.4 + h * 1.2, y: 1.95, z: 0.27 }), gold), e.box(0.86, 1.06, 0.1, l({ x: -2.4 + h * 1.2, y: 1.95, z: 0.29 }), tintHex(r.stone, 0, 0.45));
+        t.add(xf2(new SphereGeometry(0.2, 10, 8), l({ y: 4.42 })), r.lampGlow);
         break;
       }
     case "bench":
@@ -5356,6 +5371,26 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       if (arm === "bow") this.strike(from, to, 16775885);
       else if (arm === "staff") this.strike(from, to, 9109503);
       else setTimeout(() => this.ring(to.clone().setY(to.y - 0.6), arm === "hammer" ? 16756800 : 16777215, arm === "hammer" ? 1.15 : 0.9), arm === "hammer" ? 380 : 200);
+    }
+    /** The champions' faces in the frames of the Wall of Champions (props.js
+     *  champwall): up to five, first first; nothing in a zone without it. */
+    setChampions(urls) {
+      this.champFaces && (this.scene.remove(this.champFaces), disposeTree(this.champFaces), this.champFaces = null);
+      let wall = this.zone?.landmarks?.find(l => l.kind === "champions");
+      if (!wall || !urls?.length) return;
+      let g = new Group(), y = this.heightAt(wall.x, wall.z);
+      urls.slice(0, 5).forEach((url, i) => {
+        let img = new Image();
+        img.onload = () => {
+          if (this.champFaces !== g) return;
+          let tex = new CanvasTexture(img);
+          tex.colorSpace = SRGBColorSpace;
+          let m = new Mesh(new PlaneGeometry(0.84, 1.04), new MeshBasicMaterial({ map: tex }));
+          m.userData.noOutline = !0, m.position.set(wall.x - 2.4 + i * 1.2, y + 1.95, wall.z + 0.35), g.add(m);
+        };
+        img.src = url;
+      });
+      this.champFaces = g, this.scene.add(g);
     }
     /** The actor (wild, player) by its key, for where a strike starts or lands. */
     actorPosition(key, up = 0.8) {

@@ -321,7 +321,37 @@ var UI = class {
       let a = r.hp / Math.max(1, r.maxHp) * 100;
       $("#v-hp").style.width = `${a}%`, $("#v-hp").parentElement.classList.toggle("low", a < 30);
     }
-    this.renderTracker(), this.renderDailyChip(), this.renderWardChip(), this.renderRide(), this.openPanelId && this.renderPanel(this.openPanelId);
+    this.renderTracker(), this.renderDailyChip(), this.renderWardChip(), this.renderRide(), this.journeyNews(e), this.openPanelId && this.renderPanel(this.openPanelId);
+  }
+  /**
+   * A step of the journey done (combat.js autoClaim puts it in
+   * profile.quests.news): a card at the top for a few seconds — what was
+   * done, what it paid, and what to do now — once per step.
+   */
+  journeyNews(p) {
+    let news = p?.quests?.news || [], key = (n) => `${n.id}:${n.at}`;
+    if (!this._newsSeen) {
+      // on arriving, what happened a while ago is old news
+      this._newsSeen = new Set(news.filter((n) => Date.now() - n.at > 45e3).map(key));
+    }
+    for (let n of news) {
+      if (this._newsSeen.has(key(n))) continue;
+      this._newsSeen.add(key(n)), (this._newsQueue ||= []).push(n);
+    }
+    this._newsBusy || this.nextNews();
+  }
+  nextNews() {
+    // not over someone talking, a battle or a scene: after
+    if (this._newsQueue?.length && (document.body.classList.contains("talking") || $("#hud")?.classList.contains("hidden") || document.body.classList.contains("ceremony"))) return this._newsBusy = !0, void setTimeout(() => this.nextNews(), 500);
+    let n = this._newsQueue?.shift();
+    if (!n) return void (this._newsBusy = !1);
+    this._newsBusy = !0;
+    let q = QUESTS[n.id], next = n.next && QUESTS[n.next], card = el("div", "step-card");
+    let paid = this.rewardText({ ...(n.reward || {}), creature: n.creature ? { species: n.creature, level: "" } : null }).replace(" · רמה ", "");
+    card.innerHTML = `<div class="sc-done">✓ ${Ze(loc(q || {}))}</div>${paid ? `<div class="sc-paid">${paid}</div>` : ""}${next ? `<div class="sc-next"><b>הבא: ${Ze(loc(next))}</b><span>${Ze(next.hint || next.descHe || "")}</span></div>` : ""}`;
+    audio.sfx("quest"), document.body.appendChild(card);
+    let gone = () => { card.isConnected && (card.classList.add("out"), setTimeout(() => (card.remove(), this.nextNews()), 260)); };
+    card.onclick = gone, setTimeout(gone, next ? 5500 : 3200);
   }
   /** The ride button: shown when the lead (the one beside you) can carry
    *  you, its icon how — fly, swim or ride (shared/riding.js) — lit while riding. */
@@ -464,9 +494,12 @@ var UI = class {
       c = l.goal.count || 1,
       h = !!a.done,
       d = el("div", `q-lead ${l.chain} ${h ? "done" : ""}`);
+    // what to do, in one plain line, under the step (shared/journey.js)
+    let hint = h ? l.chain === "npc" ? `חזור אל ${giverName(l.giver)} לקבל את הפרס` : "" : l.hint || l.descHe || "";
     d.innerHTML = `
-      <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם — אסוף את הפרס" : "המשימה הנוכחית"}</div>
+      <div class="q-kicker">${h ? l.chain === "npc" ? `הושלם — חזור אל ${giverName(l.giver)}` : "הושלם" : l.chain === "main" ? "📖 המסע" : "המשימה הנוכחית"}</div>
       <div class="q-title">${Ze(loc(l))}</div>
+      ${hint ? `<div class="q-hint">${Ze(hint)}</div>` : ""}
       <div class="q-meter">${r(a.progress, c, h)}
         <span class="mono">${h ? "✓" : rangeLabel(Math.min(a.progress || 0, c), c, "/")}</span></div>`, d.onclick = () => (this._questOpen = o, this.openPanel("quests")), e.appendChild(d);
     for (let [qid, u, f] of t.slice(1, 4)) {
@@ -813,6 +846,7 @@ var UI = class {
         party: "קבוצה",
         player: "שחקן",
         leaders: "טבלת מובילים",
+        champions: "🏆 קיר האלופים",
         base: "הבסיס",
         card: "כרטיס יצור",
         daily: "פרס יומי ואירועים",
@@ -851,6 +885,7 @@ var UI = class {
       party: () => this.panelParty(o),
       player: () => this.panelPlayer(o),
       leaders: () => this.panelLeaders(o),
+      champions: () => this.panelChampions(o),
       base: () => this.panelBase(o),
       card: () => this.panelCard(o),
       daily: () => this.panelDaily(o),
@@ -2752,6 +2787,38 @@ var UI = class {
         g.appendChild(c);
       }
       e.appendChild(g);
+    }
+  }
+  /**
+   * The Wall of Champions in the plaza (shared/journey.js q_main_dex): each
+   * trainer who caught every kind there is, as they look, with their name
+   * and the day, first first. Yours is on it when you are one; until then,
+   * how far your collection is.
+   */
+  async panelChampions(e) {
+    let p = this.profile || {}, total = QUESTS.q_main_dex?.goal?.count || 0,
+      have = Object.entries(p.dex || {}).filter(([k, r]) => r?.caught > 0 && SPECIES[k] && SPECIES[k].rarity !== "boss").length,
+      head = el("div", "champ-head");
+    head.innerHTML = `<div class="champ-ico">🏆</div><div class="grow"><b>מי שהשלים את האוסף</b><span>${p.champion ? "התמונה שלך תלויה כאן — לתמיד." : `האוסף שלך: ${ltr(`${have}/${total}`)} — השלם אותו, והתמונה שלך תיתלה כאן.`}</span></div>`;
+    e.appendChild(head);
+    if (!p.champion) {
+      let bar = el("div", "bar xp champ-bar");
+      bar.innerHTML = `<i style="width:${Math.min(100, have / Math.max(1, total) * 100)}%"></i>`, e.appendChild(bar);
+    }
+    let box = el("div", "champ-grid");
+    box.appendChild(emptyState("🏆", "טוען…", null, "loading")), e.appendChild(box);
+    let list = (await this.hooks.leaderboard?.("champions")) || [];
+    if (this.openPanelId !== "champions" || !box.isConnected) return;
+    box.innerHTML = "";
+    if (!list.length) return box.appendChild(emptyState("🖼", "הקיר עוד ריק", "הראשון שישלים את האוסף ייתלה כאן"));
+    for (let c of list) {
+      let card = el("div", `champ-card ${c.id === p.id ? "me" : ""}`), when = c.champion?.at ? new Date(c.champion.at).toLocaleDateString("he-IL") : "";
+      card.innerHTML = `<div class="champ-pic"><div class="spin" aria-hidden="true"></div></div><b>${Ze(c.name || "")}</b><span>${lvlLabel(c.level || 1)}${when ? ` · ${ltr(when)}` : ""}</span>${c.rank <= 3 ? `<span class="champ-rank">${c.rank === 1 ? "🥇 הראשון" : c.rank === 2 ? "🥈" : "🥉"}</span>` : ""}`;
+      box.appendChild(card);
+      c.look && this.hooks.lookPortrait?.(c.look, url => {
+        let pic = card.querySelector(".champ-pic");
+        pic?.isConnected && (pic.innerHTML = `<img src="${url}" alt="" />`);
+      });
     }
   }
   /** The boards: for all time (level, gold, captures), this arena season,

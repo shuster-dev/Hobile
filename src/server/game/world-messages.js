@@ -11,7 +11,7 @@
 //   startBattle(opts), startDungeon(opts)
 //
 // WorldSim satisfies it directly; WorldRoom builds one per connected client.
-import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, SPECIES, ZONES, statsFor, clinicCost } from '../../shared/gamedata.js';
+import { DUNGEONS, GUILD, ITEMS, MOVES, PROGRESSION, QUESTS, SPECIES, ZONES, statsFor, clinicCost } from '../../shared/gamedata.js';
 import { NPCS, npcAt, npcLines } from '../../shared/npcs.js';
 import { giverView } from '../../shared/story.js';
 import { resolveCollision } from '../../shared/props.js';
@@ -124,12 +124,20 @@ export function speakTo(ctx, doc, npcId, phase) {
       done: Object.entries(doc.quests?.active || {}).filter(([, q]) => q.done).map(([id]) => id),
     },
   };
+  // the journey's step that this talk finishes says its own lines
+  // (shared/journey.js), and the one who sent you on says where you are
+  const stepBefore = Object.keys(doc.quests?.active || {}).find((k) => QUESTS[k]?.chain === 'main');
+  const story = stepBefore && QUESTS[stepBefore].goal?.kind === 'talk' && QUESTS[stepBefore].goal.target === npcId ? QUESTS[stepBefore] : null;
   const done = syncQuests(doc, { kind: 'talk', target: npcId });
   // An errand outranks small talk: something to hand in, then something new,
   // then how the current one is going.
   const v = giverView(doc, npcId);
   const errand = v.ready ? { mode: 'ready', q: v.ready } : v.offer ? { mode: 'offer', q: v.offer } : v.active ? { mode: 'active', q: v.active } : null;
-  const raw = errand ? errand.q.lines?.[errand.mode === 'ready' ? 'done' : errand.mode === 'offer' ? 'offer' : 'busy'] : npcLines(npcId, facts);
+  let raw = errand ? errand.q.lines?.[errand.mode === 'ready' ? 'done' : errand.mode === 'offer' ? 'offer' : 'busy'] : npcLines(npcId, facts);
+  const stepNow = Object.keys(doc.quests?.active || {}).find((k) => QUESTS[k]?.chain === 'main');
+  if (story?.say) raw = [...story.say];
+  else if (npcId === 'maro' && stepNow && QUESTS[stepNow]?.hint && !errand) raw = [`עכשיו: ${QUESTS[stepNow].hint}.`];
+  if (story && stepNow && QUESTS[stepNow]?.hint) raw = [...(Array.isArray(raw) ? raw : raw?.lines || []), `➜ ${QUESTS[stepNow].hint}.`];
   const said = Array.isArray(raw) ? { lines: raw, en: [] } : (raw || { lines: ['…'], en: [] });
   ctx.net.save();
   ctx.net.emit('dialogue', {

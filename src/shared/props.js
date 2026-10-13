@@ -303,6 +303,10 @@ function generateUrbanProps(i) {
         kind: "prop"
       });
     }
+    if (f.kind === "champions") {
+      // a stone wall with the champions' frames, facing the fountain
+      r.push({ kind: "champwall", x: f.x, z: f.z, rot: 0 }), s.push({ x: f.x, z: f.z, hw: 3.3, hd: 0.45, kind: "prop" });
+    }
     if (f.kind === "plaza") {
       r.push({
         kind: "fountain",
@@ -315,18 +319,22 @@ function generateUrbanProps(i) {
         r: 2.6,
         kind: "prop"
       });
+      // the Wall of Champions stands on the rim where a bench and a tree were
+      let wall = i.landmarks.find(l => l.kind === "champions"), clear = (x, z) => !wall || Math.hypot(x - wall.x, z - wall.z) > 4.4;
       for (let x = 0; x < 8; x++) {
-        let g = x / 8 * TAU_W;
-        r.push({
+        let g = x / 8 * TAU_W, bx = f.x + Math.cos(g) * (p - 1.6), bz = f.z + Math.sin(g) * (p - 1.6), tx = f.x + Math.cos(g + 0.4) * (p - 0.4), tz = f.z + Math.sin(g + 0.4) * (p - 0.4);
+        clear(bx, bz) && r.push({
           kind: "bench",
-          x: f.x + Math.cos(g) * (p - 1.6),
-          z: f.z + Math.sin(g) * (p - 1.6),
+          x: bx,
+          z: bz,
           rot: g + Math.PI / 2
-        }), o.push({
-          x: f.x + Math.cos(g + 0.4) * (p - 0.4),
-          z: f.z + Math.sin(g + 0.4) * (p - 0.4),
+        });
+        let tr = e() * TAU_W;
+        clear(tx, tz) && o.push({
+          x: tx,
+          z: tz,
           s: 0.85,
-          rot: e() * TAU_W,
+          rot: tr,
           tilt: 0,
           kind: "street"
         });

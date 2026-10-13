@@ -1053,6 +1053,8 @@ function grantXpTo(i, e, doc = null) {
       kind: "level",
       level: i.level
     });
+    // "your partner grows" (shared/journey.js)
+    doc && syncQuests(doc, { kind: "grow" });
     let o = SPECIES[i.species].evolve;
     if (o && i.level >= o.level) {
       let a = i.species;
@@ -1270,10 +1272,18 @@ function normalizeDoc(i) {
   ensureQuests(i);
   // The main story grew (shared/saga.js): one who finished what there was
   // picks it up again at the next step.
-  if (i.quests.done.length && !MAIN_QUEST_IDS.some(k => i.quests.active[k])) {
-    let next = MAIN_QUEST_IDS.find((k, n) => !i.quests.done.includes(k) && (n === 0 || i.quests.done.includes(MAIN_QUEST_IDS[n - 1])));
-    next && i.quests.done.includes(MAIN_QUEST_IDS[0]) && (i.quests.active[next] = { progress: 0 });
+  // The journey was laid out again (shared/journey.js): steps it no longer
+  // has leave the list, one who is further along is not sent back to the
+  // steps that were put in before where they are, and whatever is done but
+  // was never collected is paid now.
+  for (let k of Object.keys(i.quests.active)) QUESTS[k]?.chain === "retired" && delete i.quests.active[k];
+  let far = Math.max(-1, ...i.quests.done.map(k => MAIN_QUEST_IDS.indexOf(k)));
+  for (let n = 0; n < far; n++) i.quests.done.includes(MAIN_QUEST_IDS[n]) || (i.quests.done.push(MAIN_QUEST_IDS[n]), delete i.quests.active[MAIN_QUEST_IDS[n]]);
+  if (!MAIN_QUEST_IDS.some(k => i.quests.active[k])) {
+    let next = MAIN_QUEST_IDS.find(k => !i.quests.done.includes(k));
+    next && (i.quests.active[next] = { progress: 0 });
   }
+  autoClaim(i, Object.keys(i.quests.active).filter(k => i.quests.active[k]?.done));
   // Training used to leave a creature in the team. Now it is at the farm:
   // move any that are in a pod out of the team and the box — keeping one
   // in the team to walk with you — and put back any that belong nowhere.
@@ -1387,7 +1397,37 @@ function syncQuests(i, e) {
     };
   for (let [s, r] of Object.entries(i.quests.active)) n(s, r);
   for (let [s, r] of Object.entries(i.quests.dailies)) n(s, r);
+  // held goals of the journey: the whole collection (shared/journey.js)
+  for (let [s, r] of Object.entries(i.quests.active)) {
+    let o = QUESTS[s];
+    if (o?.chain !== "main" || o.goal?.kind !== "dex" || r.done) continue;
+    r.progress = dexCount(i), r.progress >= (o.goal.count || 1) && (r.done = !0, t.push(s));
+  }
+  // The journey does not wait in a panel: a step of the story or of a
+  // world's errands that is done is paid and the next one opened, now.
+  autoClaim(i, t);
   return t;
+}
+
+const dexCount = (i) => Object.entries(i.dex || {}).filter(([k, r]) => r?.caught > 0 && SPECIES[k] && SPECIES[k].rarity !== "boss").length;
+
+/** Pay what is done of the story and the worlds' errands, and say so. */
+function autoClaim(i, ids) {
+  for (let id of ids) {
+    let q = QUESTS[id];
+    if (!q || (q.chain !== "main" && q.chain !== "zone")) continue;
+    let live = i.quests.active[id];
+    if (!live?.done || live.claimed) continue;
+    let r = claimQuest(i, id);
+    if (!r) continue;
+    // the whole collection: up on the Wall of Champions, for good
+    id === "q_main_dex" && !i.champion && (i.champion = { at: Date.now(), level: i.level || 1 });
+    let next = q.chain === "main" ? MAIN_QUEST_IDS[MAIN_QUEST_IDS.indexOf(id) + 1] || null : null;
+    // what the client shows once: done, what it paid, and what is next
+    let news = (i.quests.news ||= []);
+    news.push({ id, at: Date.now(), next, reward: q.reward ? { gold: questGold(q, i.level), items: q.reward.items || [], xp: q.reward.xp || 0 } : null, creature: r.creature?.species || null });
+    news.length > 6 && news.splice(0, news.length - 6);
+  }
 }
 
 /** Accept an errand from someone in town. */
@@ -1451,6 +1491,8 @@ function claimQuest(i, e) {
   }
   // A zone's chain moves on the same way: hunt, then catch, then the prize.
   t.chain === "zone" && (delete i.quests.active[e], i.quests.done.includes(e) || i.quests.done.push(e), activateZoneQuests(i, t.goal.zone));
+  // a world's step of the journey is its errands done (shared/journey.js)
+  t.chain === "zone" && syncQuests(i, { kind: "claim", target: e, zone: t.goal.zone });
   return {
     reward: t.reward,
     events: r,
@@ -1498,6 +1540,7 @@ function publicProfile(i) {
     weekly: { ...weekly(i) },
     records: i.records || {},
     milestones: Array.isArray(i.milestones) ? i.milestones : [],
+    champion: i.champion || null,
     // the end of the story (shared/saga.js): scenes watched, anchors broken
     story: { seen: [...(i.story?.seen || [])], anchors: [...(i.story?.anchors || [])] },
     // the season's track (shared/pass.js)

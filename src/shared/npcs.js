@@ -11,32 +11,7 @@ var NPCS = {
     skin: "#c98f63",
     hair: "#d8d4cc",
     outfit: "scholar",
-    schedule: [{
-      at: 0,
-      x: -36,
-      z: -36,
-      act: "sleep"
-    }, {
-      at: 0.26,
-      x: -12,
-      z: -12,
-      act: "work"
-    }, {
-      at: 0.62,
-      x: 0,
-      z: 0,
-      act: "walk"
-    }, {
-      at: 0.8,
-      x: -12,
-      z: -12,
-      act: "work"
-    }, {
-      at: 0.92,
-      x: -36,
-      z: -36,
-      act: "sleep"
-    }]
+    schedule: [{ at: 0, x: -9.5, z: -3.5, act: 'sleep' }, { at: 0.26, x: -4.6, z: 2.6, act: 'work' }, { at: 0.62, x: 4.4, z: -2.8, act: 'walk' }, { at: 0.8, x: -4.6, z: 2.6, act: 'work' }, { at: 0.92, x: -9.5, z: -3.5, act: 'sleep' }]
   },
   tavi: {
     id: "tavi",
@@ -84,27 +59,7 @@ var NPCS = {
     skin: "#6f452c",
     hair: "#151515",
     outfit: "ranger",
-    schedule: [{
-      at: 0,
-      x: 84,
-      z: -36,
-      act: "sleep"
-    }, {
-      at: 0.22,
-      x: 60,
-      z: -12,
-      act: "work"
-    }, {
-      at: 0.72,
-      x: 0,
-      z: 0,
-      act: "social"
-    }, {
-      at: 0.88,
-      x: 84,
-      z: -36,
-      act: "sleep"
-    }]
+    schedule: [{ at: 0, x: 84, z: -36, act: 'sleep' }, { at: 0.22, x: 62.5, z: -4.2, act: 'work' }, { at: 0.72, x: 3.6, z: 3.6, act: 'social' }, { at: 0.88, x: 84, z: -36, act: 'sleep' }]
   },
   sela: {
     id: "sela",

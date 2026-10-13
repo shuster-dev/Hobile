@@ -94,7 +94,7 @@ export function questGuide(q, live = {}, profile = {}, here = null) {
       steps.push(`חזור אל ${npcName(q.giver)}${at?.landmark?.kind === 'clinic' ? ' במרפאה' : ''} — גש ולחץ על כפתור הפעולה כדי לקבל את הפרס.`);
       return { steps, zone: at?.zone || null, canGuide: true };
     }
-    return { steps: ['המשימה הושלמה! לחץ ״קבל״ כדי לאסוף את הפרס.'], zone: null, canGuide: false };
+    return { steps: ['המשימה הושלמה, והפרס כבר אצלך.'], zone: null, canGuide: false };
   }
 
   const where = g.zone ? ` ב${zoneName(g.zone)}` : '';
@@ -164,6 +164,17 @@ export function questGuide(q, live = {}, profile = {}, here = null) {
     case 'dex':
       steps.push(`תפוס ${need} סוגי יצורים שונים (יש לך ${have}). כל אזור מביא יצורים אחרים — נסה אזור חדש.`);
       break;
+    case 'grow':
+      steps.push('צא עם השותף שלך לקרבות — ברחובות העיר יש יצורים קטנים. כל ניצחון נותן לו ניסיון.');
+      steps.push('כשהוא עולה רמה, השלב הזה נגמר מעצמו.');
+      break;
+    case 'claim': {
+      const zq = q.goal.target && q.goal.zone;
+      way(zq);
+      steps.push(`כשתיכנס ל${zoneName(q.goal.zone)} ייפתחו המשימות שלו: סיור (לנצח יצורים) ולכידה מקומית.`);
+      steps.push('השלם את שתיהן — הן מופיעות ברשימת המשימות, והפרס מגיע מעצמו.');
+      break;
+    }
     case 'anchor':
       steps.push('מצא את העוגנים של הקרע (מסומנים 🌀) — אחד בכל אחד מכמה אזורים — ונפץ אותם.');
       steps.push(`נשארו עוד ${left} מתוך ${need}.`);
@@ -175,5 +186,7 @@ export function questGuide(q, live = {}, profile = {}, here = null) {
     default:
       steps.push(q.descHe || q.desc || '');
   }
-  return { steps: steps.filter(Boolean), zone, canGuide: !['level', 'dex'].includes(g.kind) };
+  // the journey's own plain line first (shared/journey.js)
+  q.hint && steps.unshift(`${q.hint}.`);
+  return { steps: steps.filter(Boolean), zone, canGuide: !['level', 'dex', 'grow'].includes(g.kind) };
 }
