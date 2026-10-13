@@ -4,7 +4,7 @@ import { earn, spend } from './economy.js';
 import { loginView } from './daily.js';
 import { JOBS, WORK, bestJob, workRate, workerSlots } from '../../shared/farmwork.js';
 import { wardrobeOf, wornLook, wornBonus } from '../../shared/cosmetics.js';
-import { LEADERS, badgeBonus } from '../../shared/leaders.js';
+import { LEADERS, LEADER_ORDER, badgeBonus } from '../../shared/leaders.js';
 import { passView } from '../../shared/pass.js';
 import { arenaView, weekly } from '../../shared/endgame.js';
 import { mountKind } from '../../shared/riding.js';
@@ -1319,6 +1319,14 @@ function normalizeDoc(i) {
   syncQuests(i, { kind: "look" });
   // the leaders came after some had gone past them: theirs is the badge
   for (let l of Object.values(LEADERS)) i.quests.done.includes(`q_l_${l.zone}`) && !(i.badges ||= []).includes(l.badge.id) && i.badges.push(l.badge.id);
+  // ...and one who had already been further than a leader before there were
+  // any (in a later world now, or with errands done or open there) has that
+  // leader's badge and every one before it: the gate behind them is not shut
+  {
+    let been = (z) => i.zone === z || i.quests.done.some(id => QUESTS[id]?.goal?.zone === z) || Object.keys(i.quests.active).some(id => QUESTS[id]?.chain === "zone" && QUESTS[id].goal?.zone === z),
+      far = LEADER_ORDER.reduce((m, z, j) => been(z) ? j : m, -1);
+    for (let j = 0; j < far; j++) { let b = LEADERS[LEADER_ORDER[j]].badge.id; (i.badges ||= []).includes(b) || i.badges.push(b); }
+  }
   // Training used to leave a creature in the team. Now it is at the farm:
   // move any that are in a pod out of the team and the box — keeping one
   // in the team to walk with you — and put back any that belong nowhere.
