@@ -1381,6 +1381,18 @@ var Game = class {
         id: t,
         on: n
       }), n && this.ui.toast("נחסם/ה — לא תקבל ממנו/ה הודעות והזמנות", "good")),
+      // the menu's 🐞: the screen as it is now, and where the player is
+      bugPrepare: () => (this._bugShot = this.captureScreen(), this._bugShot),
+      bugSend: async (note, withShot) => {
+        if (!this.net.bugReport) return this.ui.toast("בגרסה הזו אין שרת — שלח צילום מסך ליוצר המשחק", "bad"), !1;
+        try {
+          await this.net.bugReport({ note, shot: withShot ? this._bugShot : null, context: this.bugContext() });
+          return this.ui.toast("🐞 תודה! הדיווח נשלח לצוות המשחק", "good"), !0;
+        } catch (err) {
+          return this.ui.toast(err.code === "too_many_reports" ? "שלחת הרבה דיווחים בשעה האחרונה — נסה שוב אחר כך" : "הדיווח לא נשלח — בדוק את החיבור ונסה שוב", "bad"), !1;
+        }
+      },
+      bugShot: (id) => this.net.bugShot?.(id).catch(() => null),
       report: (t, reason, note = "") => e("report", {
         id: t,
         reason,
@@ -2003,6 +2015,37 @@ var Game = class {
     let q = this.profile?.quests?.active || {}, wants = Object.entries(q).some(([id, r]) => !r.done && QUESTS[id]?.goal?.kind === "boss");
     let h = wants ? this.bossHint(now) : "";
     h !== this.ui.bossHint && (this.ui.bossHint = h, this.ui.renderTracker());
+  }
+  /** The 3D view as it is now, small: a jpeg data URL (or null). The HUD is
+   *  not in it (it is the page, not the canvas); what the world looks like is. */
+  captureScreen() {
+    try {
+      let w = this.world;
+      w.grade ? w.grade.render(w.scene, w.camera) : w.renderer.render(w.scene, w.camera);
+      let src = w.renderer.domElement, k = Math.min(1, 480 / Math.max(1, src.width)), c = document.createElement("canvas");
+      c.width = Math.round(src.width * k), c.height = Math.round(src.height * k);
+      c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+      let url = c.toDataURL("image/jpeg", 0.62);
+      return url.length < 440000 ? url : null;
+    } catch {
+      return null;
+    }
+  }
+  /** Where the player is in the game, for a bug report: short and flat. */
+  bugContext() {
+    let p = this.profile || {}, q = p.quests?.active || {}, main = Object.keys(q).find(k => QUESTS[k]?.chain === "main" && !q[k].claimed),
+      pos = this.world?.selfPosition?.() || {}, ua = navigator.userAgent || "";
+    return {
+      version: window.HOBILE_BUNDLE?.version || "", mode: this.mode || "", zone: this.zone?.id || "",
+      x: Math.round((pos.x || 0) * 10) / 10, z: Math.round((pos.z || 0) * 10) / 10,
+      level: p.level || 1, quest: main ? `${main} ${q[main].progress || 0}/${QUESTS[main].goal?.count || 1}${q[main].done ? " done" : ""}` : "",
+      guide: this.guideQuestId || "", badges: (p.badges || []).length,
+      team: (p.team || []).map(c => `${c.species}${c.level}${c.hp <= 0 ? "†" : ""}`).join(" "),
+      riding: this.riding ? `${this.riding.species}/${this.riding.kind}` : "",
+      online: !this.net?.offline, screen: `${innerWidth}x${innerHeight}`,
+      device: /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "other",
+      ua: ua.slice(0, 160),
+    };
   }
   /** The ride as the shared state has it, when ours disagrees (no toast:
    *  nothing new happened, ours was only out of date). */

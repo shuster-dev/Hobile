@@ -50,6 +50,18 @@ await Push.usePush(store, process.env, { isOnline: (id) => Social.isOnline(id) }
 const app = express();
 // behind Render's proxy the client's own address is the first hop
 app.set('trust proxy', 1);
+// --- a bug, from the player who met it (the menu's 🐞; server/reports.js) ----
+// Ahead of the general body limit: it carries a small picture of the screen.
+app.post('/api/bug', express.json({ limit: '600kb' }), async (req, res) => {
+  const claims = bearer(req);
+  if (!claims) return res.status(401).json({ error: 'unauthorized' });
+  const doc = Social.liveDoc(claims.sub) || await store.getDoc(claims.sub).catch(() => null);
+  if (!doc) return res.status(404).json({ error: 'no_character' });
+  const r = await Reports.fileBug(doc, req.body || {}, { zone: Social.whereIs?.(doc.id)?.zone || doc.zone || '' });
+  if (r.error) return res.status(400).json({ error: r.error });
+  console.log('[bug]', r.report.id, doc.name, r.report.zone, '-', r.report.note.slice(0, 80));
+  res.json({ ok: true, id: r.report.id });
+});
 app.use(express.json({ limit: '64kb' }));
 // the doors people guess passwords at, or make accounts by the hundred at (game/guard.js)
 // (the test harnesses make dozens of accounts from one address in seconds)
@@ -241,6 +253,15 @@ app.get('/api/admin/economy', requireAuth, async (req, res) => {
   res.json(economyReport());
 });
 
+// A bug's picture of the screen, for the GM looking at it in the inbox.
+app.get('/api/admin/bug-shot/:id', requireAuth, async (req, res) => {
+  const user = await store.findUserById(req.userId);
+  if (!isAdmin(user)) return res.status(403).json({ error: 'forbidden' });
+  const shot = await Reports.bugShot(String(req.params.id || ''));
+  if (!shot) return res.status(404).json({ error: 'not_found' });
+  res.json({ shot });
+});
+
 // The built client, when it is served from the same origin.
 const webRoot = path.resolve('dist/web');
 if (fs.existsSync(webRoot)) {
@@ -267,6 +288,19 @@ if (fs.existsSync(webRoot)) {
     }
     next();
   });
+  // The page itself, with the link's picture as a full address: a chat app
+  // that shows a preview (WhatsApp, Telegram, Discord) will not follow "./og.jpg".
+  let pageHtml = null;
+  const servePage = (req, res, next) => {
+    const f = path.join(webRoot, 'index.html');
+    if (!fs.existsSync(f)) return next();
+    pageHtml ??= fs.readFileSync(f, 'utf8');
+    const origin = `${req.protocol}://${req.get('host')}`;
+    res.setHeader('content-type', TYPES['.html']);
+    res.send(pageHtml.replace('content="./og.jpg"', `content="${origin}/og.jpg"`).replace('<meta property="og:type"', `<meta property="og:url" content="${origin}/"><meta property="og:type"`));
+  };
+  app.get('/', servePage);
+  app.get('/index.html', servePage);
   // the privacy policy and the terms, with whoever runs this server as the contact
   for (const page of ['privacy.html', 'terms.html']) {
     app.get(`/${page}`, (req, res, next) => {
