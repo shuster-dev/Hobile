@@ -69,7 +69,7 @@ async function bot(i) {
   room.onMessage('*', () => {});
   room.onLeave((code) => { alive = false; if (code !== 1000) dropped++; });
   room.send('ready');
-  const findMe = () => { for (const p of room.state.players.values()) if (p.name === `Bot${i}`) return p; return null; };
+  const findMe = () => { for (const p of room.state?.players?.values?.() || []) if (p.name === `Bot${i}`) return p; return null; };
   // walk: toward a random point, at 6 m/s, 12 moves a second; ping every 5s; a line of chat now and then
   let last = Date.now(), lastPing = 0, nextChat = Date.now() + 20_000 + Math.random() * 60_000;
   const step = setInterval(() => {
