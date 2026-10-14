@@ -139,7 +139,7 @@ if (artifact) {
   // The app shell: without these on the served origin there is no Add to Home
   // Screen, and on iPhone that is the only route to a chrome-free screen.
   // the privacy policy and the terms (index.js fills in the contact)
-  for (const f of ['manifest.webmanifest', 'sw.js', 'icon.svg', 'privacy.html', 'terms.html']) {
+  for (const f of ['manifest.webmanifest', 'sw.js', 'icon.svg', 'privacy.html', 'terms.html', 'og.jpg']) {
     fs.copyFileSync(path.join('src/client', f), path.join(outDir, f));
   }
   const m = copyModels(outDir);

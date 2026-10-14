@@ -106,6 +106,14 @@ var Net = class {
     async createCharacter(e) {
       return this.api("/character", e);
     }
+    /** A bug, from the menu's 🐞 (server: /api/bug). */
+    async bugReport(e) {
+      return this.api("/bug", e);
+    }
+    /** A bug's picture of the screen, for a GM (server: /api/admin/bug-shot). */
+    async bugShot(e) {
+      return (await this.api(`/admin/bug-shot/${encodeURIComponent(e)}`, null, "GET")).shot;
+    }
     async leaderboard(e = "level") {
       return this.api(`/leaderboard?kind=${e}`, null, "GET");
     }

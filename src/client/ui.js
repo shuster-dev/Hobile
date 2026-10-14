@@ -882,7 +882,8 @@ var UI = class {
         notify: "🔔 התראות לטלפון",
         channels: "📡 ערוצים",
         pass: "🎟 מסלול העונה",
-        report: "⚑ דיווח על שחקן"
+        report: "⚑ דיווח על שחקן",
+        bug: "🐞 דיווח על באג"
       }[e] || e,
       n = this.panel.dataset.panelId === e && this.panel.querySelector(".body")?.scrollTop || 0;
     clearTimeout(this._clearTimer), this.panel.innerHTML = "", this.panel.id = e === "chat" ? "chat-panel" : "panel", this.panel.dataset.panelId = e, this.panel.setAttribute("aria-label", t);
@@ -919,6 +920,7 @@ var UI = class {
       channels: () => this.panelChannels(o),
       pass: () => this.panelPass(o),
       report: () => this.panelReport(o),
+      bug: () => this.panelBug(o),
       gm: () => this.gm?.on ? this.panelGm(o) : o.appendChild(emptyState("🛡", "אין הרשאה"))
     }[e] || (() => o.appendChild(emptyState("🗒", "אין מה להציג כאן"))))(), n && (o.scrollTop = n);
   }
@@ -1380,9 +1382,30 @@ var UI = class {
         card = el("div", `gm-report ${r.status}`),
         online = (this.gmPlayers || []).some(p => p.id === r.about?.id);
       card.innerHTML = `<div class="top"><span class="why">${why.icon} ${Ze(why.he)}</span><span class="when">${ago(r.at)}</span></div>
-        <div class="who"><b></b> דיווח על <b></b> <span class="pill">Lv ${r.about?.level || 1}</span>${online ? ` <span class="pill on">מחובר</span>` : ""}</div>`;
+        <div class="who"><b></b> ${r.reason === "bug" ? "מדווח" : "דיווח על <b></b>"} <span class="pill">Lv ${r.about?.level || 1}</span>${online ? ` <span class="pill on">מחובר</span>` : ""}</div>`;
       let [by, about] = card.querySelectorAll(".who b");
-      by.textContent = r.by?.name || "?", about.textContent = r.about?.name || "?";
+      by.textContent = r.by?.name || "?", about && (about.textContent = r.about?.name || "?");
+      // a bug: where they were, and the picture of their screen on a tap
+      if (r.reason === "bug" && r.context) {
+        let cx = el("details", "evidence"), c = r.context;
+        cx.appendChild(el("summary", "", `📍 ${c.zone || r.zone || "?"} · ${c.quest || "—"}`));
+        for (let [k, v] of Object.entries(c)) {
+          let line = el("div", "ev-line");
+          line.innerHTML = `<span class="mono"></span> <span class="tx"></span>`, line.firstChild.textContent = k, line.lastChild.textContent = String(v), cx.appendChild(line);
+        }
+        card.appendChild(cx);
+      }
+      if (r.hasShot) {
+        let b = el("button", "btn small ghost", "📷 צילום המסך");
+        b.onclick = async () => {
+          b.disabled = !0, b.textContent = "טוען…";
+          let url = await this.hooks.bugShot?.(r.id);
+          if (!url) return b.textContent = "הצילום לא נמצא";
+          let img = el("img", "bug-pic");
+          img.src = url, img.alt = "צילום המסך מהדיווח", b.replaceWith(img);
+        };
+        card.appendChild(b);
+      }
       if (r.note) {
         let n = el("div", "note");
         n.textContent = `״${r.note}״`, card.appendChild(n);
@@ -1516,7 +1539,7 @@ var UI = class {
         ["שלי", [["🐾", "יצורים", "team"], ["🎒", "תיק", "bag"], ["📕", "אוסף", "dex"], ["🏕", "הבסיס", "base"]]],
         ["קרבות", [["⚔", "זירה", "arena"], ["🗼", "המגדל", "__tower"]]],
         ["חברים", [["👥", "חברים", "friends"], ["🛡", "גילדה", "guild"], ["🤝", "קבוצה", "party"], ["🏆", "מובילים", "leaders"]]],
-        ["העולם", [["🗺", "מפה", "map"], ...(this.social ? [["📡", `ערוץ ${this.zone?.channel || 1}`, "channels"]] : [])]],
+        ["העולם", [["🗺", "מפה", "map"], ...(this.social ? [["📡", `ערוץ ${this.zone?.channel || 1}`, "channels"]] : []), ["🐞", "דווח על באג", "bug"]]],
       ];
     // Only a session the server called a GM's ever gets the hello that sets this.
     this.gm?.on && groups[0][1].unshift(["👑", "כלי GM", "gm", this.gm.reports || 0]);
@@ -1530,7 +1553,7 @@ var UI = class {
         let d = el("button", "mtile");
         d.innerHTML = `<span class="ico">${ico}</span><span class="lbl"></span>${badge ? `<span class="badge">${ltr(badge)}</span>` : ""}`;
         d.querySelector(".lbl").textContent = label, d.setAttribute("aria-label", label);
-        d.onclick = h === "__tower" ? () => (this.gate = TOWER.id, this.openPanel("gate")) : () => this.openPanel(h);
+        d.onclick = h === "__tower" ? () => (this.gate = TOWER.id, this.openPanel("gate")) : h === "bug" ? () => (this.bugShot = this.hooks.bugPrepare?.() || null, this.openPanel("bug")) : () => this.openPanel(h);
         g.appendChild(d);
       }
       e.appendChild(g);
@@ -2355,6 +2378,29 @@ var UI = class {
     e.appendChild(grid);
   }
   /** Why you are reporting someone: one reason, a few words if you like. */
+  /** The menu's 🐞: what went wrong, in the player's words, with a picture
+   *  of the screen and where they are (game.bugContext), to the GMs' inbox. */
+  panelBug(e) {
+    let f = this.bugForm || (this.bugForm = { note: "", shot: !0 }),
+      head = el("div", "hint", "משהו לא עובד כמו שצריך? ספר מה קרה ומה ציפית שיקרה. צילום של המסך ומה שאתה עושה עכשיו במשחק נשלחים יחד עם הדיווח."),
+      note = el("textarea", "field-input report-note"),
+      send = el("button", "btn primary", "🐞 שלח דיווח"),
+      sync = () => send.disabled = f.note.trim().length < 3;
+    e.appendChild(head);
+    note.maxLength = REPORT_LIMITS.bugNote || 600, note.rows = 4, note.placeholder = "למשל: אחרי הקרב הכפתורים מימין נתקעו ולא יכולתי לזוז", note.value = f.note, note.oninput = () => (f.note = note.value, sync()), e.appendChild(note);
+    if (this.bugShot) {
+      let row = el("label", "bug-shot"), cb = el("input"), img = el("img");
+      cb.type = "checkbox", cb.checked = f.shot, cb.onchange = () => f.shot = cb.checked, img.src = this.bugShot, img.alt = "צילום המסך שיצורף";
+      row.append(cb, el("span", "", "לצרף צילום מסך"), img), e.appendChild(row);
+    }
+    send.onclick = async () => {
+      if (send.disabled) return;
+      send.disabled = !0, send.textContent = "שולח…";
+      let ok = await this.hooks.bugSend?.(f.note.trim(), f.shot && !!this.bugShot);
+      ok ? (this.bugForm = null, this.bugShot = null, this.closePanel()) : (send.textContent = "🐞 שלח דיווח", sync());
+    };
+    e.appendChild(send), sync();
+  }
   panelReport(e) {
     let p = this.reportTarget;
     if (!p) return e.appendChild(emptyState("⚑", "אין שחקן נבחר"));
@@ -2372,6 +2418,7 @@ var UI = class {
       send.disabled = !f.reason || need && f.note.trim().length < 3;
     };
     for (let [id, r] of Object.entries(REPORT_REASONS)) {
+      if (r.self) continue;
       let b = el("button", "btn report-reason");
       b.type = "button", b.dataset.reason = id, b.innerHTML = `<span class="ico">${r.icon}</span><span></span>`, b.lastChild.textContent = r.he;
       b.onclick = () => (f.reason = id, sync()), list.appendChild(b);

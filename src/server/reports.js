@@ -50,7 +50,7 @@ export async function fileReport(doc, { id, reason, note } = {}, { zone = '' } =
   const aboutId = typeof id === 'string' ? id.slice(0, 64) : '';
   if (!aboutId) return { error: 'bad_player' };
   if (aboutId === doc.id) return { error: 'not_yourself' };
-  if (!own(REPORT_REASONS, reason)) return { error: 'bad_reason' };
+  if (!own(REPORT_REASONS, reason) || REPORT_REASONS[reason].self) return { error: 'bad_reason' };
   const def = REPORT_REASONS[reason], words = plain(note, REPORT_LIMITS.note);
   if (def.needsNote && words.length < 3) return { error: 'need_note' };
   const about = Social.liveDoc(aboutId) || await STORE.getDoc(aboutId).catch(() => null);
@@ -78,10 +78,48 @@ export async function fileReport(doc, { id, reason, note } = {}, { zone = '' } =
   return { ok: true, report };
 }
 
+/**
+ * A bug, from the player who met it (the menu's 🐞): their words, a small
+ * picture of the screen and where they were in the game, to the same inbox.
+ * The GMs online are told at once, as for any report.
+ */
+export async function fileBug(doc, { note, shot, context } = {}, { zone = '' } = {}, now = Date.now()) {
+  if (!STORE?.saveReport) return { error: 'reports_unavailable' };
+  const words = plain(note, REPORT_LIMITS.bugNote);
+  if (words.length < 3) return { error: 'need_note' };
+  if (await STORE.reportsSince(doc.id, doc.id, now - 3600_000) >= REPORT_LIMITS.bugsPerHour) return { error: 'too_many_reports' };
+  const pic = typeof shot === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(shot) && shot.length <= REPORT_LIMITS.bugShot ? shot : null;
+  // what the client says of where it was: a flat bag of short strings and numbers
+  const ctx = {};
+  for (const [k, v] of Object.entries(context && typeof context === 'object' ? context : {}).slice(0, 30)) {
+    typeof v === 'number' && Number.isFinite(v) ? (ctx[plain(k, 24)] = v) : typeof v === 'string' || typeof v === 'boolean' ? (ctx[plain(k, 24)] = plain(String(v), 300)) : null;
+  }
+  const report = {
+    id: `b_${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    at: now, status: 'open', reason: 'bug', note: words, zone,
+    by: { id: doc.id, name: doc.name },
+    about: { id: doc.id, name: doc.name, level: doc.level || 1, zone: doc.zone || zone },
+    evidence: [], context: ctx, shot: pic,
+  };
+  await STORE.saveReport(report);
+  const open = await openCount().catch(() => 0);
+  for (const sends of WATCHERS.values()) for (const send of sends.values()) {
+    try { send('gm', { kind: 'reportNew', report: { ...report, shot: null }, open }); } catch { /* gone */ }
+  }
+  return { ok: true, report };
+}
+
 /** The inbox: open ones first. */
 export async function listReports(limit = 60) {
   if (!STORE?.listReports) return [];
-  return STORE.listReports(limit);
+  // a bug's picture stays behind (it is fetched one at a time: /api/admin/bug-shot)
+  return (await STORE.listReports(limit)).map(({ shot, ...r }) => (shot ? { ...r, hasShot: true } : r));
+}
+
+/** One bug's picture of the screen, or null. */
+export async function bugShot(id) {
+  if (!STORE?.listReports) return null;
+  return (await STORE.listReports(200)).find((r) => r.id === id)?.shot || null;
 }
 
 /** A GM marks a report handled, dismissed, or open again. */

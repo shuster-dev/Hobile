@@ -514,6 +514,24 @@ async function walkTo(me, target, near = 8) {
     JSON.stringify(bp.profile?.pos || null));
 }
 
+// A bug, from the player who met it (the menu's 🐞): their words, a picture,
+// where they were — to the GMs' inbox; the picture only to a GM, one at a time.
+{
+  const shot = 'data:image/jpeg;base64,' + Buffer.alloc(3000, 7).toString('base64');
+  const r = await api('/api/bug', { note: 'הכפתורים נתקעו אחרי הקרב', shot, context: { zone: 'aetherport', x: 1.5, quest: 'q_main_10 0/1', junk: { nested: true } } }, b.json.token);
+  ok('a player sends a bug with a picture', r.status === 200 && r.json.ok && /^b_/.test(r.json.id), JSON.stringify(r));
+  ok('a bug needs a few words', (await api('/api/bug', { note: '' }, b.json.token)).status === 400);
+  ok('and an account to come from', (await api('/api/bug', { note: 'something broke' })).status === 401);
+  const listed = [];
+  roomA.onMessage('gm', (m) => m.kind === 'reports' && listed.push(m));
+  roomA.send('gm', { op: 'reports' });
+  await until(() => listed.length > 0, 4000);
+  const row = (listed[0]?.reports || listed[0]?.rows || []).find((x) => x.id === r.json.id);
+  ok('the GM sees it in the inbox, with where it was and without the picture', !!row && row.reason === 'bug' && row.context?.quest === 'q_main_10 0/1' && row.hasShot && !row.shot && !('junk' in row.context), JSON.stringify(row || listed[0] || {}).slice(0, 200));
+  const pic = await api(`/api/admin/bug-shot/${r.json.id}`, null, a.json.token), denied = await api(`/api/admin/bug-shot/${r.json.id}`, null, b.json.token);
+  ok('the picture is the GM\'s to open, and only the GM\'s', pic.json.shot === shot && denied.status === 403);
+}
+
 await roomA.leave();
 await wait(400);
 const me2 = await api('/api/me', null, a.json.token);
