@@ -5262,14 +5262,60 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
     setSelf(e) {
       this.self = e;
     }
-    /** Point the title camera at the middle of the loaded zone, or put it away. */
+    /** Point the title camera at the middle of the loaded zone, or put it away.
+     *  Out in the wild (not a town) the title is a cast: a few creatures
+     *  standing together in the grass, the camera low in front of them,
+     *  swaying a little. The first thing anyone sees is what the game is
+     *  about, not a grey roof. */
     titleView(on) {
+      this.clearTitleCast();
       if (!on) return this.titleCam = null;
+      if (!this.urban) return this.titleCast();
       let z = this.zone || {},
         l = (z.landmarks || []).find(n => n.kind === "plaza" || n.kind === "fountain") || (z.landmarks || [])[0] || { x: 0, z: 0 };
       // over the roofs: the town is twice the size it was, and a camera that
       // circled at roof height went through a wall on every lap
       this.titleCam = { x: l.x || 0, z: l.z || 0, r: 44, h: 34, a: 0.6 };
+    }
+    titleCast() {
+      // open, dry, level ground, from the middle outwards
+      let room = (x, z, r) => {
+          let p = resolveCollision(this.colliders || [], x, z, r);
+          return Math.hypot(p.x - x, p.z - z) < 0.02;
+        },
+        dry = (x, z) => !this.plan?.water || this.heightAt(x, z) > this.plan.level + 0.25,
+        flat = (x, z) => Math.abs(this.heightAt(x + 4, z) - this.heightAt(x - 4, z)) < 1.2 && Math.abs(this.heightAt(x, z + 4) - this.heightAt(x, z - 4)) < 1.2,
+        spot = { x: 0, z: 0, a: 0 };
+      find: for (let r = 0; r < 90; r += 6)
+        for (let k = 0; k < Math.max(1, r); k++) {
+          let t = k / Math.max(1, r) * Math.PI * 2, x = Math.cos(t) * r, z = Math.sin(t) * r;
+          if (!room(x, z, 6) || !dry(x, z) || !flat(x, z)) continue;
+          for (let i = 0; i < 8; i++) {
+            let a = i / 8 * Math.PI * 2, cx = x + Math.sin(a) * 12.5, cz = z + Math.cos(a) * 12.5;
+            if (room(cx, cz, 2) && room((x + cx) / 2, (z + cz) / 2, 3) && dry(cx, cz)) {
+              spot = { x, z, a };
+              break find;
+            }
+          }
+        }
+      // the big one in the middle, the three you can start with at its feet
+      let cast = [["stormstag", -0.5, -2.2, 3.6], ["grovenard", -1.8, 0.8, 1.45], ["pyrelynx", 0.4, 1.6, 1.45], ["tidefin", 1.9, 0.4, 1.35]],
+        fx = Math.sin(spot.a), fz = Math.cos(spot.a), rx = fz, rz = -fx;
+      this._titleCast = cast.filter(([sp]) => SPECIES[sp]).map(([sp, side, fwd, sc], i) => {
+        let g = buildCreature(sp, { outline: !1 }), h = new Group(),
+          x = spot.x + rx * side + fx * fwd, z = spot.z + rz * side + fz * fwd;
+        // each to a height of its part in the picture, whatever its natural size
+        let tall = new Box3().setFromObject(g).getSize(V_).y || 1;
+        g.scale.multiplyScalar(sc / tall), g.userData.phase = i * 1.7, h.add(g, softShadowTexture(0.45 * sc, 0.3));
+        h.position.set(x, this.heightAt(x, z), z), h.rotation.y = spot.a + (side ? -side * 0.08 : 0);
+        this.scene.add(h);
+        return { holder: h, group: g };
+      });
+      this.titleCam = { cast: !0, x: spot.x, z: spot.z, a0: spot.a, a: 0, r: 12.5, h: 3.2 };
+    }
+    clearTitleCast() {
+      for (let c of this._titleCast || []) this.scene.remove(c.holder), disposeTree(c.holder);
+      this._titleCast = null;
     }
     /** Open a zone looking at open ground. Arriving with your back to a wall
      *  used to start the zone on a close-up of the back of your own head: no
@@ -5594,6 +5640,16 @@ var SUN_DIR = new Vector3(0.42, 0.78, 0.46).normalize(),
       // turn around the harbour plaza behind the logo.
       if (this.titleCam) {
         let c = this.titleCam;
+        if (c.cast) {
+          c.a += e;
+          // a wide screen has the logo and the button stacked in the middle:
+          // there the cast stands off to one side of them, closer
+          let a = c.a0 + Math.sin(c.a * 0.12) * 0.22, y = this.heightAt(c.x, c.z), wide = this.camera.aspect > 1.2,
+            r = wide ? c.r * 0.95 : c.r, side = wide ? 3.6 : 0;
+          for (let m of this._titleCast || []) animateCreature(m.group, c.a * 1e3, !1, 1);
+          this.camera.position.set(c.x + Math.sin(a) * r, y + c.h + Math.sin(c.a * 0.2) * 0.3, c.z + Math.cos(a) * r), this.camera.lookAt(c.x + Math.cos(a) * side, y + 1.4, c.z - Math.sin(a) * side);
+          return;
+        }
         c.a += e * 0.045, this.camera.position.set(c.x + Math.sin(c.a) * c.r, this.heightAt(c.x, c.z) + c.h, c.z + Math.cos(c.a) * c.r), this.camera.lookAt(c.x, this.heightAt(c.x, c.z) + 2.2, c.z);
         return;
       }
