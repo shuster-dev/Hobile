@@ -24,6 +24,8 @@ import { placesOf } from '../shared/services.js';
 import { armOf } from '../shared/arms.js';
 
 /** What a level gave: " · חיים +4 · התקפה +1 …" (combat.js grantXpTo). */
+// The title screen stands in the meadow, where the creatures are.
+const TITLE_ZONE = "verdant_meadow";
 const GAIN_HE = { hp: "חיים", atk: "התקפה", def: "הגנה", spa: "מיוחדת", spd: "עמידות", spe: "מהירות" };
 const gainText = (g) => g ? Object.entries(g).filter(([, v]) => v > 0).map(([k, v]) => ` · ${GAIN_HE[k]} +${v}`).join("") : "";
 /** XP into its level, and what the level takes. */
@@ -184,7 +186,7 @@ var Game = class {
     // No HUD, but the world canvas stays up: it is the background.
     this.mode = "title", this.ui.setMode("none"), $("#world-canvas").classList.remove("hidden");
     try {
-      this.world.loadZone(ZONES[HOME_ZONE]), this.world.holdTimeOfDay(0.66), this.world.titleView(!0);
+      this.world.loadZone(ZONES[TITLE_ZONE]), this.world.holdTimeOfDay(0.7), this.world.titleView(!0);
     } catch {}
     this.ui.setLoading(!1), this.ui.showScreen("title");
     let t = $("#btn-play"),
